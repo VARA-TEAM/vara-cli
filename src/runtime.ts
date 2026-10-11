@@ -1,7 +1,8 @@
 import type { VaraConfig } from './config/config.js'
 import { createProvider, type Provider, type ProviderConfig } from './llm/provider.js'
 import { getSecretsForScope } from './security/vault.js'
-import { registerSecret } from './security/redact.js'
+import { registerSecret, scrubAll } from './security/redact.js'
+import { assertConfigRef } from './config/refs.js'
 
 /**
  * Wires configuration to a live provider.
@@ -9,6 +10,12 @@ import { registerSecret } from './security/redact.js'
  * with the redactor so it can never appear in transcripts, logs or the TUI.
  */
 export async function buildProvider(config: VaraConfig, scope = 'global'): Promise<{ provider: Provider; config: ProviderConfig }> {
+  // These fields hold NAMES (a secret name, an env var name) — never a key
+  // value. Guard before use: a pasted key here would otherwise be used as a
+  // lookup name and printed verbatim in the error below.
+  assertConfigRef('provider.apiKeySecret', config.provider.apiKeySecret)
+  assertConfigRef('provider.apiKeyEnv', config.provider.apiKeyEnv)
+
   let apiKey = ''
 
   if (config.provider.apiKeySecret) {
@@ -21,9 +28,13 @@ export async function buildProvider(config: VaraConfig, scope = 'global'): Promi
     if (apiKey) registerSecret(apiKey, config.provider.apiKeyEnv)
   }
   if (!apiKey) {
+    // scrubAll as defense-in-depth: even if the guard above were bypassed, no
+    // secret-shaped substring reaches the terminal or any log.
     throw new Error(
-      `No API key found. Set one with: vara secret set ${config.provider.apiKeySecret} ` +
-        `(or export ${config.provider.apiKeyEnv}).`,
+      scrubAll(
+        `No API key found. Set one with: vara secret set ${config.provider.apiKeySecret} ` +
+          `(or export ${config.provider.apiKeyEnv}).`,
+      ),
     )
   }
 

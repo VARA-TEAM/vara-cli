@@ -27,6 +27,13 @@ export interface AssistantTurn {
 export type ProviderEvent =
   | { type: 'text'; delta: string }
   /**
+   * A slice of the model's private reasoning, streamed while it thinks.
+   * Transient display-only content: it is NEVER persisted to the audit log
+   * (like 'text', the transcript holds the final answer, not the deliberation).
+   * Absent entirely for models/providers that do not expose reasoning.
+   */
+  | { type: 'thinking'; text: string }
+  /**
    * Normalized usage for this call. Absent when the endpoint reported nothing
    * (or an older adapter omits it) — consumers must treat absent as UNKNOWN,
    * never as zero. Providers that never emit it are simply not measured.

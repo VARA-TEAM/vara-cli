@@ -143,7 +143,9 @@ export class Engine {
     // failures are swallowed: accounting must never break execution.
     this.emit = (event: EngineEvent) => {
       options.onEvent?.(event)
-      if (event.type !== 'text') void appendEvent(this.session.id, event).catch(() => {})
+      // 'text' and 'thinking' are high-frequency transient streams — excluded
+      // (the full text lives in the transcript; reasoning is not evidence).
+      if (event.type !== 'text' && event.type !== 'thinking') void appendEvent(this.session.id, event).catch(() => {})
     }
   }
 
@@ -370,6 +372,10 @@ export class Engine {
         if (event.type === 'text') {
           assistantText += event.delta
           this.emit({ type: 'text', delta: scrubAll(event.delta) })
+        } else if (event.type === 'thinking') {
+          // Reasoning stream: display-only, scrubbed like any model output,
+          // and never persisted to the audit log (see this.emit).
+          this.emit({ type: 'thinking', text: scrubAll(event.text) })
         } else if (event.type === 'error') {
           // An intentional abort (Esc / pause) is not a model failure.
           if (this.abort.signal.aborted) {

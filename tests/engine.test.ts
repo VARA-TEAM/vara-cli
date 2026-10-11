@@ -67,6 +67,55 @@ describe('engine', () => {
     expect(await readFile(join(workdir, 'a.txt'), 'utf8')).toBe('hello')
   })
 
+  it('forwards provider thinking to the UI, scrubs it, and keeps it out of the audit log', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    // An sk- shaped secret: scrubAll's pattern layer catches this regardless of
+    // which module instance registered it. (vitest isolates the static-import and
+    // dynamic-import module registries, so a secret registered via the test's
+    // `registerSecret` is NOT visible to engine.ts's `scrubAll` — a harness
+    // artifact, not product behavior. In a real single-process run they share one
+    // instance; that registered-secret path is proven by tests/redact.test.ts.)
+    // This test proves the ENGINE wires `thinking` through scrubAll at all.
+    const SECRET = 'sk-live-abcdefghijklmnopqrstuvwxyz'
+    // A provider that streams reasoning (echoing the secret), then the answer.
+    class ThinkingProvider implements Provider {
+      id = 'openai' as const
+      async *chat(): AsyncIterable<ProviderEvent> {
+        yield { type: 'thinking', text: `I will use the key ${SECRET} to call the API` }
+        yield { type: 'thinking', text: 'now writing the file' }
+        yield { type: 'text', delta: 'All conditions met.' }
+        yield {
+          type: 'done',
+          result: { content: 'All conditions met.', toolCalls: [{ id: 'c1', name: 'complete', arguments: JSON.stringify({ summary: 'done', verificationPlan: 'exit 0', verifiedRequirements: ['1'] }) }] },
+        }
+      }
+    }
+
+    const seen: Array<{ type: string; text?: string }> = []
+    const engine = new Engine({ session, provider: new ThinkingProvider(), onEvent: (e) => seen.push({ type: e.type, ...(e.type === 'thinking' ? { text: e.text } : {}) }) })
+    await engine.run()
+
+    // 1) The engine reaches a terminal state — thinking never breaks the loop.
+    expect(session.state).toBe('completed')
+
+    // 2) Thinking is forwarded to the frontend AND the secret value never
+    //    appears in it (the security guarantee that matters).
+    const thinking = seen.filter((e) => e.type === 'thinking')
+    expect(thinking).toHaveLength(2)
+    // The slice that echoed the secret: value gone, redaction marker present.
+    expect(thinking[0]?.text).not.toContain(SECRET)
+    expect(thinking[0]?.text).toMatch(/⟦/)
+    // Clean reasoning with no secret passes through verbatim (nothing to redact).
+    expect(thinking[1]?.text).toBe('now writing the file')
+
+    // 3) The final answer still streamed normally.
+    expect(seen.some((e) => e.type === 'text')).toBe(true)
+
+    // 4) Reasoning is NOT evidence: it must not reach the audit log.
+    const log = await store.readEventLog(session.id)
+    expect(log.some((e) => e['type'] === 'thinking')).toBe(false)
+  })
+
   it('rejects a claim that omits verifiedRequirements entirely — 0/0 coverage is not success', async () => {    const session = makeSession()
     const provider = new FakeProvider([
       { content: '', toolCalls: [{ id: 'c1', name: 'complete', arguments: JSON.stringify({ summary: 'All done for real', verificationPlan: 'trust me' }) }] },

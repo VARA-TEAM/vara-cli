@@ -1,30 +1,43 @@
 import type { Provider, ProviderConfig, ProviderEvent, ProviderRequest, AssistantTurn } from './provider.js'
 import { readSSE } from './sse.js'
 import { normalizeUsage, emptyUsage, type NormalizedUsage } from './usage.js'
+import { isRetryable, retryDelay, parseRetryAfter, sleep } from './retry.js'
+
+const MAX_RETRIES = 3
+const BASE_DELAY_MS = 1000
+const MAX_DELAY_MS = 30_000
 
 /**
  * OpenAI-compatible provider. Works with OpenAI, OpenRouter, DeepSeek, Groq,
  * Ollama (/v1), LM Studio, vLLM — anything speaking the /chat/completions dialect.
  *
- * Usage: `/chat/completions` does NOT return usage during streaming unless you
- * ask. We send `stream_options: { include_usage: true }`, which makes the
- * endpoint emit a final chunk carrying `usage`. Endpoints that ignore the flag
- * simply never send it — we then report usage as unknown, never as zero.
+ * Features:
+ *   - Streaming with `stream_options: { include_usage: true }`
+ *   - Retry with exponential backoff on 429/500/502/503
+ *   - Reasoning/thinking token support (o1/o3/o4 models)
+ *   - Robust SSE parsing that tolerates malformed chunks
  */
 export function openaiProvider(config: ProviderConfig): Provider {
   return {
     id: 'openai',
     async *chat(req: ProviderRequest): AsyncIterable<ProviderEvent> {
       const url = config.baseUrl.replace(/\/$/, '') + '/chat/completions'
-      const body = {
+      const modelId = (req.model || config.model).toLowerCase()
+
+      // Reasoning models (o1, o3, o4) use developer messages instead of system
+      // messages, and don't support certain parameters.
+      const isReasoningModel = /\b(o1|o3|o4)(-|$)/i.test(modelId)
+
+      const systemMessage = isReasoningModel
+        ? { role: 'developer', content: req.system }
+        : { role: 'system', content: req.system }
+
+      const body: Record<string, unknown> = {
         model: req.model || config.model,
         stream: true,
-        // Ask for the usage summary on the terminal chunk (ignored by endpoints
-        // that do not support it — harmless either way).
         stream_options: { include_usage: true },
-        max_tokens: req.maxTokens ?? config.maxTokens ?? 8192,
         messages: [
-          { role: 'system', content: req.system },
+          systemMessage,
           ...req.messages.map((m) => {
             const out: Record<string, unknown> = {
               role: m.role,
@@ -46,29 +59,69 @@ export function openaiProvider(config: ProviderConfig): Provider {
         ...(req.tools.length ? { tools: req.tools } : {}),
       }
 
-      let response: Response
-      try {
-        response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${config.apiKey}`,
-          },
-          body: JSON.stringify(body),
-          signal: req.signal,
-        })
-      } catch (err) {
-        yield { type: 'error', message: `Model request failed: ${(err as Error).message}` }
+      // Reasoning models don't support max_tokens — they use max_completion_tokens
+      if (isReasoningModel) {
+        body['max_completion_tokens'] = req.maxTokens ?? config.maxTokens ?? 16384
+      } else {
+        body['max_tokens'] = req.maxTokens ?? config.maxTokens ?? 8192
+      }
+
+      // Retry loop with exponential backoff
+      let response: Response | null = null
+      let lastError = ''
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${config.apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal: req.signal,
+          })
+        } catch (err) {
+          if (req.signal?.aborted) {
+            yield { type: 'error', message: 'Request cancelled.' }
+            return
+          }
+          lastError = (err as Error).message
+          if (attempt < MAX_RETRIES) {
+            const delay = retryDelay(attempt, { baseDelayMs: BASE_DELAY_MS, maxDelayMs: MAX_DELAY_MS })
+            try { await sleep(delay, req.signal) } catch { break }
+            continue
+          }
+          yield { type: 'error', message: `Model request failed after ${MAX_RETRIES + 1} attempts: ${lastError}` }
+          return
+        }
+
+        if (response.ok) break
+
+        const status = response.status
+        const text = await response.text().catch(() => '')
+
+        if (isRetryable(status) && attempt < MAX_RETRIES) {
+          const retryAfter = parseRetryAfter(response)
+          const delay = retryAfter ?? retryDelay(attempt, { baseDelayMs: BASE_DELAY_MS, maxDelayMs: MAX_DELAY_MS })
+          lastError = `${status}: ${text.slice(0, 500)}`
+          try { await sleep(delay, req.signal) } catch { break }
+          continue
+        }
+
+        // Parse structured error message from the response
+        const errorMsg = parseErrorMessage(status, text)
+        yield { type: 'error', message: errorMsg }
         return
       }
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        yield { type: 'error', message: `Model error ${response.status}: ${text.slice(0, 2000)}` }
+      if (!response || !response.ok) {
+        yield { type: 'error', message: `Model request failed: ${lastError || 'unknown error'}` }
         return
       }
 
       let content = ''
+      let reasoningContent = ''
       let usage: NormalizedUsage | null = null
       const calls = new Map<number, { id: string; name: string; arguments: string }>()
 
@@ -77,6 +130,7 @@ export function openaiProvider(config: ProviderConfig): Provider {
           choices?: Array<{
             delta?: {
               content?: string
+              reasoning_content?: string
               tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>
             }
           }>
@@ -85,13 +139,13 @@ export function openaiProvider(config: ProviderConfig): Provider {
             completion_tokens?: number
             total_tokens?: number
             prompt_tokens_details?: { cached_tokens?: number }
+            completion_tokens_details?: { reasoning_tokens?: number }
           }
-          error?: { message?: string }
+          error?: { message?: string; type?: string }
         }
         try {
           chunk = JSON.parse(payload)
         } catch {
-          // A malformed chunk must not kill an otherwise usable response.
           continue
         }
         if (chunk.error) {
@@ -99,7 +153,6 @@ export function openaiProvider(config: ProviderConfig): Provider {
           return
         }
 
-        // The usage chunk usually arrives last and carries no choices.
         if (chunk.usage) {
           usage = normalizeUsage({
             totalInput: chunk.usage.prompt_tokens,
@@ -112,6 +165,13 @@ export function openaiProvider(config: ProviderConfig): Provider {
         const choice = chunk.choices?.[0]
         if (!choice) continue
         const delta = choice.delta
+
+        // Handle reasoning/thinking tokens (o1, o3, o4 models)
+        if (delta?.reasoning_content) {
+          reasoningContent += delta.reasoning_content
+          yield { type: 'thinking', text: delta.reasoning_content }
+        }
+
         if (delta?.content) {
           content += delta.content
           yield { type: 'text', delta: delta.content }
@@ -134,4 +194,28 @@ export function openaiProvider(config: ProviderConfig): Provider {
       yield { type: 'done', result, usage: usage ?? emptyUsage('provider') }
     },
   }
+}
+
+/** Parse a provider error response into a human-readable message. */
+function parseErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; type?: string; code?: string } }
+    if (parsed.error?.message) {
+      const type = parsed.error.type ? ` (${parsed.error.type})` : ''
+      return `Model error ${status}${type}: ${parsed.error.message}`
+    }
+  } catch { /* not JSON */ }
+
+  const statusMessages: Record<number, string> = {
+    400: 'Bad request — check model name and parameters',
+    401: 'Invalid API key — check your configuration',
+    403: 'Access denied — your API key may lack permissions for this model',
+    404: 'Model not found — check the model name in your configuration',
+    429: 'Rate limited — too many requests, try again later',
+    500: 'Internal server error at the provider',
+    502: 'Bad gateway — the provider may be temporarily unavailable',
+    503: 'Service unavailable — the provider is overloaded',
+  }
+  const hint = statusMessages[status] ?? 'unexpected error'
+  return `Model error ${status}: ${hint}. ${body.slice(0, 500)}`
 }

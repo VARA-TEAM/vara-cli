@@ -3,15 +3,23 @@ import { existsSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { z } from 'zod'
 import { configFile } from './paths.js'
+import { configRef, CONFIG_REF_EXPECTATION } from './refs.js'
 import type { Budget } from '../core/types.js'
 
-const ProviderSchema = z.object({
+/** Exported for tests: the provider block's validation (incl. NAME-only refs). */
+export const ProviderSchema = z.object({
   id: z.enum(['openai', 'anthropic']),
   baseUrl: z.string().default(''),
   /** Name of the secret in the vault that holds the API key. Never the key itself. */
-  apiKeySecret: z.string().default(''),
+  apiKeySecret: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || configRef(v), `apiKeySecret ${CONFIG_REF_EXPECTATION}`),
   /** Fallback: read the key from this env var if the vault has nothing. */
-  apiKeyEnv: z.string().default(''),
+  apiKeyEnv: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || configRef(v), `apiKeyEnv ${CONFIG_REF_EXPECTATION}`),
   model: z.string(),
   maxTokens: z.number().int().optional(),
 })
