@@ -41,12 +41,29 @@ export const readFileTool: Tool<{ path: string; offset?: number; limit?: number 
       const end = args.limit ? start + args.limit : lines.length
       const slice = lines.slice(start, end)
       const numbered = slice.map((l, i) => `${String(start + i + 1).padStart(6)}\t${l}`).join('\n')
-      return { ok: true, output: numbered || '(empty file)' }
+      const header = `[File: ${args.path} — ${lines.length} lines total${args.offset || args.limit ? `, showing lines ${start + 1}-${Math.min(end, lines.length)}` : ''}]\n`
+      return { ok: true, output: header + (numbered || '(empty file)') }
     } catch (err) {
       return { ok: false, output: `read_file failed: ${(err as Error).message}` }
     }
   },
 }
+
+const IGNORED_NAMES = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  '.next',
+  '.turbo',
+  '.cache',
+  'coverage',
+  'build',
+  'out',
+  '.vscode',
+  '.idea',
+  '__pycache__',
+  '.pytest_cache',
+])
 
 export const listDirTool: Tool<{ path?: string; depth?: number }> = {
   name: 'list_dir',
@@ -68,7 +85,7 @@ export const listDirTool: Tool<{ path?: string; depth?: number }> = {
       if (depth > maxDepth || lines.length > 500) return
       const entries = await readdir(dir, { withFileTypes: true })
       for (const entry of entries) {
-        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === 'dist') continue
+        if (IGNORED_NAMES.has(entry.name)) continue
         const full = join(dir, entry.name)
         const rel = relative(ctx.cwd, full) || '.'
         if (entry.isDirectory()) {
@@ -270,12 +287,38 @@ export const editFileTool: Tool<{ path: string; oldString: string; newString: st
     if ('error' in target) return { ok: false, output: target.error }
     try {
       const content = await readFile(target.path, 'utf8')
-      const count = content.split(args.oldString).length - 1
+      let oldStr = args.oldString
+      let newStr = args.newString
+      let count = content.split(oldStr).length - 1
+
+      // Newline-resilient matching (handles Windows CRLF vs Unix LF mismatches)
+      if (count === 0) {
+        if (content.includes('\r\n') && !oldStr.includes('\r\n')) {
+          const crlfOld = oldStr.replace(/\r?\n/g, '\r\n')
+          const crlfNew = newStr.replace(/\r?\n/g, '\r\n')
+          const crlfCount = content.split(crlfOld).length - 1
+          if (crlfCount > 0) {
+            oldStr = crlfOld
+            newStr = crlfNew
+            count = crlfCount
+          }
+        } else if (!content.includes('\r\n') && oldStr.includes('\r\n')) {
+          const lfOld = oldStr.replace(/\r\n/g, '\n')
+          const lfNew = newStr.replace(/\r\n/g, '\n')
+          const lfCount = content.split(lfOld).length - 1
+          if (lfCount > 0) {
+            oldStr = lfOld
+            newStr = lfNew
+            count = lfCount
+          }
+        }
+      }
+
       if (count === 0) return { ok: false, output: 'oldString not found in file.' }
       if (count > 1 && !args.replaceAll) {
         return { ok: false, output: `oldString matched ${count} times. Make it unique or set replaceAll.` }
       }
-      const next = args.replaceAll ? content.split(args.oldString).join(args.newString) : content.replace(args.oldString, args.newString)
+      const next = args.replaceAll ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr)
       await writeFile(target.path, next, 'utf8')
 
       // Read back and confirm the bytes on disk equal the intended result.

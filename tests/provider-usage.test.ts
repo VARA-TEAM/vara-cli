@@ -192,4 +192,48 @@ describe('anthropic usage extraction', () => {
     expect(done.usage.outputTokens).toBeNull()
     expect(done.usage.complete).toBe(false)
   })
+
+  it('groups multiple tool_result messages into a single user message for Anthropic API', async () => {
+    let capturedBody: Record<string, unknown> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: unknown, init?: RequestInit) => {
+        capturedBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return sseResponse(['data: {"type":"message_stop"}\n\n'])
+      }),
+    )
+    const provider = anthropicProvider(ANTHROPIC_CONFIG)
+    await collect(
+      provider.chat({
+        system: 'sys',
+        messages: [
+          { role: 'user', content: 'run tasks' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [
+              { id: 'c1', name: 'read_file', arguments: '{"path":"a"}' },
+              { id: 'c2', name: 'read_file', arguments: '{"path":"b"}' },
+            ],
+          },
+          { role: 'tool', toolCallId: 'c1', content: 'output a' },
+          { role: 'tool', toolCallId: 'c2', content: 'output b' },
+        ],
+        tools: [],
+        model: 'claude-3-5-sonnet',
+      }),
+    )
+
+    const msgs = capturedBody['messages'] as Array<{ role: string; content: Array<{ type: string; tool_use_id?: string }> }>
+    expect(msgs).toHaveLength(3) // user, assistant, user
+    expect(msgs[0]?.role).toBe('user')
+    expect(msgs[1]?.role).toBe('assistant')
+    expect(msgs[2]?.role).toBe('user')
+    // Both tool results must be grouped in the single terminal user message!
+    expect(msgs[2]?.content).toHaveLength(2)
+    expect(msgs[2]?.content[0]?.type).toBe('tool_result')
+    expect(msgs[2]?.content[0]?.tool_use_id).toBe('c1')
+    expect(msgs[2]?.content[1]?.type).toBe('tool_result')
+    expect(msgs[2]?.content[1]?.tool_use_id).toBe('c2')
+  })
 })

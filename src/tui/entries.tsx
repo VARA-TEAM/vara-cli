@@ -31,6 +31,23 @@ export function firstLine(text: string): string {
   return text.split('\n')[0] ?? ''
 }
 
+const TOOL_ICONS: Record<string, string> = {
+  read_file: '📖',
+  write_file: '📝',
+  edit_file: '✏️',
+  delete_file: '🗑️',
+  list_dir: '📁',
+  grep: '🔍',
+  shell: '⚡',
+  git_status: '🌿',
+  git_diff: '🌿',
+  git_log: '🌿',
+  git_commit: '📦',
+  gh: '🐙',
+  ask_user: '💬',
+  complete: '🎯',
+}
+
 export function EntryView({ entry }: { entry: Entry }): React.ReactElement | null {
   if (entry.kind === 'user') {
     // User messages get a bordered block so they stand out from agent output
@@ -39,7 +56,7 @@ export function EntryView({ entry }: { entry: Entry }): React.ReactElement | nul
       <Box flexDirection="column" marginBottom={1}>
         <Box borderStyle="round" borderColor="magenta" paddingX={1}>
           <Text color="magenta" bold>
-            you
+            ❯ you
           </Text>
           <Text>  {entry.text}</Text>
         </Box>
@@ -48,37 +65,37 @@ export function EntryView({ entry }: { entry: Entry }): React.ReactElement | nul
   }
   if (entry.kind === 'assistant') {
     return (
-      <Box flexDirection="column" marginBottom={1}>
+      <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
         <Text>{entry.text}</Text>
       </Box>
     )
   }
   if (entry.kind === 'tool') {
-    // Successful tools collapse to one line; failures expand into a block so
+    // Successful tools collapse to one clean line; failures expand into a block so
     // problems cannot scroll past unnoticed. Full output stays on /last.
-    // Replayed entries may lack output (trimmed by the engine) — summarize
-    // the arguments readably instead of dumping raw JSON.
+    const icon = TOOL_ICONS[entry.name] ?? '🔧'
     if (entry.ok === true || entry.ok === undefined) {
       const detail = entry.output ? firstLine(entry.output) : summarizeArgs(entry.args)
       return (
-        <Box marginBottom={0}>
-          <Text dimColor>
+        <Box marginBottom={0} paddingLeft={1}>
+          <Text>
             {entry.ok === true ? <Text color="green">✓ </Text> : <Text color="gray">⋯ </Text>}
-            {entry.name} · {truncate(detail, 110)}
+            <Text color="cyan" bold>{icon} {entry.name}</Text>
+            <Text dimColor> · {truncate(detail, 105)}</Text>
           </Text>
         </Box>
       )
     }
     return (
-      <Box flexDirection="column" marginBottom={1}>
+      <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
         <Box flexDirection="column" borderStyle="round" borderColor="red" paddingX={1}>
           <Text>
             <Text color="red" bold>
-              ✗ {entry.name}
+              ✗ {icon} {entry.name}
             </Text>{' '}
-            <Text dimColor>{truncate(summarizeArgs(entry.args), 140)}</Text>
+            <Text dimColor>{truncate(summarizeArgs(entry.args), 130)}</Text>
           </Text>
-          {entry.output ? <Text dimColor>{outputPreview(entry.output, 8)}</Text> : null}
+          {entry.output ? <Text color="red">{outputPreview(entry.output, 8)}</Text> : null}
         </Box>
       </Box>
     )
@@ -90,13 +107,13 @@ export function EntryView({ entry }: { entry: Entry }): React.ReactElement | nul
     return (
       <Box flexDirection="column" borderStyle="round" borderColor={completed ? 'green' : 'yellow'} paddingX={1} marginY={1}>
         <Text bold color={completed ? 'green' : 'yellow'}>
-          {title}
+          {completed ? '✓ ' : '⚠ '}{title}
         </Text>
         <Text>{entry.text}</Text>
         <Box flexDirection="column" marginY={1}>
           {entry.requirements.map((r) => (
             <Text key={r.id}>
-              <Text color={r.verified ? 'green' : 'red'}>{r.verified ? ' ✓ ' : ' ✗ '}</Text>
+              <Text color={r.verified ? 'green' : 'red'} bold>{r.verified ? ' ✓ ' : ' ✗ '}</Text>
               <Text dimColor>{r.id}.</Text> {truncate(r.text, 120)}
             </Text>
           ))}
@@ -119,7 +136,7 @@ export function EntryView({ entry }: { entry: Entry }): React.ReactElement | nul
     )
   }
   return (
-    <Box marginBottom={1}>
+    <Box marginBottom={1} paddingLeft={1}>
       <Text color={entry.color}>{entry.text}</Text>
     </Box>
   )

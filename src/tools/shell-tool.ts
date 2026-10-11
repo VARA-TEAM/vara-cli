@@ -97,7 +97,25 @@ export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number
       env,
       args.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     )
-    const scrubbed = scrubAll(output.trim() || '(no output)')
+    let scrubbed = scrubAll(output.trim() || '(no output)')
+    if (process.platform === 'win32' && exitCode !== 0) {
+      const firstWord = args.command.trim().split(/[\s;>&|]+/)[0]?.toLowerCase() ?? ''
+      const unixTranslations: Record<string, string> = {
+        ls: 'dir',
+        cat: 'type',
+        grep: 'findstr',
+        rm: 'del (or rmdir /s /q for directories)',
+        touch: 'type nul > <filename>',
+        clear: 'cls',
+        mv: 'move',
+        cp: 'copy (or xcopy)',
+        which: 'where',
+        export: 'set',
+      }
+      if (firstWord in unixTranslations) {
+        scrubbed += `\n[Windows Hint] '${firstWord}' is a Unix command. On Windows cmd.exe use '${unixTranslations[firstWord]}' or use dedicated tools (list_dir, read_file, grep).`
+      }
+    }
     const header = timedOut ? `[timed out after ${args.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms]\n` : ''
     return {
       ok: exitCode === 0 && !timedOut,

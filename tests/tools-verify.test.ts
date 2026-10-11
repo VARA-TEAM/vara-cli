@@ -86,6 +86,18 @@ describe('edit_file verification (P0)', () => {
     expect(result.ok).toBe(false)
     expect(result.output).toContain('SYNTAX CHECK FAILED')
   })
+
+  it('matches and edits CRLF content even when oldString has LF line endings', async () => {
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(join(workdir, 'crlf.txt'), 'line1\r\nline2\r\nline3\r\n', 'utf8')
+    const result = await editFileTool.execute(
+      { path: 'crlf.txt', oldString: 'line1\nline2\n', newString: 'first\nsecond\n' },
+      ctx,
+    )
+    expect(result.ok).toBe(true)
+    const disk = await readFile(join(workdir, 'crlf.txt'), 'utf8')
+    expect(disk).toBe('first\r\nsecond\r\nline3\r\n')
+  })
 })
 
 describe('shell cwd (P1 — Windows path safety)', () => {

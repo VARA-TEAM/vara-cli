@@ -583,7 +583,7 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
   // Spinner + heartbeat while running.
   useEffect(() => {
     if (state !== 'running') return
-    const id = setInterval(() => setSpinnerFrame((f) => f + 1), 400)
+    const id = setInterval(() => setSpinnerFrame((f) => f + 1), 120)
     return () => clearInterval(id)
   }, [state])
 

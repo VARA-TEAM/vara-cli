@@ -33,15 +33,35 @@ export function repairTruncatedJson(raw: string): Record<string, unknown> | null
   if (!trimmed) return {}
   try {
     const direct = JSON.parse(trimmed) as unknown
-    return direct && typeof direct === 'object' ? (direct as Record<string, unknown>) : null
+    return direct && typeof direct === 'object' && !Array.isArray(direct)
+      ? (direct as Record<string, unknown>)
+      : null
   } catch {
     /* fall through to repair */
+  }
+
+  // Strip markdown code fences if the model wrapped it in ```json ... ```
+  let cleaned = trimmed
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    try {
+      const parsed = JSON.parse(cleaned) as unknown
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null
+    } catch {
+      /* continue */
+    }
+  }
+
+  if (!cleaned.startsWith('{')) {
+    return null
   }
 
   const stack: string[] = []
   let inString = false
   let escaped = false
-  for (const ch of trimmed) {
+  for (const ch of cleaned) {
     if (inString) {
       if (escaped) escaped = false
       else if (ch === '\\') escaped = true
@@ -51,16 +71,30 @@ export function repairTruncatedJson(raw: string): Record<string, unknown> | null
     if (ch === '"') inString = true
     else if (ch === '{') stack.push('}')
     else if (ch === '[') stack.push(']')
-    else if (ch === '}' || ch === ']') stack.pop()
+    else if (ch === '}' || ch === ']') {
+      if (stack.length && stack[stack.length - 1] === ch) stack.pop()
+      else if (stack.length) stack.pop()
+    }
   }
 
-  let candidate = trimmed
+  let candidate = cleaned
   if (inString) candidate += '"'
+
+  candidate = candidate.trimEnd()
+  // Clean dangling comma outside strings: e.g. {"a": 1, -> {"a": 1
+  candidate = candidate.replace(/,\s*$/, '')
+  // Clean dangling key or colon: e.g. {"a": 1, "b": -> {"a": 1, "b": ""
+  if (/:\s*$/.test(candidate)) {
+    candidate += '""'
+  }
+
   while (stack.length) candidate += stack.pop()
 
   try {
     const repaired = JSON.parse(candidate) as unknown
-    return repaired && typeof repaired === 'object' ? (repaired as Record<string, unknown>) : null
+    return repaired && typeof repaired === 'object' && !Array.isArray(repaired)
+      ? (repaired as Record<string, unknown>)
+      : null
   } catch {
     return null
   }
@@ -93,6 +127,9 @@ export class Engine {
   private turnsWithoutProgress = 0
   /** Consecutive failures per tool — two in a row forces a strategy change, not a retry. */
   private toolFailureStreak = new Map<string, number>()
+  /** Signature of the last tool call to detect repetitive loops. */
+  private lastToolSignature = ''
+  private identicalToolStreak = 0
   /** Highest budget warning percent already fired (70/80/90). */
   private lastBudgetWarning = 0
 
@@ -164,9 +201,15 @@ export class Engine {
   private toModelMessages(): ModelMessage[] {
     const out: ModelMessage[] = []
     const msgs = this.session.transcript
+    let totalChars = 0
+    for (const m of msgs) totalChars += m.content.length
+
+    // If context is running high (>80k chars), trim tool messages more aggressively (last 12)
+    const trimThreshold = totalChars > 80_000 ? Math.max(0, msgs.length - 12) : Math.max(0, msgs.length - 30)
+
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i]!
-      const isOldTool = m.role === 'tool' && i < msgs.length - 30
+      const isOldTool = m.role === 'tool' && i < trimThreshold
       out.push({
         role: m.role === 'system' ? 'user' : m.role,
         content: isOldTool ? '[earlier tool output trimmed to save context]' : m.content,
@@ -376,8 +419,12 @@ export class Engine {
     if (turn.toolCalls.length === 0) {
       // The model spoke without acting. That is fine once; stalling repeatedly is not.
       this.turnsWithoutProgress += 1
-      if (this.session.config.kind === 'goal' && this.turnsWithoutProgress >= STALL_LIMIT) {
-        this.setState('waiting_user', 'No progress in several cycles. Decide: keep going, adjust the goal, or stop.')
+      if (this.turnsWithoutProgress >= STALL_LIMIT) {
+        const reason =
+          this.session.config.kind === 'goal'
+            ? 'No progress in several cycles. Decide: keep going, adjust the goal, or stop.'
+            : 'The agent has produced no actions or tool calls across several turns. Paused for your input.'
+        this.setState('waiting_user', reason)
         this.emit({ type: 'waiting', reason: this.session.stateReason ?? '' })
         await saveSession(this.session)
         return 'stop'
@@ -388,7 +435,11 @@ export class Engine {
     let pauseReason: string | null = null
     let completionClaim: { summary: string; verificationPlan: string; verifiedRequirements?: string[] } | null = null
 
-    for (const call of turn.toolCalls) {
+    for (const rawCall of turn.toolCalls) {
+      const call = {
+        ...rawCall,
+        id: rawCall.id || `call_${randomUUID().slice(0, 8)}`,
+      }
       this.session.usage.toolCalls += 1
       const tool = findTool(call.name)
       if (!tool) {
@@ -445,6 +496,18 @@ export class Engine {
       } catch (err) {
         ok = false
         output = `Tool crashed: ${(err as Error).message}`
+      }
+
+      // Loop detection: identical tool call repeated consecutively
+      const callSignature = `${call.name}:${call.arguments}`
+      if (callSignature === this.lastToolSignature) {
+        this.identicalToolStreak += 1
+      } else {
+        this.lastToolSignature = callSignature
+        this.identicalToolStreak = 1
+      }
+      if (this.identicalToolStreak >= 3) {
+        output += `\n[engine] Loop detected: "${call.name}" was called with identical arguments ${this.identicalToolStreak} times in a row. Stop repeating this action. Inspect the result or change strategy.`
       }
 
       // P0: consecutive-failure limit. Two failures of the same tool in a row

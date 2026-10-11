@@ -26,15 +26,20 @@ export function openaiProvider(config: ProviderConfig): Provider {
         messages: [
           { role: 'system', content: req.system },
           ...req.messages.map((m) => {
-            const out: Record<string, unknown> = { role: m.role, content: m.content }
+            const out: Record<string, unknown> = {
+              role: m.role,
+              content: m.role === 'assistant' && m.toolCalls?.length && !m.content ? null : (m.content ?? ''),
+            }
             if (m.toolCalls?.length) {
-              out['tool_calls'] = m.toolCalls.map((c) => ({
-                id: c.id,
+              out['tool_calls'] = m.toolCalls.map((c, i) => ({
+                id: c.id || `call_${i}`,
                 type: 'function',
                 function: { name: c.name, arguments: c.arguments },
               }))
             }
-            if (m.toolCallId) out['tool_call_id'] = m.toolCallId
+            if (m.role === 'tool') {
+              out['tool_call_id'] = m.toolCallId || 'unknown_call'
+            }
             return out
           }),
         ],

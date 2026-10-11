@@ -30,32 +30,87 @@ export function anthropicProvider(config: ProviderConfig): Provider {
           input_schema: t.function!.parameters ?? { type: 'object', properties: {} },
         }))
 
+      // Anthropic requires strictly alternating user/assistant messages and groups
+      // all tool_result blocks following an assistant tool_use message into ONE user message.
+      const anthropicMessages: Array<{ role: 'user' | 'assistant'; content: unknown }> = []
+      for (const m of req.messages) {
+        if (m.role === 'tool') {
+          const toolBlock = {
+            type: 'tool_result',
+            tool_use_id: m.toolCallId || 'unknown_call',
+            content: m.content || '(empty output)',
+          }
+          const prev = anthropicMessages[anthropicMessages.length - 1]
+          if (prev && prev.role === 'user' && Array.isArray(prev.content)) {
+            prev.content.push(toolBlock)
+          } else if (prev && prev.role === 'user' && typeof prev.content === 'string') {
+            prev.content = [{ type: 'text', text: prev.content }, toolBlock]
+          } else {
+            anthropicMessages.push({ role: 'user', content: [toolBlock] })
+          }
+          continue
+        }
+
+        if (m.role === 'assistant' && m.toolCalls?.length) {
+          const blocks: Array<Record<string, unknown>> = []
+          if (m.content) blocks.push({ type: 'text', text: m.content })
+          for (const call of m.toolCalls) {
+            let input: unknown = {}
+            try {
+              input = JSON.parse(call.arguments || '{}')
+            } catch {
+              input = {}
+            }
+            blocks.push({ type: 'tool_use', id: call.id, name: call.name, input })
+          }
+          const prev = anthropicMessages[anthropicMessages.length - 1]
+          if (prev && prev.role === 'assistant') {
+            if (Array.isArray(prev.content)) {
+              prev.content.push(...blocks)
+            } else {
+              prev.content = [{ type: 'text', text: String(prev.content) }, ...blocks]
+            }
+          } else {
+            anthropicMessages.push({ role: 'assistant', content: blocks })
+          }
+          continue
+        }
+
+        if (m.role === 'user') {
+          const prev = anthropicMessages[anthropicMessages.length - 1]
+          if (prev && prev.role === 'user') {
+            if (typeof prev.content === 'string') {
+              prev.content = `${prev.content}\n\n${m.content}`
+            } else if (Array.isArray(prev.content)) {
+              prev.content.push({ type: 'text', text: m.content })
+            }
+            continue
+          }
+          anthropicMessages.push({ role: 'user', content: m.content })
+          continue
+        }
+
+        if (m.role === 'assistant') {
+          const prev = anthropicMessages[anthropicMessages.length - 1]
+          if (prev && prev.role === 'assistant') {
+            if (typeof prev.content === 'string') {
+              prev.content = `${prev.content}\n\n${m.content}`
+            } else if (Array.isArray(prev.content)) {
+              prev.content.push({ type: 'text', text: m.content })
+            }
+            continue
+          }
+          anthropicMessages.push({ role: 'assistant', content: m.content })
+        }
+      }
+
       const body = {
         model: req.model || config.model,
         stream: true,
         max_tokens: req.maxTokens ?? config.maxTokens ?? 8192,
         system: req.system,
         ...(tools.length ? { tools } : {}),
-        messages: req.messages.map((m) => {
-          if (m.role === 'tool') {
-            return { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: m.content }] }
-          }
-          if (m.role === 'assistant' && m.toolCalls?.length) {
-            const blocks: Array<Record<string, unknown>> = []
-            if (m.content) blocks.push({ type: 'text', text: m.content })
-            for (const call of m.toolCalls) {
-              let input: unknown = {}
-              try {
-                input = JSON.parse(call.arguments || '{}')
-              } catch {
-                input = {}
-              }
-              blocks.push({ type: 'tool_use', id: call.id, name: call.name, input })
-            }
-            return { role: 'assistant', content: blocks }
-          }
-          return { role: m.role, content: m.content }
-        }),
+        messages: anthropicMessages,
       }
 
       let response: Response

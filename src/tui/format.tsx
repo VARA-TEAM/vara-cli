@@ -51,6 +51,21 @@ export function ToolLine({
 export function summarizeArgs(args: string): string {
   try {
     const obj = JSON.parse(args) as Record<string, unknown>
+    if (obj.command && typeof obj.command === 'string') {
+      const cwdPart = obj.cwd ? ` (in ${obj.cwd})` : ''
+      return `$ ${obj.command}${cwdPart}`
+    }
+    if (obj.path && typeof obj.path === 'string') {
+      const linePart = obj.offset ? `:${obj.offset}` : ''
+      const extra = obj.pattern ? ` pattern="${obj.pattern}"` : ''
+      return `${obj.path}${linePart}${extra}`
+    }
+    if (obj.question && typeof obj.question === 'string') {
+      return `"${obj.question}"`
+    }
+    if (obj.message && typeof obj.message === 'string') {
+      return `"${obj.message}"`
+    }
     const parts: string[] = []
     for (const [k, v] of Object.entries(obj)) {
       if (v === undefined) continue
