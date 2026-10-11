@@ -1,0 +1,256 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { Provider, ProviderRequest, ProviderEvent, AssistantTurn } from '../src/llm/provider.js'
+import { DEFAULT_CONFIG } from '../src/config/config.js'
+
+let workdir: string
+let Engine: typeof import('../src/core/engine.js').Engine
+let createSession: typeof import('../src/core/session.js').createSession
+let CreateSessionInput: typeof import('../src/core/session.js').CreateSessionInput
+let store: typeof import('../src/core/store.js')
+
+/** Scripted provider: each call returns the next scripted turn and records the request. */
+class FakeProvider implements Provider {
+  id = 'openai' as const
+  requests: ProviderRequest[] = []
+  constructor(private readonly script: AssistantTurn[]) {}
+  async *chat(req: ProviderRequest): AsyncIterable<ProviderEvent> {
+    this.requests.push(req)
+    const turn = this.script.shift() ?? { content: 'done', toolCalls: [] }
+    if (turn.content) yield { type: 'text', delta: turn.content }
+    yield { type: 'done', result: turn }
+  }
+}
+
+beforeAll(async () => {
+  workdir = await mkdtemp(join(tmpdir(), 'vara-work-'))
+  store = await import('../src/core/store.js')
+  const sessionModule = await import('../src/core/session.js')
+  createSession = sessionModule.createSession
+  CreateSessionInput = sessionModule.CreateSessionInput
+  Engine = (await import('../src/core/engine.js')).Engine
+})
+
+afterAll(async () => {
+  await rm(workdir, { recursive: true, force: true })
+})
+
+function makeSession(over: Record<string, unknown> = {}) {
+  const input = CreateSessionInput.parse({
+    kind: 'task',
+    mode: 'build',
+    objective: 'Build a tiny thing',
+    acceptance: ['it runs'],
+    cwd: workdir,
+    verifyCommand: 'node -e "process.exit(0)"',
+    ...over,
+  })
+  return createSession(input, DEFAULT_CONFIG)
+}
+
+describe('engine', () => {
+  it('completes a task only after independent verification passes', async () => {
+    const session = makeSession()
+    const provider = new FakeProvider([
+      { content: '', toolCalls: [{ id: 'c1', name: 'write_file', arguments: JSON.stringify({ path: 'a.txt', content: 'hello' }) }] },
+      { content: 'All conditions met.', toolCalls: [{ id: 'c2', name: 'complete', arguments: JSON.stringify({ summary: 'Built the thing', verificationPlan: 'node exit0 passed', verifiedRequirements: ['1'] }) }] },
+    ])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    expect(session.state).toBe('completed')
+    expect(session.evidence.some((e) => e.kind === 'command' && e.ok)).toBe(true)
+    // The write actually happened in the working directory.
+    const { readFile } = await import('node:fs/promises')
+    expect(await readFile(join(workdir, 'a.txt'), 'utf8')).toBe('hello')
+  })
+
+  it('rejects a claim that omits verifiedRequirements entirely — 0/0 coverage is not success', async () => {    const session = makeSession()
+    const provider = new FakeProvider([
+      { content: '', toolCalls: [{ id: 'c1', name: 'complete', arguments: JSON.stringify({ summary: 'All done for real', verificationPlan: 'trust me' }) }] },
+      { content: '', toolCalls: [{ id: 'c2', name: 'complete', arguments: JSON.stringify({ summary: 'Still claiming done here', verificationPlan: 'trust me' }) }] },
+      { content: '', toolCalls: [{ id: 'c3', name: 'complete', arguments: JSON.stringify({ summary: 'Third time claiming done', verificationPlan: 'trust me' }) }] },
+    ])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    expect(session.state).toBe('failed')
+    const failedEvidence = session.evidence.find((e) => e.kind === 'verification' && !e.ok)
+    expect(failedEvidence?.output).toMatch(/does not cover/i)
+  })
+
+  it('rejects the completion claim when verification fails, then marks the session failed', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(1)"' })
+    const claim = {
+      content: '',
+      toolCalls: [{ id: 'c1', name: 'complete', arguments: JSON.stringify({ summary: 'Trust me', verificationPlan: 'nothing', verifiedRequirements: ['1'] }) }],
+    }
+    const provider = new FakeProvider([claim, { ...claim }, { ...claim }])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    expect(session.state).toBe('failed')
+    expect(session.stateReason).toMatch(/verification kept failing/i)
+  })
+
+  it('injects queued follow-ups at the next turn and marks them applied', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    const provider = new FakeProvider([
+      { content: 'Working on it.', toolCalls: [] },
+      {
+        content: 'Done with the change.',
+        toolCalls: [{ id: 'c9', name: 'complete', arguments: JSON.stringify({ summary: 'done', verificationPlan: 'ok', verifiedRequirements: ['1', '2'] }) }],
+      },
+    ])
+    const engine = new Engine({ session, provider })
+    engine.queueFollowUp('Use PostgreSQL instead of SQLite.')
+    await engine.run()
+
+    const firstRequest = provider.requests[0]!
+    const joined = firstRequest.messages.map((m) => m.content).join('\n')
+    expect(joined).toContain('Use PostgreSQL instead of SQLite.')
+    const secondRequest = provider.requests[1]!
+    expect(secondRequest.messages.map((m) => m.content).join('\n')).toContain('Use PostgreSQL instead of SQLite.')
+    expect(session.followUps[0]!.appliedAtTurn).toBe(1)
+  })
+
+  it('rejects a completion claim that ignores a requirement added by a follow-up', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    const provider = new FakeProvider([
+      { content: 'Working.', toolCalls: [] },
+      {
+        content: 'Original objective done.',
+        toolCalls: [
+          {
+            id: 'c1',
+            name: 'complete',
+            arguments: JSON.stringify({
+              summary: 'greeting.txt created',
+              verificationPlan: 'checked the file',
+              verifiedRequirements: ['1'], // ignores the follow-up (requirement 2)
+            }),
+          },
+        ],
+      },
+      {
+        content: 'Now the calculator too.',
+        toolCalls: [
+          {
+            id: 'c2',
+            name: 'complete',
+            arguments: JSON.stringify({
+              summary: 'Both the file and the calculator are done',
+              verificationPlan: 'tests pass',
+              verifiedRequirements: ['1', '2'],
+            }),
+          },
+        ],
+      },
+    ])
+    const engine = new Engine({ session, provider })
+    engine.queueFollowUp('Also build a calculator.')
+    await engine.run()
+
+    expect(session.state).toBe('completed')
+    // The engine must have rejected the first claim (missing requirement 2)
+    // before accepting the second one.
+    expect(session.stateReason).toContain('Both the file and the calculator')
+    expect(session.evidence.some((e) => e.kind === 'verification' && !e.ok)).toBe(true)
+    expect(session.evidence.some((e) => e.kind === 'verification' && e.ok)).toBe(true)
+    expect(session.activeRequirements).toHaveLength(2)
+    expect(session.activeRequirements?.[1]).toContain('Also build a calculator')
+  })
+
+  it('pauses in waiting_user when the model asks the user something', async () => {
+    const session = makeSession()
+    const provider = new FakeProvider([
+      {
+        content: '',
+        toolCalls: [{ id: 'q1', name: 'ask_user', arguments: JSON.stringify({ question: 'Which database?' }) }],
+      },
+    ])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    expect(session.state).toBe('waiting_user')
+    expect(session.stateReason).toContain('Which database?')
+    // State must be persisted so a restart can resume it.
+    const reloaded = await store.loadSession(session.id)
+    expect(reloaded?.state).toBe('waiting_user')
+  })
+
+  it('refuses mutating tools in plan mode even if the model calls them', async () => {
+    const session = makeSession({ mode: 'plan' })
+    const provider = new FakeProvider([
+      { content: '', toolCalls: [{ id: 'w1', name: 'write_file', arguments: JSON.stringify({ path: 'evil.txt', content: 'x' }) }] },
+      {
+        content: 'Planning done.',
+        toolCalls: [{ id: 'q2', name: 'ask_user', arguments: JSON.stringify({ question: 'Switch to build mode?' }) }],
+      },
+    ])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    const { existsSync } = await import('node:fs')
+    expect(existsSync(join(workdir, 'evil.txt'))).toBe(false)
+    const toolReply = session.transcript.find((m) => m.role === 'tool')
+    expect(toolReply?.content).toMatch(/Denied/)
+  })
+
+  it('forces a strategy change after two consecutive failures of the same tool', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    // delete_file on a missing path fails twice in a row — the second failure
+    // must carry the engine's strategy-change note.
+    const provider = new FakeProvider([
+      { content: '', toolCalls: [{ id: 'd1', name: 'delete_file', arguments: JSON.stringify({ path: 'ghost.txt' }) }] },
+      { content: '', toolCalls: [{ id: 'd2', name: 'delete_file', arguments: JSON.stringify({ path: 'ghost.txt' }) }] },
+      {
+        content: 'Planning done.',
+        toolCalls: [{ id: 'q9', name: 'ask_user', arguments: JSON.stringify({ question: 'Blocked?' }) }],
+      },
+    ])
+    const engine = new Engine({ session, provider })
+    await engine.run()
+
+    const toolResults = session.transcript.filter((m) => m.role === 'tool').map((m) => m.content)
+    const second = toolResults.find((c) => c.includes('failed 2 times in a row'))
+    expect(second).toBeDefined()
+    expect(second).toContain('Do NOT retry the same call')
+  })
+
+  it('warns at 70% of the budget and still runs the honest report on exhaustion', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    session.config.budget = { maxTurns: 4, maxDurationMs: 60 * 60_000, maxModelCalls: 300 }
+    const events: Array<{ type: string; percent?: number; reason?: string }> = []
+    // Model never claims completion — the budget must run out and produce an
+    // honest paused report, never a silent success.
+    const provider = new FakeProvider([
+      { content: 'working', toolCalls: [{ id: 'r1', name: 'read_file', arguments: JSON.stringify({ path: 'missing.txt' }) }] },
+      { content: 'working', toolCalls: [{ id: 'r2', name: 'read_file', arguments: JSON.stringify({ path: 'missing.txt' }) }] },
+      { content: 'working', toolCalls: [{ id: 'r3', name: 'read_file', arguments: JSON.stringify({ path: 'missing.txt' }) }] },
+      { content: 'working', toolCalls: [{ id: 'r4', name: 'read_file', arguments: JSON.stringify({ path: 'missing.txt' }) }] },
+    ])
+    const engine = new Engine({
+      session,
+      provider,
+      onEvent: (e) => {
+        if (e.type === 'budget_warning' || e.type === 'budget_exhausted' || e.type === 'session_summary') {
+          events.push({ type: e.type, percent: (e as { percent?: number }).percent, reason: (e as { reason?: string }).reason })
+        }
+      },
+    })
+    await engine.run()
+
+    expect(session.state).toBe('paused')
+    expect(session.stateReason).toMatch(/Budget exhausted/)
+    // Warnings fired before exhaustion (4 turns: 75% hits at turn 3).
+    expect(events.some((e) => e.type === 'budget_warning')).toBe(true)
+    // The honest report is emitted on exhaustion — not a silent stop.
+    expect(events.some((e) => e.type === 'session_summary')).toBe(true)
+    // And the budget warning text was injected into the transcript so the
+    // model saw it, not just the UI.
+    expect(session.transcript.some((m) => m.content.includes('BUDGET —'))).toBe(true)
+  })
+})

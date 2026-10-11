@@ -1,0 +1,28 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Secrets — never commit a real .env (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# VARA's own runtime data, if ever created inside the repo
+.vara/
+
+# Logs & temp files
+*.log
+tmp-*.mjs
+*.tmp
+
+# Test/coverage output
+coverage/
+
+# TypeScript incremental cache
+*.tsbuildinfo
+
+# Editor & OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
