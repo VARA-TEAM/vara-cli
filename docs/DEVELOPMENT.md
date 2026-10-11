@@ -18,6 +18,7 @@ npm link             # يوفّر الأمر `vara` عالمياً للتجرب�
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | `vitest run` (الافتراضي: الوضع أحادي التشغيل) |
+| `npm run dev [args]` | تشغيل من المصدر مباشرة عبر `tsx` — لتطوير VARA نفسه بلا إعادة بناء (مثال: `npm run dev run "مهمة"`) |
 | `npm run test:watch` | مراقبة أثناء التطوير |
 | `npm run build` | بناء `dist/` |
 | `npm run check` | البوابة الثلاثية — **إلزامية قبل كل push** |
