@@ -23,8 +23,9 @@ npm run check     # يجب أن تكون خضراء من أول يوم — إن 
 3. **الإثبات إلزامي** — سلوك جديد أو إصلاح = اختبار يفشل قبل الإصلاح وينجح بعده.
 4. **البوابة قبل الدفع**:
    ```bash
-   npm run check    # typecheck + 145 اختباراً + build
+   npm run check    # typecheck + الاختبارات + build
    ```
+   الرقم الدقيق للاختبارات يتغيّر مع كل دفعة — لا تعتمد رقماً محفوظاً هنا، اعتمد نجاح `npm run check` نفسه.
 5. **Commit بـ Conventional Commits**:
    ```
    fix: prevent stale-closure Enter on the welcome screen
@@ -49,7 +50,7 @@ git push -u origin fix/وصف-قصير
 | **`npm run check` أخضر قبل كل push** — والفشل يُبلَّغ كما هو | الوعود الكاذبة أسوأ من الفشل الصريح |
 | **unknown ≠ 0** — قيمة غير معروفة تبقى `null` | صفر يعني "قِست ولم يُصرف"، وهذا كذب إن لم يُقَس |
 | **لا تعديل `engine.ts`/`permissions.ts`/`vault.ts` دون مناقشة مسبقة** | هذه ملفات وعود المشروع — خرقها يُبطل معناها |
-| **لا تعديل اختبارات خط الدفاع لجعلها تعبر** (`keymap` `commands` `engine` `permissions` `redact` `vault` `tui-app`) | اختبار يُضعف يصبح زينة |
+| **لا تعديل اختبارات خط الدفاع لجعلها تعبر** (`keymap` `commands` `engine` `permissions` `redact` `vault` `runtime-refs` `tui-app`) | اختبار يُضعف يصبح زينة |
 
 ---
 

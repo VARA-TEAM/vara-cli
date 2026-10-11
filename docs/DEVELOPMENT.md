@@ -45,9 +45,10 @@ src/
     permissions.ts authorize() — الممر الوحيد لكل تنفيذ
     fs-tools.ts  shell-tool.ts  git-tools.ts  control-tools.ts
   llm/
-    provider.ts    عقد المزوّد + createProvider
+    provider.ts    عقد المزوّد + createProvider + عقد أحداث البث (text/thinking/done/error)
     openai.ts      أي نقطة OpenAI-compatible (يشمل KT-AI ونحوه)
-    anthropic.ts   واجهة Anthropic
+    anthropic.ts   واجهة Anthropic (تدعم كتل التفكير الممتدة)
+    retry.ts       إعادة المحاولة بتأخير أُسّي: 429/5xx فقط، وحيدة بعد أخطاء 4xx
     sse.ts         قارئ SSE صغير
     registry.ts    سجل النماذج: نافذة السياق + التسعير
     usage.ts       تطبيع استهلاك المزوّدين المختلفين
@@ -55,11 +56,11 @@ src/
   security/
     vault.ts       تشفير AES-256-GCM بمفتاح مربوط بالجهاز (DPAPI/Keychain)
     redact.ts      scrubAll — يمرّ على كل مخرجات قبل حفظها
-  config/          config.ts (zod) + paths.ts (VARA_HOME)
+  config/          config.ts (zod) + paths.ts (VARA_HOME) + refs.ts (حماية الأسماء من تسرّب المفاتيح)
   tui/             App.tsx + keymap.ts (السياسة الوحيدة للمفاتيح) + مكوّنات العرض
   cli.tsx          نقاط الدخول: TUI / run / resume / sessions / secret / config
   runtime.ts       يبني المزوّد ويحقن الأسرار في البيئة داخل الأمر فقط
-tests/             16 ملفاً — انظر §5
+tests/             17 ملفاً — انظر §5
 scripts/
   live-flow-check.ts    تدفق حيّ حقيقي ضد المزوّد (يحتاج KTAI_API_KEY + VARA_HOME معزول)
   live-usage-check.ts   استدعاء حيّ واحد لفحص تطبيع الاستهلاك والتسعير
@@ -119,6 +120,7 @@ scripts/
 - **الكتابة الفعلية للمفاتيح** (`\t`, `\r`, `\x0b`, `\x1b`, `\x0e`, `\x17`): لا تستدعي معالجاً مباشرة وتدّعي أن الاختصار يعمل — اكتب المفتاح واقرأ الشاشة.
 - **`vi.waitFor` للمواعيد**: القيم الافتراضية قصيرة (1s) بينما بعض الاكتمالات الحقيقية ~1.5s — ارفع المهلة صراحة حيث تحتاج.
 - **فخّ متكرر**: لا تكتب مفتاحين متتاليين دون `waitFor` بينهما؛ الحالة قد لا تكون قد استقرت بعد.
+- **فخّ عزل الوحدات في vitest**: الاستيراد الثابت (`import x from '...'`) والاستيراد الديناميكي (`await import('...')`) قد يقعان على **مثيلَي وحدة منفصلَين** داخل نفس الملف. عملياً: لو اختبرت `registerSecret` من الملف بينما يستورد المحرك `scrubAll`، قد لا يقرأ المحرك تسجيلك. الحل: استورد ديناميكياً كل ما يعتمد على حالة مشتركة، أو اختبر ما يلتقطه `scrubAll` (أنماط `sk-…`) لا ما سجّلته يدوياً. انظر `tests/engine.test.ts` و`tests/runtime-refs.test.ts`.
 
 ### ملفات خط الدفاع — لا تُضعف
 
@@ -130,6 +132,7 @@ scripts/
 | `tests/engine.test.ts` | رفض الإكمال الكاذب — أهم وعود المشروع |
 | `tests/permissions.test.ts` | plan/build وسياسة الأوامر |
 | `tests/redact.test.ts` `tests/vault.test.ts` | عدم تسرّب الأسرار |
+| `tests/runtime-refs.test.ts` | `apiKeySecret`/`apiKeyEnv` اسمان لا مفتاحاً، ورسالة "No API key" بلا مفتاح |
 
 ### فحوصات حيّة (اختيارية، عند الشك في سلوك المزوّد الحقيقي)
 
