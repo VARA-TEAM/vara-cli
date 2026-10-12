@@ -1,5 +1,6 @@
 export * from './types.js'
 export * from './fs-tools.js'
+export * from './search.js'
 export * from './shell-tool.js'
 export * from './git-tools.js'
 export * from './control-tools.js'

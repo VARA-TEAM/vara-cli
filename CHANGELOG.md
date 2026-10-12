@@ -4,6 +4,27 @@
 
 ---
 
+## [2026-10-12] — أداة `glob` جديدة وإصلاح `grep` (بحث يحترم `.gitignore`)
+
+**الملفات:** `src/tools/search.ts` (جديد)، `tests/search.test.ts` (جديد)، `src/tools/fs-tools.ts`، `src/tools/registry.ts`، `src/tools/index.ts`، `THIRD_PARTY_NOTICES.md` (جديد).
+
+**الفجوة التي أُصلحت (مُثبَتة):** `grep` كانت تهجر ripgrep تماماً على Windows (`if (isWin) return nodeGrep`) وتسقط لمسح بسيط يتجاهل `.gitignore`، ولا توجد أداة `glob` (بحث المسارات) إطلاقاً.
+
+**ما أُضيف:**
+- **أداة `glob` جديدة** تبحث المسارات بنمط glob (`**/*.ts`، `src/**/*.tsx`) — مقروءة فقط، مسموحة في Plan mode.
+- **`grep` مُعاد بناؤها** لتستخدم `rg --json` على **كل** المنصات (بلا إهمال Windows)، مع أكواد خروج صحيحة (0/1/2) ورسائل نمط regex واضحة.
+- **محرّكان قابلان للحقن** (`ripgrep` | `node`): المحرّك Node بديل حتمي للاختبار وعند غياب rg، ويحترم `.gitignore` فعلاً عبر parser خاص (تعليقات، سالبة `!`، `dirOnly`، أنماتر، «آخر مطابقة تفوز»).
+- **`--no-require-git`** ليحترم `.gitignore` حتى خارج مستودع rg (الذي لا يحترمه افتراضياً إلا داخل git)، و`normalizeRel` لتوحيد فواصل المسارات على Windows.
+- **حدود خرج** مفروضة (`MAX_OUTPUT_CHARS`، `GREP_MAX_PER_FILE`) بدل تبنّي حدود المرجع.
+
+**الاستقلالية:** لا يُنسخ أي كود من OpenCode — أُستِلهت الأفكار والخوارزميات فقط، مُعاد تنفيذها بأسلوب VARA (zod + `ToolResult`، بلا Effect/bun/drizzle/tree-sitter). المبدأ والتفصيل في `THIRD_PARTY_NOTICES.md`.
+
+**اختبارات Regression (RED ثم GREEN):** 13 اختباراً — glob يحترم `.gitignore` في المحرّكين، grep بنفسه، مسارات تفلت من مجلد العمل، نمط `*.ext`، حدّ النتائج، ونمط regex غير صالح يُفشل برسالة واضحة.
+
+**الاختبارات:** 177/177 في 18 ملفاً.
+
+---
+
 ## [2026-10-12] — bfacc81 · إنفاذ ميزانية الرموش الحقيقية وتوحيد كشف التعليق
 
 **الملفات:** `src/core/engine.ts`، `tests/engine.test.ts`.

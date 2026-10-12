@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { Tool, ToolContext } from './types.js'
 import { zodToJsonSchema } from './types.js'
-import { deleteFileTool, editFileTool, grepTool, listDirTool, readFileTool, writeFileTool } from './fs-tools.js'
+import { deleteFileTool, editFileTool, listDirTool, readFileTool, writeFileTool } from './fs-tools.js'
+import { globTool, grepTool } from './search.js'
 import { shellTool } from './shell-tool.js'
 import { ghTool, gitCommitTool, gitDiffTool, gitLogTool, gitStatusTool } from './git-tools.js'
 import { askUserTool, completeTool } from './control-tools.js'
@@ -11,6 +12,7 @@ import { scrubAll } from '../security/redact.js'
 const ALL_TOOLS: Tool<never>[] = [
   readFileTool,
   listDirTool,
+  globTool,
   grepTool,
   writeFileTool,
   editFileTool,
@@ -35,6 +37,7 @@ const ALL_TOOLS: Tool<never>[] = [
 const PLAN_ALLOWED = new Set([
   'read_file',
   'list_dir',
+  'glob',
   'grep',
   'git_status',
   'git_diff',
