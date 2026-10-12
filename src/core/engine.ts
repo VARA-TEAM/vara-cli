@@ -20,6 +20,8 @@ import type { ToolContext } from '../tools/types.js'
 import { getSecretsForScope } from '../security/vault.js'
 import { clearSecrets, registerSecret, scrubAll } from '../security/redact.js'
 import { appendEvent, saveSession } from './store.js'
+import { contextStatus, estimateTokens } from './context.js'
+import { DEFAULT_CONFIG } from '../config/config.js'
 
 const MAX_TOOL_OUTPUT_CHARS = 12_000
 
@@ -200,26 +202,70 @@ export class Engine {
     this.emit({ type: 'evidence', record: scrubbed })
   }
 
+  /**
+   * One turn elapsed with no real progress (no successful tool, no evidence).
+   * Pauses the session once the consecutive-stall limit is reached — the single
+   * place that decides this, shared by text-only turns and all-failing-tool
+   * turns. Returns true when the engine must stop.
+   */
+  private async noteNoProgress(): Promise<boolean> {
+    this.turnsWithoutProgress += 1
+    if (this.turnsWithoutProgress < STALL_LIMIT) return false
+    const reason =
+      this.session.config.kind === 'goal'
+        ? 'No progress in several cycles. Decide: keep going, adjust the goal, or stop.'
+        : 'The agent has produced no actions or tool calls across several turns. Paused for your input.'
+    this.setState('waiting_user', reason)
+    this.emit({ type: 'waiting', reason: this.session.stateReason ?? '' })
+    await saveSession(this.session)
+    return true
+  }
+
   private toModelMessages(): ModelMessage[] {
-    const out: ModelMessage[] = []
     const msgs = this.session.transcript
-    let totalChars = 0
-    for (const m of msgs) totalChars += m.content.length
+    // Enforce the REAL token budget computed by context.ts (window minus reserved
+    // output minus safety margin) — not a fixed char threshold. A stress session
+    // reached 106k input tokens against a 64k window because this path ignored
+    // requestBudgetTokens entirely.
+    // Session config has no per-session context override — the global default
+    // is the single source of truth for output reservation.
+    const budget = contextStatus(this.session, {
+      maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens,
+    }).requestBudgetTokens
 
-    // If context is running high (>80k chars), trim tool messages more aggressively (last 12)
-    const trimThreshold = totalChars > 80_000 ? Math.max(0, msgs.length - 12) : Math.max(0, msgs.length - 30)
-
-    for (let i = 0; i < msgs.length; i++) {
+    // Walk newest → oldest, keeping whole turns while they fit. Oldest tool
+    // output is dropped first (it is the least reusable); the most recent
+    // messages always survive so the model keeps its working state.
+    const kept: ModelMessage[] = []
+    let used = 0
+    for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!
-      const isOldTool = m.role === 'tool' && i < trimThreshold
-      out.push({
+      const msg: ModelMessage = {
         role: m.role === 'system' ? 'user' : m.role,
-        content: isOldTool ? '[earlier tool output trimmed to save context]' : m.content,
+        content: m.content,
         ...(m.toolCalls?.length ? { toolCalls: m.toolCalls } : {}),
         ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
-      })
+      }
+      // A tool result is allowed to be replaced with a marker (cheaper), never
+      // silently dropped — dropping it would orphan its assistant tool_call.
+      // Likewise an assistant message carrying toolCalls must never be dropped:
+      // its tool results would then be orphaned. Only plain text is droppable.
+      const cost = estimateTokens(msg.content)
+      if (used + cost > budget && kept.length > 0) {
+        if (m.role === 'tool') {
+          kept.push({ ...msg, content: '[earlier tool output trimmed to save context]' })
+        } else if (!msg.toolCalls?.length) {
+          continue
+        } else {
+          kept.push(msg)
+          used += cost
+        }
+        continue
+      }
+      used += cost
+      kept.push(msg)
     }
-    return out
+    return kept.reverse()
   }
 
   private addMessage(message: Omit<TranscriptMessage, 'at'>): void {
@@ -424,22 +470,17 @@ export class Engine {
 
     if (turn.toolCalls.length === 0) {
       // The model spoke without acting. That is fine once; stalling repeatedly is not.
-      this.turnsWithoutProgress += 1
-      if (this.turnsWithoutProgress >= STALL_LIMIT) {
-        const reason =
-          this.session.config.kind === 'goal'
-            ? 'No progress in several cycles. Decide: keep going, adjust the goal, or stop.'
-            : 'The agent has produced no actions or tool calls across several turns. Paused for your input.'
-        this.setState('waiting_user', reason)
-        this.emit({ type: 'waiting', reason: this.session.stateReason ?? '' })
-        await saveSession(this.session)
-        return 'stop'
-      }
+      if (await this.noteNoProgress()) return 'stop'
       return 'continue'
     }
 
     let pauseReason: string | null = null
     let completionClaim: { summary: string; verificationPlan: string; verifiedRequirements?: string[] } | null = null
+    // Real progress is a SUCCESSFUL tool or new evidence — not merely a
+    // failing call that appends an error line to the transcript. Without this
+    // distinction a loop of failing calls looks like forward motion and never
+    // trips the stall detector (observed: 247 turns, zero evidence).
+    let anyToolSucceeded = false
 
     for (const rawCall of turn.toolCalls) {
       const call = {
@@ -537,8 +578,16 @@ export class Engine {
       }
       this.appendToolResult(call.id, call.name, ok, output)
       this.emit({ type: 'tool_end', id: call.id, name: call.name, ok, output })
+      if (ok) anyToolSucceeded = true
+    }
+
+    // Only genuine progress resets the stall counter: a successful tool or a
+    // completed claim. A run of failing calls keeps counting toward the limit.
+    if (anyToolSucceeded || completionClaim) {
       this.turnsWithoutProgress = 0
       this.session.lastProgressTurn = this.session.usage.turns
+    } else if (await this.noteNoProgress()) {
+      return 'stop'
     }
 
     if (completionClaim) {

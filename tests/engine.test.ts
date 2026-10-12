@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Provider, ProviderRequest, ProviderEvent, AssistantTurn } from '../src/llm/provider.js'
 import { DEFAULT_CONFIG } from '../src/config/config.js'
+import { contextStatus } from '../src/core/context.js'
 
 let workdir: string
 let Engine: typeof import('../src/core/engine.js').Engine
@@ -114,6 +115,71 @@ describe('engine', () => {
     // 4) Reasoning is NOT evidence: it must not reach the audit log.
     const log = await store.readEventLog(session.id)
     expect(log.some((e) => e['type'] === 'thinking')).toBe(false)
+  })
+
+  it('enforces the token budget when building model messages — drops oldest tool output first', () => {
+    const session = makeSession({ model: 'deepseek-ai/deepseek-v4.1-flash' })
+    // A transcript far larger than the model's request budget: 40 tool results
+    // of ~8k chars each (~2k tokens each) = ~80k tokens, against a ~58k budget.
+    for (let i = 0; i < 40; i++) {
+      session.transcript.push({
+        role: 'tool',
+        content: `result ${i} `.repeat(1000),
+        at: new Date().toISOString(),
+        toolCallId: `t${i}`,
+        toolName: 'shell',
+      } as (typeof session.transcript)[number])
+    }
+    // The most recent message must survive (it carries current state).
+    session.transcript.push({
+      role: 'assistant',
+      content: 'final answer',
+      at: new Date().toISOString(),
+    } as (typeof session.transcript)[number])
+
+    const engine = new Engine({ session, provider: new FakeProvider([]) })
+    const out = (engine as unknown as { toModelMessages(): Array<{ content: string; role: string }> }).toModelMessages()
+
+    // Budget must actually be enforced, not merely approximated.
+    const budget = contextStatus(session, { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens }).requestBudgetTokens
+    const sentChars = out.reduce((n, m) => n + m.content.length, 0)
+    expect(Math.ceil(sentChars / 4)).toBeLessThanOrEqual(budget)
+
+    // The most recent message is never dropped.
+    expect(out[out.length - 1]?.content).toBe('final answer')
+    // The oldest tool output is replaced by a marker, not sent verbatim.
+    expect(out.some((m) => m.content === '[earlier tool output trimmed to save context]')).toBe(true)
+    // No verbatim oldest result leaks through.
+    expect(out[0]?.content).not.toContain('result 0 ')
+  })
+
+  it('stops after repeated text-only turns instead of burning the budget on a silent loop', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    // The model speaks forever but never acts: exactly the 247-turn stall the
+    // real stress session exhibited. The engine must pause, not loop.
+    const silent = Array.from({ length: 8 }, (_, i) => ({ content: `thinking about step ${i}…`, toolCalls: [] }))
+    const engine = new Engine({ session, provider: new FakeProvider(silent) })
+    await engine.run()
+
+    expect(session.state).toBe('waiting_user')
+    // It must stop WELL before the scripted 8 turns are consumed.
+    expect(session.usage.turns).toBeLessThan(8)
+    expect(session.stateReason).toMatch(/no actions|no progress/i)
+  })
+
+  it('a failing tool call that writes nothing must not reset the stall counter', async () => {
+    const session = makeSession({ verifyCommand: 'node -e "process.exit(0)"' })
+    // Each turn calls edit_file on a nonexistent path: the tool FAILS and the
+    // transcript does not grow, so the engine must still detect the stall.
+    const failing = Array.from({ length: 8 }, (_, i) => ({
+      content: '',
+      toolCalls: [{ id: `f${i}`, name: 'edit_file', arguments: JSON.stringify({ path: 'ghost.txt', find: 'x', replace: 'y' }) }],
+    }))
+    const engine = new Engine({ session, provider: new FakeProvider(failing) })
+    await engine.run()
+
+    expect(session.state).toBe('waiting_user')
+    expect(session.usage.turns).toBeLessThan(8)
   })
 
   it('rejects a claim that omits verifiedRequirements entirely — 0/0 coverage is not success', async () => {    const session = makeSession()
