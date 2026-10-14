@@ -369,7 +369,7 @@ describe('server — invite links carry the address guests can reach', () => {
     const created = await api('/api/sessions', ownerToken, { json: { message: 'hello caps' } })
     await api(`/api/sessions/${created.body.id}/share`, ownerToken, { json: { shared: true } })
     const seen = await api(`/api/sessions/${created.body.id}`, g.accessToken)
-    expect(seen.body.can).toEqual({ send: false, pause: false, setMode: false, setModel: false })
+    expect(seen.body.can).toEqual({ send: false, pause: false, setMode: false, setModel: false, manage: false })
     expect((await api(`/api/sessions/${created.body.id}`, ownerToken)).body.can.send).toBe(true)
   })
 })
