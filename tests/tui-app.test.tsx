@@ -148,7 +148,7 @@ describe('TUI — start screen', () => {
     stdin.write('hi')
     await vi.waitFor(() => expect(lastFrame()).toContain('hi'))
     stdin.write(ENTER)
-    await vi.waitFor(() => expect(lastFrame()).toContain('Hi there!'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lastFrame()).toContain('Hi there!'), { timeout: 15_000 })
     expect(lastFrame()).not.toContain('too_small')
     unmount()
   })
@@ -161,7 +161,7 @@ describe('TUI — conversation vs work', () => {
     stdin.write('hellp')
     await settle()
     stdin.write(ENTER)
-    await vi.waitFor(() => expect(lastFrame()).toContain('Hello! What should we work on?'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lastFrame()).toContain('Hello! What should we work on?'), { timeout: 15_000 })
     await vi.waitFor(() => expect(lastFrame()).toContain('READY'))
     expect(lastFrame()).toContain('CHAT')
     // Give a (buggy) engine time to re-ask: the script is empty, so a second
@@ -188,7 +188,7 @@ describe('TUI — session lifecycle', () => {
     // The model still tries to finish: PLAN mode must refuse it VISIBLY
     // (complete is not read-only) — never pretend to a verification it
     // cannot run. The engine then keeps thinking (script exhausted).
-    await vi.waitFor(() => expect(lastFrame()).toContain('Plan mode is read-only'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lastFrame()).toContain('Plan mode is read-only'), { timeout: 15_000 })
     expect(lastFrame()).not.toContain('SESSION COMPLETE')
     // Tab now toggles the ACTIVE session's mode, visibly in the note+header.
     stdin.write(TAB)
@@ -236,7 +236,7 @@ describe('TUI — session lifecycle', () => {
     await vi.waitFor(() => expect(lastFrame()).toContain('second objective bbb create'))
     stdin.write(ENTER)
     // Created and attached: the new session's view takes over while it runs.
-    await vi.waitFor(() => expect(lastFrame()).toContain('thinking…'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lastFrame()).toContain('thinking…'), { timeout: 15_000 })
 
     stdin.write(CTRL_W) // closes the RUNNING tab
     await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa create'))

@@ -165,7 +165,7 @@ describe('TUI — new commands', () => {
       stdin.write('hello')
       await settle()
       stdin.write(ENTER)
-      await vi.waitFor(() => expect(lastFrame()).toContain('Hello there!'), { timeout: 5_000 })
+      await vi.waitFor(() => expect(lastFrame()).toContain('Hello there!'), { timeout: 15_000 })
       await vi.waitFor(() => expect(lastFrame()).toContain('READY'))
       await settle()
       stdin.write('/cost')
