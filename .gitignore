@@ -26,3 +26,10 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local agent tooling
+.claude/
+.opencode/
+
+# Conversation exports
+vara-*.md
