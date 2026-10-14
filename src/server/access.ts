@@ -240,6 +240,7 @@ export interface InviteOptions {
 export class AccessStore {
   private data: AccessFile = { version: 1, invites: [], guests: [] }
   private mtime = 0
+  private size = -1
   private readonly file: string
 
   constructor(dir: string = hostDir, private readonly clock: () => number = Date.now) {
@@ -250,12 +251,16 @@ export class AccessStore {
 
   private refresh(force = false): void {
     if (!existsSync(this.file)) return
-    const m = statSync(this.file).mtimeMs
-    if (!force && m === this.mtime) return
+    const st = statSync(this.file)
+    const m = st.mtimeMs
+    // Timestamps can be coarse (and two writes can share one): size must match too,
+    // and a file touched in the last 2 s is always re-read.
+    if (!force && m === this.mtime && st.size === this.size && Date.now() - m > 2_000) return
     try {
       const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as AccessFile
       if (parsed?.version === 1) this.data = parsed
       this.mtime = m
+      this.size = st.size
     } catch {
       /* a half-written file: keep what we have, the next write fixes it */
     }
@@ -265,7 +270,9 @@ export class AccessStore {
     const tmp = `${this.file}.${process.pid}.tmp`
     writeFileSync(tmp, JSON.stringify(this.data, null, 2), { encoding: 'utf8', mode: 0o600 })
     renameSync(tmp, this.file)
-    this.mtime = statSync(this.file).mtimeMs
+    const st = statSync(this.file)
+    this.mtime = st.mtimeMs
+    this.size = st.size
   }
 
   /** Create an invite; the returned token is shown once and never stored. */

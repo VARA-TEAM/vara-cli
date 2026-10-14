@@ -20,5 +20,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Install ripgrep (search tool tests)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update -y && sudo apt-get install -y ripgrep
+          elif [ "$RUNNER_OS" = "macOS" ]; then brew install ripgrep
+          else choco install ripgrep -y --no-progress
+          fi
       - run: npm ci
       - run: npm run check

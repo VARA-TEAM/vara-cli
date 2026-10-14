@@ -105,9 +105,9 @@ describe('shell cwd (P1 — Windows path safety)', () => {
     const { mkdir } = await import('node:fs/promises')
     await mkdir(join(workdir, 'dir with spaces'), { recursive: true })
 
-    // `cd` with no args prints the current directory — proves the cwd
-    // argument moved the process without any cd chain in the command.
-    const inside = await shellTool.execute({ command: 'cd', cwd: 'dir with spaces' }, ctx)
+    // `cd` (cmd) / `pwd` (sh) with no args print the current directory — proves the
+    // cwd argument moved the process without any cd chain in the command.
+    const inside = await shellTool.execute({ command: process.platform === 'win32' ? 'cd' : 'pwd', cwd: 'dir with spaces' }, ctx)
     expect(inside.ok).toBe(true)
     expect(inside.output.toLowerCase()).toContain('dir with spaces')
 

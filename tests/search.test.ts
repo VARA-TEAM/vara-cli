@@ -2,11 +2,16 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import type { ToolContext } from '../src/tools/types.js'
 import { makeGlobTool, makeGrepTool, globTool } from '../src/tools/search.js'
 
 let workdir: string
 let ctx: ToolContext
+
+/** ripgrep-engine tests need `rg` on PATH (CI installs it; the node engine is always tested). */
+const HAS_RG = spawnSync('rg', ['--version']).status === 0
+const rgIt = it.skipIf(!HAS_RG)
 
 beforeAll(async () => {
   workdir = await mkdtemp(join(tmpdir(), 'vara-search-'))
@@ -42,7 +47,7 @@ describe('glob tool (path search)', () => {
     expect(globTool.readonly).toBe(true)
   })
 
-  it('finds nested .ts files with a ** pattern (ripgrep engine)', async () => {
+  rgIt('finds nested .ts files with a ** pattern (ripgrep engine)', async () => {
     const tool = makeGlobTool('ripgrep')
     const result = await tool.execute({ pattern: '**/*.ts' }, ctx)
     expect(result.ok).toBe(true)
@@ -65,7 +70,7 @@ describe('glob tool (path search)', () => {
   })
 
   it('honors a simple *.ext pattern in both engines', async () => {
-    for (const engine of ['ripgrep', 'node'] as const) {
+    for (const engine of (HAS_RG ? ['ripgrep', 'node'] : ['node']) as Array<'ripgrep' | 'node'>) {
       const tool = makeGlobTool(engine)
       const result = await tool.execute({ pattern: '*.md' }, ctx)
       expect(result.ok, engine).toBe(true)
@@ -96,7 +101,7 @@ describe('glob tool (path search)', () => {
 })
 
 describe('grep tool (content search)', () => {
-  it('finds matches with line numbers via ripgrep on every platform', async () => {
+  rgIt('finds matches with line numbers via ripgrep on every platform', async () => {
     const tool = makeGrepTool('ripgrep')
     const result = await tool.execute({ pattern: 'alpha' }, ctx)
     expect(result.ok).toBe(true)
@@ -129,7 +134,7 @@ describe('grep tool (content search)', () => {
     expect(result.output).toMatch(/regex/i)
   })
 
-  it('reports an invalid regex clearly under ripgrep too', async () => {
+  rgIt('reports an invalid regex clearly under ripgrep too', async () => {
     const tool = makeGrepTool('ripgrep')
     const result = await tool.execute({ pattern: 'a(b' }, ctx)
     expect(result.ok).toBe(false)
