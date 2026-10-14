@@ -89,7 +89,6 @@ async function wrapWithMacKeychain(key: Buffer): Promise<string> {
     'master',
     '-w',
     key.toString('hex'),
-    '-U',
   ])
   return 'KEYCHAIN'
 }
@@ -107,15 +106,26 @@ export async function getMasterKey(): Promise<{ key: Buffer; protection: string 
   if (masterKey) return { key: masterKey, protection: 'cached' }
   await mkdir(vaultDir, { recursive: true })
 
+  // First-time creation must be race-safe: two VARA processes starting together
+  // (two terminals, a host and a TUI, parallel tests) must end up with the SAME
+  // key — otherwise whichever wrote second makes the other's secrets unreadable.
+  // So creation is exclusive ("wx" / no -U), and the loser reads the winner's key.
+
   if (process.platform === 'win32') {
+    const read = async (): Promise<Buffer> => unwrapWithDpapi(await readFile(masterFile(), 'utf8'))
     if (existsSync(masterFile())) {
-      masterKey = await unwrapWithDpapi(await readFile(masterFile(), 'utf8'))
+      masterKey = await read()
       return { key: masterKey, protection: 'windows-dpapi' }
     }
     const key = randomBytes(32)
-    await writeFile(masterFile(), await wrapWithDpapi(key), 'utf8')
-    masterKey = key
-    return { key, protection: 'windows-dpapi' }
+    try {
+      await writeFile(masterFile(), await wrapWithDpapi(key), { encoding: 'utf8', flag: 'wx' })
+      masterKey = key
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      masterKey = await readWhenComplete(read)
+    }
+    return { key: masterKey, protection: 'windows-dpapi' }
   }
 
   if (process.platform === 'darwin') {
@@ -124,22 +134,49 @@ export async function getMasterKey(): Promise<{ key: Buffer; protection: string 
       return { key: masterKey, protection: 'macos-keychain' }
     } catch {
       const key = randomBytes(32)
-      await wrapWithMacKeychain(key)
-      masterKey = key
-      return { key, protection: 'macos-keychain' }
+      try {
+        await wrapWithMacKeychain(key)
+        masterKey = key
+      } catch (err) {
+        // Someone else created it between our read and our add: use theirs.
+        if (!/already exists/i.test(String((err as Error).message))) throw err
+        masterKey = await readWhenComplete(unwrapWithMacKeychain)
+      }
+      return { key: masterKey, protection: 'macos-keychain' }
     }
   }
 
   // Linux / other: file-based fallback (weaker — we surface this to the user).
+  const readFileKey = async (): Promise<Buffer> => Buffer.from((await readFile(masterFile(), 'utf8')).trim(), 'hex')
   if (existsSync(masterFile())) {
-    masterKey = Buffer.from((await readFile(masterFile(), 'utf8')).trim(), 'hex')
+    masterKey = await readWhenComplete(readFileKey)
     return { key: masterKey, protection: 'file-0600 (weak)' }
   }
   const key = randomBytes(32)
-  await writeFile(masterFile(), key.toString('hex'), { encoding: 'utf8', mode: 0o600 })
-  await chmod(masterFile(), 0o600)
-  masterKey = key
-  return { key, protection: 'file-0600 (weak)' }
+  try {
+    await writeFile(masterFile(), key.toString('hex'), { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    masterKey = key
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+    masterKey = await readWhenComplete(readFileKey)
+  }
+  await chmod(masterFile(), 0o600).catch(() => {})
+  return { key: masterKey, protection: 'file-0600 (weak)' }
+}
+
+/** The winner of a creation race may still be writing: retry briefly until a full 32-byte key is readable. */
+async function readWhenComplete(read: () => Promise<Buffer>): Promise<Buffer> {
+  let last: unknown
+  for (let i = 0; i < 20; i++) {
+    try {
+      const key = await read()
+      if (key.length === 32) return key
+    } catch (err) {
+      last = err
+    }
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  throw last instanceof Error ? last : new Error('the secret vault key could not be read')
 }
 
 export async function setSecret(name: string, value: string, scope = 'global'): Promise<SecretRef> {
