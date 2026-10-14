@@ -80,9 +80,11 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   const access = new AccessStore()
   const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd })
   const ownerToken = newOwnerToken()
+  let guestBase: string | undefined
   const server = await startServer({
     host,
     ownerToken,
+    publicUrl: () => guestBase,
     bind: lan ? '0.0.0.0' : '127.0.0.1',
     port,
     allowedHosts: publicHost ? [publicHost] : [],
@@ -91,6 +93,8 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
 
   const lanUrls = lan ? lanAddresses().map((ip) => `http://${ip}:${server.port}`) : []
   const baseUrl = publicHost ? `https://${publicHost}` : (lanUrls[0] ?? `http://127.0.0.1:${server.port}`)
+  // Invites made in the browser must carry the address a guest can actually reach.
+  guestBase = lan || publicHost ? baseUrl : undefined
   writeFileSync(hostInfoFile(), JSON.stringify({ pid: process.pid, port: server.port, baseUrl } satisfies HostInfo))
 
   const ownerUrl = `http://127.0.0.1:${server.port}/#token=${ownerToken}`

@@ -36,3 +36,6 @@ vara-*.md
 
 # Release packaging output (built by scripts/package-release.mjs)
 release/
+
+# Generated embedded web UI
+src/server/ui-assets.ts

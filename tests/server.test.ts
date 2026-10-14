@@ -92,7 +92,7 @@ describe('server — authentication and hardening', () => {
     expect((await api('/api/sessions', null)).status).toBe(401)
     expect((await api('/api/sessions', 'wrong-token')).status).toBe(401)
     expect((await api('/api/sessions', ownerToken)).status).toBe(200)
-    expect((await api('/api/me', ownerToken)).body).toEqual({ role: 'owner', name: 'owner' })
+    expect((await api('/api/me', ownerToken)).body).toMatchObject({ role: 'owner', name: 'owner' })
   })
 
   it('refuses a request whose Host is not ours (DNS rebinding)', async () => {
@@ -334,5 +334,42 @@ describe('server — owner sessions, sharing and invites', () => {
     // Resuming after the last id replays nothing old.
     const resumed = await read(g.accessToken, Math.max(...ids))
     expect(resumed).not.toContain('"type":"message"')
+  })
+})
+
+describe('server — invite links carry the address guests can reach', () => {
+  it('uses publicUrl when set, otherwise the address the owner used', async () => {
+    const withPublic = await startServer({ host, ownerToken, port: 0, publicUrl: () => 'http://192.168.1.50:7777', limits: { failures: 10_000, joins: 10_000 } })
+    const r = await fetch(`http://127.0.0.1:${withPublic.port}/api/admin/invites`, { method: 'POST', headers: { authorization: `Bearer ${ownerToken}`, 'content-type': 'application/json' }, body: JSON.stringify({ preset: 'viewer' }) })
+    expect(((await r.json()) as { link: string }).link).toMatch(/^http:\/\/192\.168\.1\.50:7777\/join\//)
+    await withPublic.close()
+    const plain = (await invite('viewer')).link
+    expect(plain).toContain(`http://127.0.0.1:${server.port}/join/`)
+  })
+
+  it('serves the embedded web interface with a strict content policy', async () => {
+    const page = await fetch(base + '/')
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('<div id="root">')
+    expect(page.headers.get('content-security-policy')).toContain("default-src 'self'")
+    expect(page.headers.get('x-frame-options')).toBe('DENY')
+    const js = await fetch(base + '/assets/app.js')
+    expect(js.status).toBe(200)
+    expect(js.headers.get('content-type')).toContain('javascript')
+    expect((await fetch(base + '/assets/nope.js')).status).toBe(404)
+    // the join page is the same app
+    expect((await fetch(base + '/join/anything')).status).toBe(200)
+  })
+
+  it('reports host info and per-session capabilities', async () => {
+    const me = await api('/api/me', ownerToken)
+    expect(me.body.host).toMatchObject({ provider: 'openai', model: 'owner-model' })
+    const g = await joinAs((await invite('viewer')).token, 'Cap')
+    const created = await api('/api/sessions', ownerToken, { json: { message: 'hello caps' } })
+    await api(`/api/sessions/${created.body.id}/share`, ownerToken, { json: { shared: true } })
+    const seen = await api(`/api/sessions/${created.body.id}`, g.accessToken)
+    expect(seen.body.can).toEqual({ send: false, pause: false, setMode: false, setModel: false })
+    expect((await api(`/api/sessions/${created.body.id}`, ownerToken)).body.can.send).toBe(true)
   })
 })

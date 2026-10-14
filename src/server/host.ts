@@ -8,6 +8,7 @@ import { SessionRunner } from '../core/runner.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
 import type { McpHub } from '../mcp/hub.js'
 import { scrubAll } from '../security/redact.js'
+import { VERSION } from '../version.js'
 import { AccessStore, authorize, type Action, type Principal, type SessionRef, type Usage } from './access.js'
 
 /** What clients receive: engine events plus what only the host knows. */
@@ -60,6 +61,10 @@ export interface SessionView {
   participant?: { id: string; name: string }
   usage: { turns: number; modelCalls: number; toolCalls: number; costUsd: number | null; costPartial: boolean; inputTokens: number | null; outputTokens: number | null }
   requirements: string[]
+  /** Requirement numbers ("1", "2"…) the last accepted completion covered. */
+  verified: string[]
+  /** What the REQUESTING principal may do here — the UI shows controls from this, never from guesses. */
+  can: { send: boolean; pause: boolean; setMode: boolean; setModel: boolean }
   updatedAt: string
   transcript: Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolName?: string; toolCallId?: string; at: string }>
 }
@@ -182,10 +187,11 @@ export class VaraHost {
     const d = authorize(p, 'session.read', refOf(live.session))
     // Do not reveal that another guest's session exists.
     if (!d.ok) return fail(404, 'no such session')
-    return { ok: true, value: this.view(live.session) }
+    return { ok: true, value: this.view(live.session, p) }
   }
 
-  private view(s: Session): SessionView {
+  private view(s: Session, p: Principal): SessionView {
+    const ref = refOf(s)
     return {
       id: s.id,
       objective: scrubAll(s.config.objective),
@@ -207,6 +213,13 @@ export class VaraHost {
         outputTokens: s.usage.outputTokens,
       },
       requirements: s.activeRequirements ?? [],
+      verified: s.state === 'completed' ? (s.completionClaim?.verifiedRequirements ?? []) : [],
+      can: {
+        send: authorize(p, 'session.send', ref).ok,
+        pause: authorize(p, 'session.pause', ref).ok,
+        setMode: authorize(p, 'session.setMode', ref, { mode: 'plan' }).ok,
+        setModel: p.kind === 'owner' || authorize(p, 'session.setModel', ref, { model: p.grant.allowedModels[0] ?? '' }).ok,
+      },
       updatedAt: s.updatedAt,
       transcript: s.transcript
         .filter((m) => !(m.role === 'user' && /^\[(ENGINE|STATE|SYSTEM|BUDGET|FOLLOW-UP INSTRUCTION)/.test(m.content)))
@@ -219,6 +232,13 @@ export class VaraHost {
           at: m.at,
         })),
     }
+  }
+
+  /** What the page header shows: version, folder name (not the full path for guests), provider. */
+  info(_p: Principal): { version: string; folder: string; provider: string; model: string } {
+    const cfg = this.opts.config()
+    const folder = this.opts.cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    return { version: VERSION, folder, provider: activeProviderName(cfg), model: cfg.provider.model }
   }
 
   /** Models a principal may choose (names only — never keys). */
@@ -261,7 +281,7 @@ export class VaraHost {
     const live = this.adopt(session)
     this.publish(live, { type: 'message', author: authorOf(p), text })
     void this.run(live)
-    return { ok: true, value: this.view(session) }
+    return { ok: true, value: this.view(session, p) }
   }
 
   private async usageOf(p: Principal): Promise<{ usage?: Usage }> {

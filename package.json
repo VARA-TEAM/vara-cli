@@ -1,6 +1,6 @@
 {
   "name": "vara",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "VARA — a terminal coding agent that works with any provider, proves its results, and cuts your token bill.",
   "type": "module",
   "bin": {
@@ -9,10 +9,17 @@
   "scripts": {
     "dev": "tsx src/cli.tsx",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "build:ui": "node scripts/build-ui.mjs",
+    "dev:ui": "tsx scripts/dev-host.ts",
+    "pretypecheck": "node scripts/build-ui.mjs",
+    "pretest": "node scripts/build-ui.mjs",
+    "prebuild": "node scripts/build-ui.mjs",
+    "predev": "node scripts/build-ui.mjs",
+    "predev:ui": "node scripts/build-ui.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -25,7 +32,11 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.28.2",
     "ink-testing-library": "^4.0.0",
+    "qrcode-generator": "^1.4.4",
+    "react-dom": "^18.3.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { PRESETS, presetGrant, type Grant, type GrantPreset, type Principal } from './access.js'
 import type { StampedEvent, VaraHost } from './host.js'
 import { VERSION } from '../version.js'
+import { uiAssets } from './ui-assets.js'
 
 /**
  * The local HTTP API of a VARA host: REST for commands, Server-Sent Events for
@@ -31,6 +32,12 @@ export interface ServerOptions {
   page?: string
   /** Called with unexpected server errors (never sent to clients). */
   onError?: (err: unknown) => void
+  /**
+   * The address guests should use in invite links (LAN IP or tunnel host). Read per request:
+   * the port is only known after the server starts. Without it, links use the address the owner
+   * is browsing with — which is 127.0.0.1 when they sit at the host itself, useless to a phone.
+   */
+  publicUrl?: () => string | undefined
   /** Attempt limits per address and 5 minutes (defaults: 10 failed logins, 20 invite tries). */
   limits?: { failures?: number; joins?: number }
   /** Assets served under /assets/ (name → {type, body}). */
@@ -175,14 +182,16 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     /* ---- the page ---- */
     if (method === 'GET' && (url.pathname === '/' || url.pathname.startsWith('/join/'))) {
-      const page = opts.page ?? PLACEHOLDER_PAGE
+      const page = opts.page ?? uiAssets.html ?? PLACEHOLDER_PAGE
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       return void res.end(page)
     }
     if (method === 'GET' && url.pathname.startsWith('/assets/')) {
-      const a = opts.assets?.[url.pathname.slice('/assets/'.length)]
+      const name = url.pathname.slice('/assets/'.length)
+      const a = opts.assets?.[name] ?? uiAssets.files[name]
       if (!a) return json(res, 404, { error: 'not found' })
-      res.writeHead(200, { 'content-type': a.type, 'cache-control': 'public, max-age=3600' })
+      // Revalidate every time: a new VARA version must never be paired with an old page.
+      res.writeHead(200, { 'content-type': a.type, 'cache-control': 'no-cache' })
       return void res.end(a.body)
     }
 
@@ -215,7 +224,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       r.ok ? json(res, 200, r.value) : json(res, r.status, { error: r.error })
 
     if (a === 'me' && method === 'GET') {
-      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner' } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant })
+      const info = host.info(p)
+      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner', host: info } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant, host: info })
     }
     if (a === 'models' && method === 'GET') return json(res, 200, host.models(p))
 
@@ -257,7 +267,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           ttlMs: ttlMin * 60_000,
           maxUses: typeof body['maxUses'] === 'number' ? Math.max(1, Math.min(100, Math.floor(body['maxUses']))) : 1,
         })
-        return json(res, 200, { id: invite.id, expiresAt: invite.expiresAt, token: invite.token, link: `${origin(req)}/join/${invite.token}`, grant })
+        return json(res, 200, { id: invite.id, expiresAt: invite.expiresAt, token: invite.token, link: `${opts.publicUrl?.() ?? origin(req)}/join/${invite.token}`, grant })
       }
       if (b === 'invites' && c && method === 'DELETE') return json(res, host.access.revokeInvite(c) ? 200 : 404, { ok: true })
       if (b === 'guests' && method === 'GET') return json(res, 200, host.access.listGuests())

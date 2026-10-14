@@ -209,6 +209,7 @@
 | `host.ts` | `VaraHost`: يستضيف الجلسات والمشغّلات، حافظة أحداث لكل جلسة (إعادة بث بـ `after=id`)، استهلاك كل ضيف، لمحة المالك |
 | `http.ts` | الخادم والتحصين |
 | `commands.ts` | `vara ui/serve/invite/guests` |
+| `ui-assets.ts` | مُولَّد (gitignored) من `ui/` عبر `scripts/build-ui.mjs`: حزمة esbuild للواجهة (React) مضمّنة كنصوص، يقدّمها `http.ts` على `/` و`/join/*` و`/assets/*` بـ CSP صارم. رمز المالك يأتي في `#token=` فيُنقل إلى sessionStorage ويُزال من الرابط؛ الصلاحيات تُحسب في الخادم (`view.can`) والواجهة تعرضها فقط. |
 
 **الأدوار:** المالك (كل شيء) · الضيف بمنحة (`Grant`): `watch` مشاهدة الجلسة المشتركة، `sendShared` الكتابة فيها (تصل للنموذج مسبوقة بـ `[from <اسم>]`)، `ownSession` جلسة مستقلة في نفس المجلد، `modelPolicy` (`locked` | `list` | `any`)، `mode` سقف القوة (`plan` للقراءة فقط | `build`) و`canChangeMode`، `canInterrupt`، سقوف `maxModelCalls`/`maxCostUsd`، وانتهاء. قوالب جاهزة: `viewer` · `participant` · `collaborator`. المالك يعدّل المنحة أو يسحبها فتسري **عند الطلب التالي** للضيف (وتُوقَف وكلاؤه خلال ثوانٍ).
 

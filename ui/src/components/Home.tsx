@@ -1,0 +1,133 @@
+import { useState } from 'react'
+import { api } from '../api'
+import { useT } from '../i18n'
+import { relativeTime } from '../transcript'
+import type { Me, ModelsInfo, SessionSummary, SessionView } from '../types'
+import { Composer } from './Composer'
+import { Icon, StateBadge } from './ui'
+
+const SUGGESTIONS = ['Explain how this project is organised', 'Find and fix the failing tests', 'Review my latest changes', 'Keep the build green and tell me when it breaks']
+
+/** The start screen: type anything, nothing else is required. */
+export function Home({ me, models, sessions, onOpen, onToggleSidebar }: { me: Me; models: ModelsInfo | null; sessions: SessionSummary[]; onOpen: (id: string) => void; onToggleSidebar: () => void }) {
+  const t = useT()
+  const [kind, setKind] = useState<'auto' | 'task' | 'goal'>('auto')
+  const guest = me.role === 'guest' ? me : null
+  const canCreate = !guest || guest.grant.ownSession
+  const [mode, setMode] = useState<'plan' | 'build'>(guest ? guest.grant.mode : 'build')
+  const [model, setModel] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
+  const canPickMode = !guest || (guest.grant.canChangeMode && guest.grant.mode === 'build')
+  const modelList = models && models.allowed !== 'any' ? models.allowed : []
+  const canPickModel = !guest || guest.grant.modelPolicy !== 'locked'
+  const recent = sessions.slice(0, 6)
+
+  const create = async (message: string): Promise<void> => {
+    setError(null)
+    try {
+      const v = await api<SessionView>('POST', '/api/sessions', { message, kind, mode, ...(model ? { model } : {}) })
+      onOpen(v.id)
+    } catch (e) {
+      setError((e as Error).message)
+      throw e
+    }
+  }
+
+  return (
+    <main className="home">
+      <header className="home-head only-narrow">
+        <button className="icon-btn" onClick={onToggleSidebar} aria-label={t('sessions')}>
+          <Icon name="menu" />
+        </button>
+      </header>
+      <div className="home-inner">
+        <div className="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="56" height="56">
+            <rect width="64" height="64" rx="16" fill="var(--surface-2)" />
+            <path d="M12 18l13 30 13-30" fill="none" stroke="var(--brand)" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M40 48l6-14 6 14M42.4 43h7.2" fill="none" stroke="var(--accent)" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <h1>{t('home_title')}</h1>
+        <p className="muted">{t('home_sub')}</p>
+
+        {canCreate ? (
+          <>
+            <Composer
+              big
+              autoFocus
+              onSend={create}
+              controls={
+                <>
+                  <select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label={t('kind')}>
+                    <option value="auto">{t('kind_auto')}</option>
+                    <option value="task">{t('kind_task')}</option>
+                    <option value="goal">{t('kind_goal')}</option>
+                  </select>
+                  {canPickMode ? (
+                    <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)} aria-label={t('mode')}>
+                      <option value="plan">{t('mode_plan')}</option>
+                      <option value="build">{t('mode_build')}</option>
+                    </select>
+                  ) : (
+                    <span className="chip" title={t('mode')}>
+                      {mode === 'plan' ? t('mode_plan') : t('mode_build')}
+                    </span>
+                  )}
+                  {canPickModel && modelList.length > 1 ? (
+                    <select value={model} onChange={(e) => setModel(e.target.value)} aria-label={t('model')}>
+                      <option value="">{models?.current}</option>
+                      {modelList
+                        .filter((m) => m !== models?.current)
+                        .map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <span className="chip mono" title={t('model')}>
+                      {models?.allowed === 'any' || !guest ? (model || models?.current) : models?.current}
+                    </span>
+                  )}
+                </>
+              }
+            />
+            {error ? <div className="inline-error" role="alert">{error}</div> : null}
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button key={s} className="suggestion" dir="auto" onClick={() => void create(s).catch(() => {})}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="notice">{t('guestBanner_viewer')}</div>
+        )}
+
+        {recent.length ? (
+          <section className="recent">
+            <h2>{t('sessions')}</h2>
+            <ul>
+              {recent.map((s) => (
+                <li key={s.id}>
+                  <button onClick={() => onOpen(s.id)}>
+                    <span dir="auto" className="recent-title">
+                      {s.objective}
+                    </span>
+                    <span className="recent-meta">
+                      {s.participant ? <span className="muted">{s.participant.name}</span> : null}
+                      <StateBadge state={s.state} />
+                      <span className="muted">{relativeTime(s.updatedAt)}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+      </div>
+    </main>
+  )
+}
