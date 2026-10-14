@@ -1,199 +1,224 @@
-# دليل التطوير — VARA
+# Development guide — VARA
 
-وثيقة **عميقة**: كيف تطوّر المشروع بأمان دون كسر ما يعمل. إن أردت فقط تشغيل الأداة ارجع إلى [README](../README.md)، وإن أردت فهم البنية إلى [ARCHITECTURE](ARCHITECTURE.md).
+**English** · [العربية](ar/DEVELOPMENT.md)
+
+A **deep** document: how to develop the project safely without breaking what works. To just run the tool see the [README](../README.md); to understand the structure see [ARCHITECTURE](ARCHITECTURE.md).
 
 ---
 
-## 1. البيئة والتهيئة
+## 1. Environment
 
 ```bash
-npm install          # Node >= 20 (المشروع مُختبر على Node 22)
-npm run check        # البوابة الكاملة: typecheck + test + build
-npm link             # يوفّر الأمر `vara` عالمياً للتجربة اليدوية
+npm install          # Node >= 20 (CI runs Node 20 and 22 on Ubuntu, Windows and macOS)
+npm run check        # the full gate: typecheck + test + build
+npm link             # provides the `vara` command globally for hand testing
 ```
 
-أوامر فردية:
+Individual commands:
 
-| الأمر | الوظيفة |
+| Command | What it does |
 | --- | --- |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | `vitest run` (الافتراضي: الوضع أحادي التشغيل) |
-| `npm run dev [args]` | تشغيل من المصدر مباشرة عبر `tsx` — لتطوير VARA نفسه بلا إعادة بناء (مثال: `npm run dev run "مهمة"`) |
-| `npm run test:watch` | مراقبة أثناء التطوير |
-| `npm run build` | بناء `dist/` |
-| `npm run check` | البوابة الثلاثية — **إلزامية قبل كل push** |
+| `npm run typecheck` | `tsc --noEmit` for the app and for `ui/` |
+| `npm test` | `vitest run` (single-run mode) |
+| `npm run dev [args]` | Run from source via `tsx` — develop VARA without rebuilding (e.g. `npm run dev run "a task"`) |
+| `npm run dev:ui` | A development host with a **scripted fake model** and a throw-away data folder, so the web UI can be built and checked with no key and no cost; prints the owner and guest links |
+| `npm run build:ui` | Bundle `ui/` into `src/server/ui-assets.ts` (generated, git-ignored; runs automatically before typecheck, test, build and dev) |
+| `npm run test:watch` | Watch mode |
+| `npm run build` | Build `dist/` |
+| `npm run check` | The three-part gate — **mandatory before every push** |
 
-**لا git commit قبل أن تكون `npm run check` خضراء بالكامل.** الفشل يُبلَّغ كما هو — لا يُخفى ولا يُجمَّد.
+**No commit before `npm run check` is fully green.** A failure is reported as it is — never hidden or frozen.
 
 ---
 
-## 2. خريطة المشروع
+## 2. Project map
 
 ```
 src/
+  cli.tsx          entry points: TUI / run / resume / sessions / ui / serve / invite / guests / setup / providers / secret / config / doctor
+  doctor.tsx       `vara doctor`
+  runtime.ts       builds the provider; resolves keys (vault, then env)
+  version.ts       version injected at build time
   core/
-    types.ts       كل الأنواع — مصدر الحقيقة. أي تغيير هنا ينتشر؛ راجع كل المستخدمين.
-    engine.ts      الحلقة الواحدة، الميزانية، الإثبات، رفض الإكمال الكاذب (أكبر ملف — تعامل بحذر)
-    prompt.ts      رسالة النظام
-    session.ts     إنشاء الجلسة + تحقق مدخلات zod
-    store.ts       لقطة الحالة + سجل الأحداث على القرص
-    runner.ts      إقلاع المحرك مع إيقاف نظيف
-    context.ts     تقدير الرموز ونافذة السياق
+    types.ts       all types — the source of truth; a change here spreads, check every user
+    engine.ts      the one loop, budgets, proof, rejecting false completion (the biggest file — handle with care)
+    intent.ts      deterministic EN+AR message classifier
+    prompt.ts      the system message
+    session.ts     session creation + zod input validation
+    store.ts       state snapshot + event log on disk
+    runner.ts      engine lifecycle with a clean stop
+    runner-factory.ts  the ONE place wiring a session to provider, skills, budgets, MCP
+    skills.ts  builtin-skills.ts   SKILL.md discovery and the built-in five
+    context.ts     token estimates and the context window
   tools/
-    types.ts       عقد الأداة (Tool<T>) وتحويل zod → JSON Schema
-    registry.ts    كل الأدوات + `toolsForMode(plan|build)`
-    permissions.ts authorize() — الممر الوحيد لكل تنفيذ
-    fs-tools.ts  shell-tool.ts  git-tools.ts  control-tools.ts
+    types.ts       the tool contract (Tool<T>) and zod → JSON Schema
+    registry.ts    all tools + `toolsForMode(plan|build)`
+    permissions.ts authorize() — the only path to any execution
+    fs-tools.ts  shell-tool.ts  git-tools.ts  control-tools.ts  search.ts
   llm/
-    provider.ts    عقد المزوّد + createProvider + عقد أحداث البث (text/thinking/done/error)
-    openai.ts      أي نقطة OpenAI-compatible (يشمل KT-AI ونحوه)
-    anthropic.ts   واجهة Anthropic (تدعم كتل التفكير الممتدة)
-    retry.ts       إعادة المحاولة بتأخير أُسّي: 429/5xx فقط، وحيدة بعد أخطاء 4xx
-    sse.ts         قارئ SSE صغير
-    registry.ts    سجل النماذج: نافذة السياق + التسعير
-    usage.ts       تطبيع استهلاك المزوّدين المختلفين
-    cost.ts        حساب التكلفة — ولا يخمن أبداً (null بدل 0)
-  security/
-    vault.ts       تشفير AES-256-GCM بمفتاح مربوط بالجهاز (DPAPI/Keychain)
-    redact.ts      scrubAll — يمرّ على كل مخرجات قبل حفظها
-  config/          config.ts (zod) + paths.ts (VARA_HOME) + refs.ts (حماية الأسماء من تسرّب المفاتيح)
-  tui/             App.tsx + keymap.ts (السياسة الوحيدة للمفاتيح) + مكوّنات العرض
-  cli.tsx          نقاط الدخول: TUI / run / resume / sessions / secret / config
-  runtime.ts       يبني المزوّد ويحقن الأسرار في البيئة داخل الأمر فقط
-tests/             17 ملفاً — انظر §5
+    provider.ts    provider contract + createProvider + stream event contract
+    openai.ts  anthropic.ts  retry.ts  sse.ts
+    registry.ts    model registry: context window + pricing
+    usage.ts  cost.ts      usage normalisation; cost — never guesses (null, not 0)
+    capabilities.ts        which models can think, and how
+    presets.ts  discovery.ts   provider presets; list and test models
+  mcp/             client.ts (stdio + HTTP), hub.ts, input.ts
+  security/        vault.ts (AES-256-GCM), redact.ts (scrubAll)
+  config/          config.ts (zod), providers.ts (pure multi-provider ops), paths.ts (VARA_HOME), refs.ts
+  server/          access.ts, host.ts, http.ts, manage.ts, commands.ts, ui-assets.ts (generated)
+  tui/             App.tsx + keymap.ts (the only key policy) + rendering components
+ui/                the web interface (React): src/components, i18n.ts, commands.ts, md.ts, transcript.ts, styles
+tests/             ~35 files — see §4
 scripts/
-  live-flow-check.ts    تدفق حيّ حقيقي ضد المزوّد (يحتاج KTAI_API_KEY + VARA_HOME معزول)
-  live-usage-check.ts   استدعاء حيّ واحد لفحص تطبيع الاستهلاك والتسعير
+  build-ui.mjs          bundles ui/ into src/server/ui-assets.ts
+  dev-host.ts           the fake-model development host
+  package-release.mjs   self-contained release packages (esbuild bundle + bundled Node)
+  live-flow-check.ts    a real end-to-end flow against a provider (see §4)
+  live-usage-check.ts   one real call to check usage normalisation and pricing
+install.ps1  install.sh      one-command installers
+.github/workflows/  ci.yml (3 OS × Node 20/22), release.yml (on a `v*` tag)
 ```
 
-**قواعد كتابة الكود** (ملزمة):
+**Coding rules** (binding):
 
-- **لا mutation**: أنشئ كائنات جديدة (`{...obj}`)، لا تعدّل الممرَّرة.
-- **ملفات صغيرة**: 200–400 سطر عادة، 800 حدّ أقصى. `App.tsx` و`engine.ts` استثناءات قائمة بأصل موثّق — لا تُطِلهما.
-- **كل إدخال خارجي يمرّ على zod**: إعدادات، مدخلات مستخدم، استدعاءات نماذج.
-- **لا `console.log` في `src/`**: الإخراج في `cli.tsx` فقط (هو واجهة سطر الأوامر).
-- **الأخطاء تُبلَّغ برسالة تفيد المستخدم**، لا بـ `catch {}` صامت.
-- **unknown ≠ 0**: أي قيمة غير معروفة تبقى `null`/`unknown` في كل الطبقات حتى العرض.
-
----
-
-## 3. كيف تضيف شيئاً
-
-### أداة جديدة
-
-1. أنشئها في الملف المناسب تحت `src/tools/` بنمط `Tool<T>` الموجود (اسم، وصف، مخطط zod، `readonly` صادق، `run`).
-2. سجّلها في `tools/registry.ts` وأضفها إلى `toolsForMode` بالوضع الصحيح.
-3. **إن كانت قادرة على الكتابة فلا تجعلها `readonly` أبداً** — هذا العلم هو الذي يفرض plan-mode على الأداة.
-4. اختبار في `tests/`: نجاح في build، ورفض في plan، وفحص guard إن وُجد.
-5. حدّث جدول الأدوات في README وARCHITECTURE.
-
-### أمر TUI جديد
-
-أضفه إلى `COMMANDS` في `src/tui/commands.ts` (مصدر وحيد: القائمة + `/help` + اللوحة + الإرسال)، ثم عالجه في `submit`/`runCommand` في `App.tsx`، وأضف اختباراً يكتب اسمه فعلياً في `tests/tui-app.test.tsx`.
-
-### اختصار جديد
-
-**لا تُسجَّل المعالج في المكوّن.** السياسة كلها في `resolveKey` (`src/tui/keymap.ts`):
-
-1. أضف الفرع وأعد `KeyAction` محدّداً.
-2. عالج الـ `KeyAction` في `App.tsx` (عبر المرآة ref إن كان يقرأ حالة).
-3. أضف السطر إلى `KEYS_HELP` + التلميح المناسب في الواجهة.
-4. أضف السطر إلى مصفوفة الاختصارات في `tests/keymap.test.ts` — هذه المصفوفة ليست توثيقاً، إنها خط الدفاع.
-
-### نموذج جديد في السجل
-
-في `src/llm/registry.ts` أضف `ModelSpec` بتسعير صحيح فقط إن عرفته تسعيراً **صريحاً**. تسعير مقدَّر بحذاء = انتهاك لقاعدة حقيقة التكلفة.
+- **No mutation:** create new objects (`{...obj}`), do not modify what is passed in.
+- **Small files:** 200–400 lines usually, 800 the ceiling. `App.tsx` and `engine.ts` are existing, documented exceptions — do not make them longer.
+- **Every external input goes through zod:** config, user input, model calls.
+- **No `console.log` in `src/`** except the command-line surfaces (`cli.tsx`, `doctor.tsx`, `server/commands.ts`).
+- **Errors are reported with a message that helps the user**, never a silent `catch {}`.
+- **unknown ≠ 0:** an unknown value stays `null`/`unknown` through every layer to the display.
 
 ---
 
-## 4. الاختبارات
+## 3. How to add things
 
-### العزل — غير قابل للتفاوض
+### A new tool
 
-`tests/setup.ts` يضبط `VARA_HOME` إلى مجلد مؤقت **قبل** استيراد أي وحدة من `src/` (لأن `paths.ts` يقرأه عند الاستيراد). بدون هذا تُكتب الجلسات والمخزن في `~/.vara` الحقيقي. لا تحذف هذه الطبقة ولا تتجاوزها.
+1. Create it in the right file under `src/tools/` following the `Tool<T>` pattern (name, description, zod schema, an honest `readonly`, `run`).
+2. Register it in `tools/registry.ts` and add it to `toolsForMode` for the right mode.
+3. **If it can write, never mark it `readonly`** — that flag is what enforces plan mode on the tool.
+4. Add a test: success in build, refusal in plan, and the guard check if there is one.
+5. Update the tool table in ARCHITECTURE (both languages).
 
-الاختبارات المعزولة وحدها كافية للبوابة — **لا تشغّل اختباراً حقيقياً ضد مزوّد مدفوع** ضمن `npm test`.
+### A new terminal command
 
-### أنماط الاختبار المُثبتة
+Add it to `COMMANDS` in `src/tui/commands.ts` (the one source for the list, `/help`, the palette and dispatch), handle it in `submit`/`runCommand` in `App.tsx`, and add a test that actually types its name in `tests/tui-app.test.tsx`.
 
-- **FakeProvider**: سكربت سلوكيات ينفد ثم "يعلّق للأبد" — المحاكاة الوحيدة الأمينة لنموذج عالق، وتمنع تسرّب أحداث جلسة مُغلقة.
-- **الكتابة الفعلية للمفاتيح** (`\t`, `\r`, `\x0b`, `\x1b`, `\x0e`, `\x17`): لا تستدعي معالجاً مباشرة وتدّعي أن الاختصار يعمل — اكتب المفتاح واقرأ الشاشة.
-- **`vi.waitFor` للمواعيد**: القيم الافتراضية قصيرة (1s) بينما بعض الاكتمالات الحقيقية ~1.5s — ارفع المهلة صراحة حيث تحتاج.
-- **فخّ متكرر**: لا تكتب مفتاحين متتاليين دون `waitFor` بينهما؛ الحالة قد لا تكون قد استقرت بعد.
-- **فخّ عزل الوحدات في vitest**: الاستيراد الثابت (`import x from '...'`) والاستيراد الديناميكي (`await import('...')`) قد يقعان على **مثيلَي وحدة منفصلَين** داخل نفس الملف. عملياً: لو اختبرت `registerSecret` من الملف بينما يستورد المحرك `scrubAll`، قد لا يقرأ المحرك تسجيلك. الحل: استورد ديناميكياً كل ما يعتمد على حالة مشتركة، أو اختبر ما يلتقطه `scrubAll` (أنماط `sk-…`) لا ما سجّلته يدوياً. انظر `tests/engine.test.ts` و`tests/runtime-refs.test.ts`.
+### A new shortcut
 
-### ملفات خط الدفاع — لا تُضعف
+**Do not register a handler in a component.** All the policy is in `resolveKey` (`src/tui/keymap.ts`):
 
-| الملف | ما يحرسه |
+1. Add the branch and return a specific `KeyAction`.
+2. Handle the `KeyAction` in `App.tsx` (via a ref mirror if it reads state).
+3. Add the line to `KEYS_HELP` and the relevant hint in the UI.
+4. Add the line to the shortcut matrix in `tests/keymap.test.ts` — that matrix is not documentation, it is the defence line.
+
+### A new web UI command or setting
+
+Commands: add a `Cmd` where the person can use it (`SessionPage.tsx` for session commands, `App.tsx` for global ones) — it appears in `/`, the palette and help at once. Strings: add the key to **both** dictionaries in `ui/src/i18n.ts` (a test fails if Arabic lacks a key). A new management action: add it to `src/server/manage.ts` (owner-only, through `update()`), route it in `Manager.route`, and add a case to `tests/manage.test.ts`.
+
+### A new model in the registry
+
+In `src/llm/registry.ts` add a `ModelSpec` with pricing **only** if you know the price explicitly. An estimated price breaks the cost-truthfulness rule.
+
+---
+
+## 4. Tests
+
+### Isolation — non-negotiable
+
+`tests/setup.ts` points `VARA_HOME` at a temporary folder **before** any module from `src/` is imported (because `paths.ts` reads it at import time). Without it, sessions and the vault would be written to your real `~/.vara`. Do not remove or bypass this layer.
+
+Isolated tests alone are enough for the gate — **never run a real test against a paid provider inside `npm test`.**
+
+### Proven test patterns
+
+- **FakeProvider:** a script of behaviours that runs out and then "hangs forever" — the only safe simulation of a stuck model; it also stops events leaking from a closed session.
+- **Real key typing** (`\t`, `\r`, `\x0b`, `\x1b`, `\x0e`, `\x17`): do not call a handler directly and claim the shortcut works — type the key and read the screen.
+- **`vi.waitFor` for timing:** the defaults are short (1 s) while some real completions take ~1.5 s — raise the timeout explicitly where needed.
+- **A recurring trap:** do not type two keys in a row without a `waitFor` between them; state may not have settled.
+- **vitest module isolation:** a static import and a dynamic `await import(...)` can land on **two separate module instances** in one file. If you test `registerSecret` from the file while the engine imports `scrubAll`, the engine may not see your registration. Import dynamically everything that depends on shared state, or test what `scrubAll` catches by pattern (`sk-…`). See `tests/engine.test.ts` and `tests/runtime-refs.test.ts`.
+- **Server tests** start a real `startServer` on port 0 with an echo provider and a temporary access store (`tests/server.test.ts`, `tests/manage.test.ts`); the `Manager` takes injected dependencies, so no test touches the network or the vault.
+
+### Defence-line files — never weaken
+
+| File | What it guards |
 | --- | --- |
-| `tests/keymap.test.ts` | مصفوفة الاختصارات كاملة — أي حذف اختصار يفشل هنا |
-| `tests/commands.test.ts` | قائمة الأوامر و`/help` |
-| `tests/tui-app.test.tsx` | تكامل دورة الحياة: إنشاء، تبويبات، لوحة، أوامر أثناء الترحيب |
-| `tests/engine.test.ts` | رفض الإكمال الكاذب — أهم وعود المشروع |
-| `tests/permissions.test.ts` | plan/build وسياسة الأوامر |
-| `tests/redact.test.ts` `tests/vault.test.ts` | عدم تسرّب الأسرار |
-| `tests/runtime-refs.test.ts` | `apiKeySecret`/`apiKeyEnv` اسمان لا مفتاحاً، ورسالة "No API key" بلا مفتاح |
+| `tests/keymap.test.ts` | The whole shortcut matrix — removing a shortcut fails here |
+| `tests/commands.test.ts` | The command list and `/help` |
+| `tests/tui-app.test.tsx` | Lifecycle integration: create, tabs, palette, commands on the start screen |
+| `tests/engine.test.ts` | Rejecting false completion — the project's most important promise |
+| `tests/permissions.test.ts` | plan/build and the command policy |
+| `tests/redact.test.ts` `tests/vault.test.ts` | No secret leaks |
+| `tests/runtime-refs.test.ts` | `apiKeySecret`/`apiKeyEnv` are names, not keys; "No API key" message without a key |
+| `tests/access.test.ts` `tests/server.test.ts` `tests/manage.test.ts` | Guest permissions, hardening, owner-only management |
 
-### فحوصات حيّة (اختيارية، عند الشك في سلوك المزوّد الحقيقي)
+### Live checks (optional, when a real provider's behaviour is in doubt)
 
 ```powershell
-$env:VARA_HOME="C:\temp\vara-live-home"   # مجلد قابل للتخلص — لا تستخدم ~/.vara
-$env:KTAI_API_KEY="..."                    # من مصدر آمن — لا تلصقه في ملف
-npx tsx scripts\live-flow-check.ts         # تدفق حقيقي كامل: أداة → تحقق → قبول
-npx tsx scripts\live-usage-check.ts        # استدعاء واحد: تطبيع الاستهلاك + التسعير
+$env:VARA_HOME="C:\temp\vara-live-home"          # a disposable folder — never use ~/.vara
+$env:VARA_LIVE_KEY_ENV="OPENAI_API_KEY"           # name of the env var holding the key (default OPENAI_API_KEY)
+$env:OPENAI_API_KEY="..."                         # from a safe source — do not paste it into a file
+$env:VARA_LIVE_BASE_URL="https://api.openai.com/v1"   # optional, this is the default
+$env:VARA_LIVE_MODEL="gpt-4o-mini"                    # optional, this is the default
+npx tsx scripts\live-flow-check.ts                # a full real flow: tool → verify → accept
+npx tsx scripts\live-usage-check.ts               # one call: usage normalisation + pricing
 ```
 
-هذه السكربتات تثبت ما لا تثبته الاختبارات المُزيفة: سلوك الـ SSE الحقيقي، صيغ الاستهلاك، ومسار التحقق الفعلي.
+These scripts prove what fakes cannot: real SSE behaviour, usage formats, and the actual verification path.
 
 ---
 
-## 5. فخاخ Ink المُوثّقة (اقرأها قبل لمس `App.tsx`)
+## 5. Documented Ink traps (read before touching `App.tsx`)
 
-1. **الاقتران القديم** — `useInput` يُعاد تثبيته كل رسم؛ مفتاح قد يصل قبل تسطير التأثيرات. القاعدة: **مرآة refs** تُكتب كل رسم (`overlayRef`, `escArmedRef`, `draftKindRef`, `draftModeRef`, `inputRef`)، والمعالج و`submit` يقرآن منها حصراً — لا من متغيرات الإغلاق.
-2. **`Esc` على مستوى التطبيق** — في `resolveKey`، لا داخل المكوّن. يعمل حتى قبل تثبيت اشتراك الأوفرلاي، و`onClose` يعيد الإغلاق بأمان.
-3. **حذف تبويب يوقف الـ runner متزامناً** (`runner.pause()` sync) — المزوّد العالق لا يمنع إغلاق التبويب.
-4. **LSS chunk = لصق** — النص متعدد الأحرف يصل دفعة واحدة؛ لا تعالجه كأحرف متفرقة.
-5. **`exitOnCtrlC: false`** — ink يخرج قبل المعالج اليدوي؛ بدون هذا يُفقد حفظ الجلسة في كل خروج بـ Ctrl+C.
-
----
-
-## 6. تدفق العمل مع الشريك
-
-انظر [CONTRIBUTING.md](../CONTRIBUTING.md) — قواعد الفروع والـ commits والمراجعة قبل الدفع.
-
-باختصار: فرع لكل تغيير → `npm run check` → commit بـ Conventional Commits → push → مراجعة الشريك على diff.
+1. **Stale closure** — `useInput` is re-attached every render; a key may arrive before effects run. Rule: **ref mirrors** written every render (`overlayRef`, `escArmedRef`, `draftKindRef`, `draftModeRef`, `inputRef`); the handler and `submit` read only from them — never from closure variables.
+2. **`Esc` at application level** — in `resolveKey`, not inside a component. It works even before an overlay subscribes, and `onClose` closes again safely.
+3. **Closing a tab stops the runner synchronously** (`runner.pause()`) — a stuck provider cannot block closing a tab.
+4. **One chunk = a paste** — multi-character text arrives at once; do not process it as separate characters.
+5. **`exitOnCtrlC: false`** — Ink exits before a manual handler runs; without this every Ctrl+C exit would lose the session save.
 
 ---
 
-## 7. فخاخ معروفة عند تعديل الواجهة والمحرك
+## 6. Working with a partner
 
-- **Ink يعيد رسم كل شيء إن كان الإطار بطول الطرفية** — أبقِ إطار الجلسة `rows-1`، واجعل كل صف ثابت `flexShrink={0}` (الرأس، الفاصل، صندوق الإدخال، التذييل، كتل المحادثة)، وإلا ضغطها Yoga عند فيض المحتوى (يختفي صندوق الإدخال، أو تضيع أسطر).
-- **لا تعدّل مخرجات الأدوات القديمة تدريجياً** — كل تعديل في منتصف المحادثة يكسر كاش المزوّد. الضغط يتم **دفعة واحدة** (`compactIfNeeded`)، ولا تضع في رسالة النظام ما يتغيّر كل دورة (استخدم `buildStateNote`).
-- **مفاتيح لوحة المفاتيح قد تصل قبل إعادة الرسم** — اقرأ الحالة من refs (`useSync`) داخل معالجات `useInput` لا من الإغلاق.
-- **اختبارات Ink**: اكتب `await settle()` قبل المفتاح الأول وبعد فتح أي طبقة (اشتراكها يُركَّب بعد أول إطار).
-- **نهايات الأسطر**: المستودع `eol=lf`. أي سكربت يكتب ملفات على Windows يجب أن يكتب LF.
-- **`vara` يشغّل `dist/`** — أعد `npm run build` بعد كل تعديل قبل أن تجرّب الأمر العالمي.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) — branch, commit and review rules before pushing. In short: a branch per change → `npm run check` → Conventional Commit → push → partner reviews the diff.
 
 ---
 
-## 7.1 كيف تُصدر إصداراً
+## 7. Known traps when changing the interface and engine
+
+- **Ink redraws everything if the frame is as tall as the terminal** — keep the session frame at `rows-1` and make every fixed row `flexShrink={0}` (header, divider, input box, footer, chat blocks), otherwise Yoga squeezes them when content overflows (the input box vanishes, or lines are lost).
+- **Do not edit old tool outputs incrementally** — every edit mid-conversation breaks the provider's cache. Compaction happens **in one batch** (`compactIfNeeded`), and the system message must not hold anything that changes every turn (use `buildStateNote`).
+- **Keystrokes may arrive before a redraw** — read state from refs (`useSync`) inside `useInput` handlers, not from the closure.
+- **Ink tests:** `await settle()` before the first key and after opening any layer (its subscription is mounted after the first frame).
+- **Line endings:** the repository is `eol=lf`. Any script that writes files on Windows must write LF.
+- **`vara` runs `dist/`** — run `npm run build` after every change before trying the global command.
+- **The embedded web UI is generated** — `src/server/ui-assets.ts` is git-ignored and rebuilt by `npm run build:ui` (and automatically by the other scripts); never edit it.
+- **Heredocs and Windows:** generating files with shell heredocs or Python text mode can corrupt backslashes and line endings — write files with an editor tool or a script file.
+
+---
+
+## 7.1 How to cut a release
 
 ```bash
-# 1) ارفع الإصدار في package.json وسجّل التغيير في CHANGELOG.md، وادفع إلى main (CI أخضر).
-# 2) وسم ودفع الوسم — هذا كل شيء:
-git tag v0.2.0 && git push origin v0.2.0
+# 1) Bump the version in package.json, record the change in CHANGELOG.md (and CHANGELOG.ar.md),
+#    and push to main (CI green).
+# 2) Tag and push the tag — that is all:
+git tag v0.4.0 && git push origin v0.4.0
 ```
-الـ workflow (`.github/workflows/release.yml`) يبني ويختبر ويثبّت ويرفع الحزم. **لا تعدّل الوسم بعد نشره**؛ إن فشل شيء أصلح وأصدر رقماً جديداً. تجربة محلية للحزمة: `node scripts/package-release.mjs` ثم فكّ `release/out/*` في مجلد نظيف وشغّل `vara doctor`.
+
+The workflow (`.github/workflows/release.yml`) runs the full gate, builds a self-contained package per OS (it carries its own Node.js), smoke-tests each unpacked package in a clean folder, publishes with `SHA256SUMS.txt`, and then installs for real with the actual install scripts on clean runners. **Never move a tag after it is published**; if something fails, fix it and release a new number. Local trial of a package: `node scripts/package-release.mjs`, unpack `release/out/*` into a clean folder and run `vara doctor`.
 
 ---
 
-## 8. قائمة "لا تكسرها"
+## 8. The "do not break" checklist
 
-قبل الادعاء بأن التغيير آمن، تأكد:
+Before claiming a change is safe, make sure:
 
-- [ ] `npm run check` أخضر بالكامل (وليس نصفه).
-- [ ] أي سلوك جديد/مُصلَّح له اختبار يفشل بدونه.
-- [ ] لا `null` استُبدل بـ `0` في أي مسار تكلفة أو استهلاك.
-- [ ] أي مخرجات جديدة من أداة/نموذج مرّت على `scrubAll`.
-- [ ] لا ملف خارج نطاق التغيير أُعيد تنسيقه أو "تحسينه".
-- [ ] `keymap.test.ts` و`commands.test.ts` لم تُضعف إحداهما.
+- [ ] `npm run check` is fully green (not half of it).
+- [ ] Any new or fixed behaviour has a test that fails without it.
+- [ ] No `null` was replaced by `0` in any cost or usage path.
+- [ ] Any new tool/model output passed through `scrubAll`.
+- [ ] No file outside the scope of the change was reformatted or "improved".
+- [ ] Neither `keymap.test.ts` nor `commands.test.ts` was weakened.
+- [ ] The docs were updated in both languages.

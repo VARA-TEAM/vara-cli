@@ -1,56 +1,58 @@
-# إشعارات المكوّنات الخارجية — VARA
+# Third-party notices — VARA
 
-هذا الملف يسجّل كل كود مُقتبس أو مُستوحى من مشروع خارجي، مع مصدره وإصداره وتراخيصه والتعديلات التي أُجريت عليه. الهدف: حماية استقلالية VARA والوفاء بشروط الترخيص.
+**English** · [العربية](THIRD_PARTY_NOTICES.ar.md)
+
+This file records every piece of code borrowed or inspired from an outside project, with its source, version, licence and the changes made. The aim: protect VARA's independence and honour licence terms.
 
 ---
 
-## المبدأ الحاكم
+## The governing principle
 
-لا يُنسخ أي ملف من مشاريع خارجية داخل VARA **كما هو**. ما يُؤخذ هو *الفكرة أو الخوارزمية أو استدعاءات الأداة*، ثم تُعاد كتابتها بأسلوب VARA (TypeScript صريح + zod + `ToolResult`) وبلا منصّات الأعباء الثقيلة (Effect، bun، drizzle، tree-sitter) التي تُورث اعتمادية تُضعف الاستقلالية.
+No file from an outside project is copied into VARA **as is**. What is taken is the *idea, algorithm or tool invocation*, then rewritten in VARA's style (plain TypeScript + zod + `ToolResult`) without heavyweight platforms (Effect, bun, drizzle, tree-sitter) that bring in dependencies and weaken independence.
 
 ---
 
 ## OpenCode
 
-| الحقل | القيمة |
+| Field | Value |
 | --- | --- |
-| المشروع | [opencode](https://github.com/anomalyco/opencode) |
-| الإصدار المُراجَع | `2.0.27` |
-| الرخصة | MIT (نص الرخصة محفوظ في المستودع الأصلي) |
-| حقوق النشر | `Copyright (c) 2025 opencode` |
-| طريقة الاستفادة | **استِلهال أفكار وتصميم، لا نسخ كود** |
+| Project | [opencode](https://github.com/anomalyco/opencode) |
+| Version reviewed | `2.0.27` |
+| Licence | MIT (the licence text is kept in the original repository) |
+| Copyright | `Copyright (c) 2025 opencode` |
+| How it was used | **Ideas and design were drawn on; no code was copied** |
 
-### المكوّنات المُستوحاة
+### Components drawn on
 
-| المكوّن في VARA | المقابل في OpenCode | ما أُخذ بالضبط |
+| Component in VARA | Counterpart in OpenCode | What was taken, exactly |
 | --- | --- | --- |
-| `src/tools/search.ts` (أداة `glob`) | `packages/core/src/tool/plugin/glob.ts` | *الاستدعاءات فقط*: استخدام `rg --files --glob=<pattern>` لبحث المسارات، واستبعاد `.git/` والمخفية افتراضياً، وحظر `limit`. |
-| `src/tools/search.ts` (أداة `grep`) | `packages/core/src/ripgrep.ts` + `tool/plugin/grep.ts` | *الخوارزمية*: قراءة `rg --json` واستخراج `path`/`line_number`/`lines.text`، وتصنيف أكواد الخروج (0=مطابقات، 1=لا مطابقات، 2=خطأ نمط). |
+| `src/tools/search.ts` (`glob` tool) | `packages/core/src/tool/plugin/glob.ts` | *The invocation only:* using `rg --files --glob=<pattern>` to search paths, excluding `.git/` and hidden files by default, and a `limit`. |
+| `src/tools/search.ts` (`grep` tool) | `packages/core/src/ripgrep.ts` + `tool/plugin/grep.ts` | *The algorithm:* reading `rg --json` and extracting `path`/`line_number`/`lines.text`, and classifying exit codes (0 = matches, 1 = none, 2 = pattern error). |
 
-### ما لم يُؤخذ (وعمداً)
+### What was deliberately not taken
 
-- **طبقة Effect / Service / Layer** — البنية المُغلَّفة بها كل شيء في OpenCode. VARA تستخدم حقن محرّك بسيطاً (`makeGlobTool('ripgrep' | 'node')`) لقابلية الاختبار دون تحميل المنصّة.
-- **`drizzle` / قواعد بيانات**، **`bun`**، **`node-pty`**، **`tree-sitter`** — اعتمادات ثقيلة لا تحتاجها VARA وتُضعف استقلاليتها التشغيلية.
-- **نظام الأذونات في Effect** — VARA تملك `permissions.ts` و`authorize()` الخاص بها.
+- **The Effect / Service / Layer layer** — the structure OpenCode wraps everything in. VARA uses simple engine injection (`makeGlobTool('ripgrep' | 'node')`) for testability without loading the platform.
+- **`drizzle` / databases**, **`bun`**, **`node-pty`**, **`tree-sitter`** — heavy dependencies VARA does not need and that would weaken its operational independence.
+- **The Effect permission system** — VARA has its own `permissions.ts` and `authorize()`.
 
-### التعديلات التي أُجريت على الأفكار المُستوحاة
+### Changes made to the ideas drawn on
 
-1. **محرّك قابل للحقن** — OpenCode يستدعي rg دائماً؛ VARA تتيح `node` كمحرّك بديل حتمي للاختبار وعند غياب rg.
-2. **محرّك Node يحترم `.gitignore`** — ب.parser خاص (`parseIgnoreFile`/`isIgnored`) يدعم التعليقات، والسالبة `!`، و`dirOnly`، والأنماتر، وأولوية «آخر مطابقة تفوز». OpenCode يعتمد على rg في تجاهل `.gitignore` ولا يوفّر بديلاً متساوياً.
-3. **`--no-require-git`** — أُضيف ليحترم `.gitignore` حتى خارج مستودع git (rg افتراضياً لا يحترمه إلا داخل مستودع).
-4. **توحيد الفواصل** — مسارات rg على Windows تُطبَّع إلى `/` (`normalizeRel`) لخرج ثابت عبر المنصّات.
-5. **حدود الخرج** — VARA تفرض حدودها الخاصة (`MAX_OUTPUT_CHARS`، `GREP_MAX_PER_FILE`) بدل تبنّي حدود OpenCode.
-
----
-
-## التزام الرخصة (MIT)
-
-لأن ما أُخِذ هو أفكار وتصميم وليست «أجزاء جوهرية من الكود المصدري»، لا تُلزم رخصة MIT VARA بإعادة نشر مصدرها. مع ذلك، يُثبت هذا الملف مصدر الفكرة وإصدارها وترخيصها التقديرَ الحسنَ تجاه المشروع الأصلي، ويُبقي حقوق النشر الخاصة بـ opencode محفوظة عند إعادة أي جزء مادي مستقبلاً.
-
-**إن نُقل مستقبلاً أي ملف أو جزء مادي من OpenCode، يجب توثيقه هنا فوراً في نفس الدفعة** (المصدر، الإصدار، الرخصة، التعديلات) وإبقاء نص الرخصة وإشعار حقوق النشر كما تشتري MIT.
+1. **An injectable engine** — OpenCode always calls rg; VARA also offers `node` as a deterministic alternative engine for tests and for when rg is absent.
+2. **The Node engine honours `.gitignore`** — with a purpose-built parser (`parseIgnoreFile`/`isIgnored`) that supports comments, negation `!`, `dirOnly`, anchors and "last match wins". OpenCode relies on rg for `.gitignore` handling and offers no equivalent fallback.
+3. **`--no-require-git`** — added so `.gitignore` is honoured even outside a git repository (rg by default honours it only inside one).
+4. **Separator normalisation** — rg paths on Windows are normalised to `/` (`normalizeRel`) for stable output across platforms.
+5. **Output limits** — VARA enforces its own limits (`MAX_OUTPUT_CHARS`, `GREP_MAX_PER_FILE`) instead of adopting OpenCode's.
 
 ---
 
-## مكوّنات أخرى
+## Licence commitment (MIT)
 
-لا يُعتمد حالياً أي كود من مشاريع أخرى. كل الاعتماديات في `package.json` مكتبات من طرف ثالث مُستوردة عبر npm بترخيصها المنشور — لا يُنسخ كودها إلى المستودع.
+Because what was taken is ideas and design rather than "substantial portions of the source code", the MIT licence does not oblige VARA to redistribute their source. Even so, this file records the source of the idea, its version and licence out of good faith toward the original project, and keeps opencode's copyright notice on record should any material part be brought in later.
+
+**If any file or material part of OpenCode is ever carried over, it must be recorded here immediately in the same batch** (source, version, licence, changes) and the licence text and copyright notice kept, as MIT requires.
+
+---
+
+## Other components
+
+No other project's code is currently adopted. Every dependency in `package.json` is a third-party library imported through npm under its published licence — their code is not copied into the repository. The licences of the libraries bundled into each release package are listed in that package's `THIRD_PARTY_LICENSES.txt`.

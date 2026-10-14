@@ -1,279 +1,293 @@
-# البنية المعمارية — VARA
+# Architecture — VARA
 
-وثيقة **عميقة**: تشرح كيف يعمل كل شيء ولماذا صُمّم هكذا. إن أردت فقط تشغيل الأداة، ارجع إلى [README](../README.md).
+**English** · [العربية](ar/ARCHITECTURE.md)
+
+A **deep** document: how everything works and why it was designed that way. To just run the tool, see the [README](../README.md).
 
 ---
 
-## 1. نظرة عامة
+## 1. Overview
 
 ```
                      ┌──────────────────────────────────────────┐
-  المستخدم ────────► │  TUI (Ink/React)        cli.tsx          │
-   (TUI أو run)      │  أو headless run                          │
+   You ────────────► │  Terminal UI (Ink/React)   cli.tsx       │
+   (TUI, run, web)   │  headless `vara run`, browser UI (host)  │
                      └───────────────┬──────────────────────────┘
                                      │ Session + Provider
                      ┌───────────────▼──────────────────────────┐
                      │  Engine (src/core/engine.ts)             │
-                     │  الحلقة الواحدة: دورات ⇄ أدوات          │
+                     │  one loop: turns ⇄ tools                 │
                      │  ┌────────────────────────────────────┐  │
-                     │  │ authorize() → الأداة → الدليل      │  │
+                     │  │ authorize() → tool → evidence      │  │
                      │  └────────────────────────────────────┘  │
-                     │  عند complete: تحقق مستقل ثم القبول/الرفض│
+                     │  on `complete`: independent verification │
                      └───────┬──────────────────┬───────────────┘
                              │                  │
               ┌──────────────▼───┐   ┌──────────▼──────────────┐
               │ Provider (llm/)  │   │ Store (core/store.ts)   │
-              │ HTTP مباشر + SSE │   │ ~/.vara/sessions/<id>/  │
-              │ تسعير واستهلاك  │   │ state.json+events.jsonl │
+              │ direct HTTP+SSE  │   │ ~/.vara/sessions/<id>/  │
+              │ pricing, usage   │   │ state.json+events.jsonl │
               └──────────────────┘   └─────────────────────────┘
-                     كل مخرجات النموذج تمرّ عبر redact قبل الحفظ
+                  every model/tool output is scrubbed before it is saved
 ```
 
-**مكوّنات قليلة وحدود واضحة:**
-
-| الطبقة | المسار | المسؤولية الوحيدة |
+| Layer | Path | Single responsibility |
 | --- | --- | --- |
-| النطاق | `src/core/types.ts` | تعريف كل الأنواع — مصدر الحقيقة الوحيد |
-| المحرك | `src/core/engine.ts` | الحلقة، الميزانية، الإثبات، رفض الإكمال الكاذب |
-| النيّة | `src/core/intent.ts` | تصنيف كل رسالة: chat / question / task / goal |
-| الأدوات | `src/tools/*` | التنفيذ الفعلي + فرض الصلاحيات |
-| MCP | `src/mcp/*` | عميل Model Context Protocol (stdio + HTTP) ومركز الخوادم |
-| المهارات | `src/core/skills.ts` | اكتشاف `SKILL.md` وفهرستها |
-| النماذج | `src/llm/*` | HTTP/SSE، التطبيع، التسعير |
-| الأمان | `src/security/*` | تشفير الأسرار ومسحها من المخرجات |
-| الاستضافة | `src/server/*` | جلسات مشتركة، دعوات، صلاحيات، API محلي |
-| التخزين | `src/core/store.ts` | لقطة الحالة + سجل الأحداث |
-| الواجهة | `src/tui/*` | عرض فقط — لا منطق أعمال |
+| Domain | `src/core/types.ts` | All types — the single source of truth |
+| Engine | `src/core/engine.ts` | The loop, budgets, proof, rejecting false completion |
+| Intent | `src/core/intent.ts` | Classify each message: chat / question / task / goal |
+| Tools | `src/tools/*` | Real execution + permission enforcement |
+| MCP | `src/mcp/*` | Model Context Protocol client (stdio + HTTP) and server hub |
+| Skills | `src/core/skills.ts`, `builtin-skills.ts` | Discover and index `SKILL.md` playbooks |
+| Runner | `src/core/runner.ts`, `runner-factory.ts` | Engine lifecycle across pauses; the one place that wires a session to provider, skills, budgets, MCP |
+| Models | `src/llm/*` | HTTP/SSE, normalisation, pricing, model discovery |
+| Security | `src/security/*` | Secret encryption and output scrubbing |
+| Host | `src/server/*` | Shared sessions, invites, permissions, local HTTP API, management API |
+| Storage | `src/core/store.ts` | State snapshot + event log |
+| Terminal UI | `src/tui/*` | Rendering only — no business logic |
+| Web UI | `ui/` | React app embedded into the release bundle |
 
-قاعدة تصميم: **الواجهة لا تحتوي منطق أعمال**، والمحرك لا يعرف شيئاً عن الواجهة (يتواصل عبر `EngineEvent`، فيمكن استبدال TUI بأي شيء آخر لاحقاً).
-
----
-
-## 2. دورة التنفيذ
-
-`Engine.run()` تدور حتى تصل الجلسة إلى حالة نهائية أو حالة انتظار:
-
-0. **توجيه النيّة** (`routeIntent`) — قبل أول دورة: أي نوع هذه الرسالة؟ الجلسة المثبّتة (TASK/GOAL يدوياً) لا تُصنَّف؛ العمل غير المنتهي يبقى عملاً؛ غير ذلك يُصنَّف، والنموذج يملك الكلمة الأخيرة بأداة `escalate`. الدردشة بلا أدوات، السؤال بأدوات قراءة، والعمل بكل الأدوات. **الردّ النصي في الدردشة/السؤال ينهي الدور** (`ready`) — لا تكرار.
-1. **حقن التعليمات المتأخرة** — أي `follow-up` كتبه المستخدم أثناء العمل يُحقن في بداية الدورة الآمنة التالية، ويُسجَّل دوره (`appliedAtTurn`) ليكون شفافاً.
-2. **فحص الميزانية** — `maxTurns` / `maxDurationMs` / `maxModelCalls`. تحذيرات عند 70% (راجع الشروط) و80% (أوقف العمل غير الأساسي) و90% (نقطة تقرير إجبارية) — كل تحذير يُطلق مرة واحدة فقط.
-3. **استدعاء النموذج** — رسالة النظام (`prompt.ts`) + النص + النسخة المختصرة من النص السابق + تعليمات المتابعة.
-4. **تنفيذ الأدوات** — كل استدعاء يمرّ through `authorize()` الوحيد (انظر §4). النتيجة تُسجَّل في النص كرسالة `tool`.
-5. **كشف توقف التقدم** — دورات بلا نص ولا أدوات ولا أدلة تُحوِّل الجلسة إلى `waiting_user` بدل استهلاك الميزانية بلا طائل.
-6. **التكرار** — تُكرَّر حتى الإكمال أو الفشل أو توقف المستخدم.
-
-**ضد تكرار الفشل**: فشلتين متتاليتين لنفس الأداة يفرضان تغيير استراتيجية، لا إعادة محاولة عمياء.
-
-### JSON تالف من النموذج
-
-النماذج تُخرج أحياناً JSON ناقصاً في استدعاء أداة. `repairTruncatedJson()` يرمّزه عند الإمكان؛ إن تعذّر، يُعاد الخطأ للنموذج كنص يفهمه (بدل انهيار الحلقة).
+Design rule: **the interfaces hold no business logic**, and the engine knows nothing about them (it speaks through `EngineEvent`), so the terminal UI, the browser UI and headless runs all use the same engine.
 
 ---
 
-## 3. آلة الحالات
+## 2. The execution loop
 
-`SessionState` في `types.ts` — كل انتقال له سبب مسجّل (`stateReason`):
+`Engine.run()` loops until the session reaches a final or waiting state:
 
-| الحالة | المعنى |
+0. **Intent routing** (`routeIntent`, using `classifyIntent` in `intent.ts`) — before the first turn: what kind of message is this? A session pinned by hand (TASK/GOAL) is not classified; unfinished work stays work; anything else is classified, and the model has the last word through the `escalate` tool. Chat has no tools, a question has read tools, work has all tools. **A text-only reply in chat/question ends the turn** (`ready`) — no repeating.
+1. **Late instructions** — any follow-up the user typed while it worked is injected at the start of the next safe turn, and its turn is recorded (`appliedAtTurn`) so it is transparent.
+2. **Budget check** — `maxTurns` / `maxDurationMs` / `maxModelCalls`. Warnings at 70% (review requirements), 80% (stop non-essential work) and 90% (mandatory checkpoint report); each fires once.
+3. **Model call** — system message (`prompt.ts`) + transcript (compacted) + follow-ups.
+4. **Tool execution** — every call goes through the single `authorize()` (see §4). The result is recorded as a `tool` message.
+5. **Stall detection** — turns with no text, no tools and no evidence move the session to `waiting_user` instead of burning budget; the stall counter only resets on real progress (a successful tool or a completion claim).
+6. **Repeat** until completion, failure or the user stops it.
+
+**Against repeated failure:** two failures in a row of the same tool force a change of strategy, not a blind retry. Identical consecutive tool calls are detected as a loop.
+
+**Broken JSON from the model:** models sometimes emit truncated JSON in a tool call. `repairTruncatedJson()` fixes it when possible; otherwise the error goes back to the model as text it can act on instead of crashing the loop.
+
+---
+
+## 3. State machine
+
+`SessionState` in `types.ts`; every transition has a recorded reason (`stateReason`):
+
+| State | Meaning |
 | --- | --- |
-| `idle` | أُنشئت ولم تبدأ |
-| `running` | الحلقة نشطة، تقبل رسائل متابعة عند نقاط آمنة |
-| `waiting_user` | الوكيل أوقف نفسه وينتظر قرارك (أو توقف تقدّم) |
-| `paused` | أوقفها المستخدم — الحالة محفوظة والرسائل تتراكم |
-| `interrupted` | العملية ماتت أثناء الدورة — **لا تُفترض الدورة السابقة ناجحة** |
-| `completed` | الشروط تحققت والأدلة سُجّلت |
-| `failed` | استُنفدت المحاولات/الميزانية مع سبب |
-| `stopped` | إيقاف يدوي |
+| `idle` | Created, not started |
+| `running` | The loop is active; accepts follow-ups at safe points |
+| `ready` | A chat/question was answered; waiting for your next message |
+| `waiting_user` | The agent stopped and waits for your decision (or progress stalled) |
+| `paused` | You paused it — state saved, messages queue up |
+| `interrupted` | The process died mid-turn — **the previous turn is not assumed to have succeeded** |
+| `completed` | Requirements verified and evidence recorded |
+| `failed` | Attempts/budget exhausted, with a reason |
+| `stopped` | Stopped by hand |
 
-**الاستعادة من الانقطاع** (مهمة): أي جلسة تُفتح وحالتها `running` تُحوَّل إلى `interrupted` برسالة صريحة للنموذج: "افحص ما في المجلد وأكمل — لا تفترض نجاح السابق". هذا يمنع أسوأ سيناريو: مواصلة بناء فوق أساس مفترض.
+**Recovery from interruption:** a session opened while saved as `running` becomes `interrupted` with an explicit note to the model: inspect what is in the folder and continue — do not assume the earlier step worked. This prevents the worst case: building on an assumed foundation.
 
 ---
 
-## 4. الأدوات والصلاحيات
+## 4. Tools and permissions
 
-### الجدول
-
-| الأداة | plan | build |
+| Tool | plan | build |
 | --- | --- | --- |
-| `read_file` `list_dir` `grep` | ✓ | ✓ |
+| `read_file` `list_dir` `glob` `grep` | ✓ | ✓ |
 | `git_status` `git_diff` `git_log` | ✓ | ✓ |
 | `write_file` `edit_file` `delete_file` | ✗ | ✓ |
-| `shell` | ✗ (ممنوع كلياً — ثغرة تتجاوز حظر الكتابة) | ✓ مع فحص سياسة |
+| `shell` | ✗ (forbidden outright — it would bypass the write ban) | ✓ with command policy |
 | `git_commit` | ✗ | ✓ |
-| `gh` | ✗ | ✓ (الكتابة تتطلب تفعيل النشر) |
-| `ask_user` | ✓ | ✓ — يوقف الجلسة حتى ردّك |
-| `complete` | — | ✓ — يُتبعه تحقق مستقل |
+| `gh` | ✗ | ✓ (writes need publishing enabled) |
+| `ask_user` | ✓ — pauses the session until you answer | ✓ |
+| `delegate` `skill` `escalate` | ✓ | ✓ |
+| `complete` | — | ✓ — followed by independent verification |
+| MCP tools (`mcp__<server>__<tool>`) | only those the server marks read-only | ✓ |
 
-### المبدأ الجوهري
+**The core principle:** permissions are **enforced on the tool itself**, not by telling the model not to write. The only path to execution is `authorize()` in `tools/permissions.ts`:
 
-الصلاحيات **تُفرض على الأداة نفسها**، لا بتعليم النموذج ألا يكتب. الممر الوحيد لكل تنفيذ هو `authorize()` في `tools/permissions.ts`:
-
-1. `checkToolAllowed` — وضع `plan` يرفض أي أداة غير `readonly`. أداة shell في plan ممنوعة كلياً لأنها ثغرة تتجاوز حظر الكتابة.
-2. `guard` خاص بالأداة (يحقن `cwd`، يفحص المسارات …).
-3. سياسة الأوامر في `checkCommandAllowed`:
-   - **مدمّرة دائماً**: `rm -rf /`، `mkfs`، `format C:` … → رفض قاطع.
-   - **نشر**: `git push`، `gh repo create/edit/delete`، `gh api POST/PATCH/DELETE`، `npm publish`، `docker push` → ممنوعة ما لم تُفعَّل `allowPublish` لهذه الجلسة.
+1. `checkToolAllowed` — `plan` mode rejects any tool that is not `readonly`.
+2. A per-tool `guard` (injects `cwd`, checks paths…).
+3. `checkCommandAllowed`:
+   - **Always destructive:** `rm -rf /`, `mkfs`, `format C:` … → flat refusal.
+   - **Publishing:** `git push`, `gh repo create/edit/delete`, `gh api POST/PATCH/DELETE`, `npm publish`, `docker push` … → refused unless `allowPublish` is on for that session.
 
 ---
 
-## 5. مسار الإثبات (قلب المشروع)
+## 5. The proof path (the heart of the project)
 
 ```
-النموذج يستدعي complete ──► يُرفض إن لم يغطِّ كل شرط برقم
+The model calls `complete` ──► rejected unless every requirement is covered by number
       │
       ▼
-المحرك (لا النموذج) يجمع الدليل باستقلال:
-   • الملفات المتغيرة فعلياً
-   • حالة git
-   • أمر التحقق المُهيّأ (مثل npm test) ── رمز الخروج الحقيقي
+The ENGINE (not the model) gathers evidence independently:
+   • files actually changed
+   • git status
+   • the configured verify command (e.g. npm test) — real exit code
       │
       ▼
-فشل التحقق؟ ── نعم ──► الرفض + سبب واضح + الجلسة تكمل أو تفشل
-      │ لا
+Verification failed? ── yes ──► rejection + clear reason; the session carries on or fails
+      │ no
       ▼
-القبول + سجل الأدلة (EvidenceRecord) في الجلسة
+Accepted + evidence log (EvidenceRecord) in the session
 ```
 
-نقطتان تستحقان الانتباه:
-
-- `activeRequirements` تشمل كل شرط نشط: الشروط الأصلية + كل follow-up مُطبَّق. رفض `complete` يحدث حين يتجاهل النموذج شرطاً أُضيف أثناء الطريق.
-- **`verifiedRequirements` الإلزامية**: ادعاء بـ "تحقق 0 من 0" ليس نجاحاً — النموذج يجب أن يردّ على كل شرط برقم.
-
-الأدلة تُكتب في `session.evidence` **من المحرك فقط**. النموذج لا يملك كتابة سجل الأدلة.
+- `activeRequirements` holds every active requirement: the original ones plus every applied follow-up. `complete` is rejected when the model ignores a requirement added along the way.
+- **`verifiedRequirements` is mandatory:** "verified 0 of 0" is not success — the model must answer each requirement by number.
+- Evidence is written to `session.evidence` **by the engine only**. The model cannot write the evidence log.
 
 ---
 
-## 6. أساس حقيقة التكلفة (unknown ≠ 0)
+## 6. Cost truthfulness (unknown ≠ 0)
 
-المشكلة: النموذج يدّعي اكتمال شيء لم يكتمل، والنظام يعرض "التكلفة $0.0000" وكأن القياس تم.
+The problem: a system shows "cost $0.0000" as if it had been measured when it had not.
 
-الحل في VARA طبقتان:
+VARA's answer has two layers:
 
-1. **دفتر استدعاءات** (`ModelCallRecord[]`): كل استدعاء نموذج يُسجَّل مستقلاً — الرموز كما أفاد بها المزوّد (`usageSource: 'provider'`) أو كما قدّرناها (`'estimated'`)، والتكلفة أو `null` مع سبب. مجاميع الجلسة **تُشتق من الدفتر كله**، لا تُزاد في المكان — فلا ازدواج عند الاستئناف أو إعادة التشغيل.
-2. **الرفض الذهبي**: الرموز غير المُبلَّغ عنها تبقى `null` ولا تصبح 0. التكلفة تُحسب فقط من تسعير صريح في سجلّ النماذج (`llm/registry.ts`)؛ وإلا `costUsd: null` + `unpricedCalls` يعدّ غير المعروفات.
+1. **A call ledger** (`ModelCallRecord[]`): every model call is recorded on its own — tokens as reported by the provider (`usageSource: 'provider'`) or as estimated (`'estimated'`), and the cost or `null` with a reason. Session totals are **derived from the whole ledger**, never added in place, so nothing is counted twice on resume or restart.
+2. **The golden refusal:** tokens that were not reported stay `null`, never 0. Cost is computed only from explicit pricing in the model registry (`llm/registry.ts`); otherwise `costUsd: null` and `unpricedCalls` counts the unknowns.
 
-الواجهة تعرض `unknown` صريحاً (وقد تضيف `+` عند وجود جزء غير مُسعّر)، ولا تخدع بصفر.
-
----
-
-## 7. طبقة النماذج
-
-- **بدون SDK**: HTTP مباشر إلى المزوّد مع بث SSE (`llm/sse.ts`)، مزوّدان متكافئان:
-  - `openai.ts` — أي نقطة OpenAI-compatible (يشمل المزوّدين المضيئين بواجهة `/v1`).
-  - `anthropic.ts` — واجهة Anthropic، بما فيها كتل التفكير الممتدة.
-- **عقد الأحداث** (`provider.ts`): `text` (الإجابة)، `thinking` (تفكير النموذج — يُعرض مُطهَّراً ولا يُقيَّد في سجل التدقيق لأن التفكير دليل عرض لا دليل إثبات)، `done` (النتيجة + الاستهلاك)، `error`.
-- **إعادة المحاولة** (`retry.ts`): الأخطاء العابرة فقط (429/500/502/503/529) تُعاد بتأخير أُسّي مع jitter وحدّ أقصى. أخطاء 4xx لا تُعاد إطلاقاً — خطأ العميل ليس عابراً.
-- `provider.ts` يبني المزوّد من الإعدادات؛ `runtime.ts` يحقن الأسرار (من الـ vault، أو متغيّر البيئة كبديل) في البيئة **داخل استدعاء الأمر فقط**، ويرفض بناء المزوّد إن كان `apiKeySecret`/`apiKeyEnv` يحملان مفتاحاً بدل اسم (`config/refs.ts`).
-- **سجلّ النماذج** (`registry.ts`): نافذة السياق والتسعير لكل نموذج معروف. النموذج غير المسجَّل = تسعير غير معروف = تكلفة `null` (صحيح، لا تخمين).
-- **تطبيع الاستهلاك** (`usage.ts`): يوحّد صيغ المزوّدين المختلفات في شكل واحد، ويميّز بصدق بين "المزوّد أبلغ" و"نحن قدّرنا".
+Interfaces show `unknown` honestly (with a `+` when part of the cost is unpriced) and never fake a zero.
 
 ---
 
-## 7.1 التفكير (`llm/capabilities.ts`)
+## 7. Model layer
 
-`thinkingSupport({type, baseUrl, model})` يقرّر من معرّف النموذج والـ endpoint ما إذا كان يدعم التفكير وبأي آلية: `effort` (OpenAI o-series/gpt-5، Gemini)، `budget` (Claude: ميزانية رموز التفكير الممتد)، `openrouter`. نموذج غير معروف = لا دعم = **لا يُرسَل أي بارامتر**. المستوى يُخزَّن لكل نموذج (`models[id].thinking`) ويُرسَل فقط في دورات **العمل**. مع Anthropic تُحفظ كتل التفكير الموقَّعة (`reasoning`) وتُعاد مع دورات الأدوات (شرط الـ API).
+- **No SDK:** direct HTTP to the provider with SSE streaming (`llm/sse.ts`), two equal providers:
+  - `openai.ts` — any OpenAI-compatible endpoint.
+  - `anthropic.ts` — the Anthropic API, including extended-thinking blocks.
+- **Event contract** (`provider.ts`): `text` (the answer), `thinking` (the model's reasoning — shown scrubbed and **not** written to the audit log, because thinking is display evidence, not proof), `done` (result + usage), `error`.
+- **Retry** (`retry.ts`): only transient errors (429/500/502/503/529), exponential backoff with jitter and a cap. 4xx errors are never retried — a client error is not transient.
+- **Provider construction:** `provider.ts` builds the provider from config; `runtime.ts` resolves the key (vault first, environment variable as fallback) and refuses to build the provider if `apiKeySecret`/`apiKeyEnv` hold a key instead of a name (`config/refs.ts`).
+- **Providers and discovery** (`config/providers.ts`, `llm/presets.ts`, `llm/discovery.ts`): `providers` in the config holds each provider (protocol, URL, secret name, models); `provider` stays the active one, so the rest of the code is unchanged. Models are listed from the provider's own `/models`, and a model is proven with a tiny real request (green = answered, red = failed with the reason, 429 = unknown). Nothing is tested automatically (it costs money).
+- **Model registry** (`registry.ts`): context window and pricing per known model. An unregistered model means unknown pricing, hence cost `null` — correct, not a guess.
+- **Context per model:** manual → reported by the API → built-in registry → marked "assumed"; the output reserve is capped at a quarter of the window.
+- **Usage normalisation** (`usage.ts`): unifies the providers' formats and honestly distinguishes "the provider reported" from "we estimated".
 
-## 7.2 محرّك التوفير (داخل `engine.ts` و`anthropic.ts`)
+## 7.1 Thinking (`llm/capabilities.ts`)
 
-| الآلية | الأثر |
+`thinkingSupport({type, baseUrl, model})` decides from the model id and endpoint whether the model supports thinking and by which mechanism: `effort` (OpenAI o-series/gpt-5, Gemini), `budget` (Claude: extended-thinking token budget), `openrouter`. An unknown model means no support, so **no parameter is sent**. The level is stored per model (`models[id].thinking`) and sent only on **work** turns. With Anthropic, signed thinking blocks are kept (`reasoning`) and returned with tool turns, as the API requires.
+
+## 7.2 The cost-saving engine (in `engine.ts` and `anthropic.ts`)
+
+| Mechanism | Effect |
 | --- | --- |
-| **بادئة ثابتة** | رسالة النظام لا تتغيّر بين الدورات؛ ما يتغيّر (رقم الدورة، آخر الأدلة) يُرسَل في رسالة `[STATE]` أخيرة. هكذا يعمل كاش المزوّدين. |
-| **Anthropic cache_control** | على رسالة النظام وقائمة الأدوات وآخر رسالة. |
-| **الضغط** (`compactIfNeeded`) | عند تجاوز حدّ ناعم يُقصَّر مخرج الأدوات القديم **دفعة واحدة** (آخر 8 رسائل تبقى). النص الكامل يبقى في سجل التدقيق. |
-| **منع القراءة المكررة** | `read_file` كاملة لملف لم يتغيّر mtime وما زال محتواه في المحادثة = ردّ فوري بلا إرسال. |
-| **توجيه النموذج** | `agent.cheapModel` للدردشة والأسئلة والوكلاء الفرعيين. |
-| **الوكلاء الفرعيون** | سياق نظيف صغير بدل تضخيم المحادثة الرئيسية. |
+| **Stable prefix** | The system message does not change between turns; what does change (turn number, latest evidence) goes in a final `[STATE]` message. This is what makes providers' caches work. |
+| **Anthropic `cache_control`** | On the system message, the tool list and the last message. |
+| **Compaction** (`compactIfNeeded`) | Past a soft limit, old tool output is shortened **in one batch** (the last 8 messages stay intact). The full text remains in the audit log. |
+| **Token-budget trimming** | `toModelMessages` honours the real `requestBudgetTokens`: newest to oldest, dropping the oldest tool outputs first; a message that carries `toolCalls` is never dropped. |
+| **No repeated reads** | A full `read_file` of a file whose mtime is unchanged and whose content is still in the conversation is answered instantly without sending it again. |
+| **Model routing** | `agent.cheapModel` for chat, questions and sub-agents. |
+| **Sub-agents** | A small clean context instead of inflating the main conversation. |
 
-العدّادات في `session.savings` وتُعرض بـ `/cost` وفي اللوحة الجانبية. تكلفة الوكلاء الفرعيين تُضاف لسجل الأب فتبقى الأرقام صادقة.
+Counters live in `session.savings`, shown by `/cost`, the terminal side panel and the web *Cost* tab (which also estimates dollar savings from cache and compaction when pricing is known). Sub-agent cost is added to the parent's ledger so the numbers stay honest.
 
-## 7.3 الوكلاء الفرعيون (`delegate`)
+## 7.3 Sub-agents (`delegate`)
 
-الأداة تستدعي `Engine.spawnSubagents`: حتى 4 مهام، 3 بالتوازي. كل وكيل جلسة **مؤقتة** (`ephemeral`: لا تُحفظ ولا تُسجَّل أحداثها)، بوضع الأب، ميزانية صغيرة، ولا يملك `delegate` (لا تداخل). نوع `explore` للقراءة فقط (نية `question`)، و`work` قد يعدّل ملفات (في وضع PLAN يتحوّل تلقائياً إلى explore). التقرير النهائي هو آخر ردّ نصي أو ملخص `complete`.
+The tool calls `Engine.spawnSubagents`: up to 4 tasks, 3 at a time. Each agent is an **ephemeral** session (not saved, its events not logged) with the parent's mode, a small budget (25 turns for `work`, 12 for `explore`), and no `delegate` of its own (no nesting). `explore` is read-only (a `question` intent); `work` may edit files (in PLAN mode it becomes `explore` automatically). The final report is the last text reply or the `complete` summary.
 
 ## 7.4 MCP (`src/mcp`)
 
-`McpClient` يتحدث JSON-RPC عبر stdio (أسطر JSON) أو HTTP (JSON/SSE مع `mcp-session-id`). `McpHub` يدير الاتصالات في الخلفية (خادم معطوب لا يؤثر على غيره) ويحوّل أدوات الخوادم إلى `Tool` باسم `mcp__<server>__<tool>` وبمخطط JSON الخام من الخادم. `readOnlyHint` يحدّد ما يعمل في PLAN وفي الأسئلة. **الأسرار**: الإعدادات تحمل أسماء أسرار الـ vault (`secretEnv`, `bearerSecret`) لا قيمها.
+`McpClient` speaks JSON-RPC over stdio (JSON lines) or HTTP (JSON/SSE with `mcp-session-id`). `McpHub` manages connections in the background (a broken server does not affect the others) and turns server tools into `Tool`s named `mcp__<server>__<tool>`, with the server's raw JSON schema. `readOnlyHint` decides what runs in PLAN and in questions. **Secrets:** the config holds vault secret names (`secretEnv`, `bearerSecret`), never their values. `src/mcp/input.ts` turns what a person types (a command line or a URL) into a server config.
 
-## 7.5 المهارات
+## 7.5 Skills
 
-`discoverSkills(cwd)`: مدمجة ← `~/.vara/skills` ← `<project>/.vara/skills` (الأحدث يغلب الاسم). الفهرس (اسم + وصف) في رسالة النظام، والمتن عبر أداة `skill` عند الحاجة فقط.
+`discoverSkills(cwd)`: built-in → `~/.vara/skills` → `<project>/.vara/skills` (the later one wins a name clash). The index (name + description) goes in the system message; the body is loaded through the `skill` tool only when needed. Skills named in `skills.disabled` are hidden from the agent.
 
 ---
 
-## 7.6 الاستضافة والجلسات المشتركة (`src/server`)
+## 7.6 Hosting and shared sessions (`src/server`)
 
-`vara ui` / `vara serve` يشغّل **مضيفاً** على جهازك: خادم HTTP محلي (REST للأوامر + Server-Sent Events للبث الحيّ، بلا اعتماديات). المحرك والمفاتيح والمجلد كلها عندك؛ الضيف يرسل نصاً ويستقبل أحداثاً فقط، ولا يصله أي مفتاح أبداً.
+`vara ui` / `vara serve` runs a **host** on your machine: a local HTTP server (REST for commands + Server-Sent Events for live output, no dependencies). The engine, keys and folder are all yours; a guest sends text and receives events — no key ever reaches them.
 
-| الملف | المسؤولية |
+| File | Responsibility |
 | --- | --- |
-| `access.ts` | الأدوار والصلاحيات (`Grant`)، الدعوات والضيوف (توكنات مخزَّنة كـ SHA-256 فقط)، و`authorize()` — **نقطة القرار الوحيدة** |
-| `host.ts` | `VaraHost`: يستضيف الجلسات والمشغّلات، حافظة أحداث لكل جلسة (إعادة بث بـ `after=id`)، استهلاك كل ضيف، لمحة المالك |
-| `http.ts` | الخادم والتحصين |
-| `commands.ts` | `vara ui/serve/invite/guests` |
-| `manage.ts` | `Manager`: إدارة المزوّدين والنماذج والإعدادات والمهارات وMCP للمالك فقط (`/api/manage/*`). كل تعديل يمرّ بطابور واحد ثم `apply()` الذي يبني المزوّد أولاً (يُرفض التغيير الذي لا يعمل قبل حفظه)؛ الاعتماديات (الشبكة، الخزنة) تُحقن للاختبار. |
-| `ui-assets.ts` | مُولَّد (gitignored) من `ui/` عبر `scripts/build-ui.mjs`: حزمة esbuild للواجهة (React) مضمّنة كنصوص، يقدّمها `http.ts` على `/` و`/join/*` و`/assets/*` بـ CSP صارم. رمز المالك يأتي في `#token=` فيُنقل إلى sessionStorage ويُزال من الرابط؛ الصلاحيات تُحسب في الخادم (`view.can`) والواجهة تعرضها فقط. |
+| `access.ts` | Roles and powers (`Grant`), invites and guests (tokens stored only as SHA-256), and `authorize()` — **the single decision point** |
+| `host.ts` | `VaraHost`: hosts sessions and runners, a per-session event buffer (replay with `after=id`), per-guest usage, per-session extras (insights, markdown export, stop, task↔goal, project file search for `@`) |
+| `http.ts` | The server and its hardening; routes |
+| `manage.ts` | `Manager`: owner-only management of providers, models, settings, skills and MCP (`/api/manage/*`). Every change goes through one queue and then `apply()`, which builds the provider **first** (a change that cannot work — e.g. a missing key — is refused before it is saved). Network and vault dependencies are injected for tests. |
+| `commands.ts` | `vara ui/serve/invite/guests`; owns the live config and swaps the provider when settings change |
+| `ui-assets.ts` | Generated (git-ignored) from `ui/` by `scripts/build-ui.mjs`: the esbuild bundle of the React UI embedded as strings, served at `/`, `/join/*` and `/assets/*` with a strict CSP. The owner token arrives in `#token=`, is moved to sessionStorage and removed from the address bar; powers are computed on the server (`view.can`) and the UI only displays them. |
 
-**الأدوار:** المالك (كل شيء) · الضيف بمنحة (`Grant`): `watch` مشاهدة الجلسة المشتركة، `sendShared` الكتابة فيها (تصل للنموذج مسبوقة بـ `[from <اسم>]`)، `ownSession` جلسة مستقلة في نفس المجلد، `modelPolicy` (`locked` | `list` | `any`)، `mode` سقف القوة (`plan` للقراءة فقط | `build`) و`canChangeMode`، `canInterrupt`، سقوف `maxModelCalls`/`maxCostUsd`، وانتهاء. قوالب جاهزة: `viewer` · `participant` · `collaborator`. المالك يعدّل المنحة أو يسحبها فتسري **عند الطلب التالي** للضيف (وتُوقَف وكلاؤه خلال ثوانٍ).
+**API surface:** `GET /api/me`, `/api/models`, `/api/files?q=` (owner); `/api/sessions` (list, create), `/api/sessions/:id` (get), `…/messages`, `…/pause`, `…/mode`, `…/model`, `…/share`, `…/kind`, `…/stop`, `…/events` (SSE), `…/insights`, `…/export`; `/api/admin/*` (overview, invites, guests — owner only); `/api/manage/*` (providers, settings, skills, MCP — owner only).
 
-**قواعد لا تُكسر:**
-1. الصلاحيات تُفرض في `authorize()` على الخادم، لا في الواجهة.
-2. جلسة ضيف آخر **غير موجودة** بالنسبة لك (404 لا 403).
-3. مجلد العمل دائماً مجلد المضيف؛ الضيف لا يختاره، و`allowPublish` مغلق لجلساته.
-4. تكلفة غير معروفة ≠ صفر: السقف الذي يحمي المالك حين تكون التكلفة مجهولة هو `maxModelCalls`.
-5. تفكير النموذج الخاص لا يُبثّ إلا للمالك.
+**Roles:** the owner (everything) · a guest with a `Grant`: `watch` (see the shared session), `sendShared` (write in it — the model receives it prefixed `[from <name>]`), `ownSession` (their own session in the same folder), `modelPolicy` (`locked` | `list` | `any`), `mode` as a power ceiling (`plan` = read-only | `build`) and `canChangeMode`, `canInterrupt`, caps `maxModelCalls`/`maxCostUsd`, and an expiry. Presets: `viewer` · `participant` · `collaborator`. The owner can edit or revoke a grant and it takes effect on the guest's **next request** (their agents are stopped within seconds).
 
-**التحصين:** ربط على `127.0.0.1` ما لم يُطلب `--lan`؛ توكن سري لكل استدعاء (المالك: عشوائي لكل تشغيل في الـ fragment فلا يُرسل للخادم)؛ فحص `Host` (يمنع DNS rebinding — على LAN تُقبل عناوين IP الخاصة فقط، لا النطاقات) وفحص `Origin` (يمنع الطلبات من مواقع أخرى)؛ تحديد معدل للمحاولات الفاشلة ولتخمين الدعوات؛ حدّ لحجم الجسم؛ رؤوس أمان؛ والأخطاء الداخلية لا تُسرَّب للعميل.
+**Rules that are never broken:**
+1. Permissions are enforced in `authorize()` on the server, not in the interface.
+2. Another guest's session **does not exist** for you (404, not 403).
+3. The working folder is always the host's; a guest does not choose it, and `allowPublish` is off for their sessions.
+4. Unknown cost ≠ zero: the cap that protects the owner when cost is unknown is `maxModelCalls`.
+5. The model's private reasoning is streamed to the owner only.
+6. Management (providers, keys, settings, skills, MCP), `@file` attachments and project file search are owner-only; no key is ever returned in any response.
 
-> **تحذير جوهري:** ضيف بقوة `build` = وكيل يشغّل أوامر على **جهازك**. الافتراضي `plan` (قراءة فقط) ويحتاج المالك رفعه صراحة، والأداة تحذّر عند إنشاء الدعوة. الوصول عن بعد (خارج الشبكة) يتم عبر نفق يشغّله المالك (`--public-host`)؛ لا نملك خادماً وسيطاً.
+**Hardening:** binds to `127.0.0.1` unless `--lan` is given; a secret token on every call (the owner's is random per run and travels in the URL fragment, so it is never sent to the server); `Host` check (blocks DNS rebinding — on a LAN only private IP addresses are accepted, not domain names) and `Origin` check (blocks cross-site requests); rate limits on failed attempts and invite guessing; a body size limit; security headers (strict CSP, no framing, no sniffing); internal errors are never leaked to the client.
+
+> **Core warning:** a guest with `build` power is an agent running commands on **your machine**. The default is `plan` (read-only); the owner must raise it explicitly, and the tool warns when the invite is created. Remote access (outside your network) goes through a tunnel you run yourself (`--public-host`); there is no relay server.
 
 ---
 
-## 8. الأمان
+## 8. Security
 
-| المكوّن | الفعل |
+| Component | What it does |
 | --- | --- |
-| `security/vault.ts` | AES-256-GCM. المفتاح الأساسي مولَّد محلياً ومحميّ بـ **DPAPI** (Windows) أو **Keychain** (macOS). الأسرار مصفوفة بنطاق (`global` أو `session:<id>`): جلسة لا ترى أسرار جلسة أخرى. |
-| `security/redact.ts` | كل نص يخرج من أداة أو من النموذج يمرّ على `scrubAll` قبل الحفظ: أنماط مفاتيح معروفة + كل سِر مسجَّل حيّاً يُمسح بأثره. |
-| `.gitignore` | `.env` ومشتقاته محجوبة كلياً؛ المتعقب فقط `.env.example`. |
+| `security/vault.ts` | AES-256-GCM. The master key is generated locally and protected by **DPAPI** (Windows) or the login **Keychain** (macOS); elsewhere it is a `0600` file. Secrets carry a scope (`global` or a session scope). Nothing is unlocked when no secret is stored. |
+| `security/redact.ts` | Every text leaving a tool or the model passes `scrubAll` before saving: known key patterns plus every secret registered live are wiped. |
+| `.gitignore` | `.env` and variants are ignored; only `.env.example` is tracked. |
 
-**قاعدة غير قابلة للتفاوض**: أي مسار جديد يعرض مخرجات نموذج أو أداة يجب أن يمرّ على `scrubAll` قبل حفظه أو عرضه.
-
----
-
-## 9. واجهة TUI
-
-- **Ink** (React للطرفية). الحالة في `App.tsx`، والعرض في مكوّنات صغيرة (`home`, `palette`, `sessions`, `entries`, `markdown`, `sidebar`, `tabs`, `settings`, `providers`, `mcp`, `format`). **الثيم** `theme.ts`: لوحة ألوان حيّة تُبدَّل في مكانها (`applyTheme`).
-- **ثبات الإطار**: وضع الشاشة الكاملة (alternate buffer) بإطار بارتفاع `rows-1` (إطار بطول الطرفية يجعل Ink يعيد رسم كل شيء)، والصفوف الثابتة `flexShrink={0}` وإلا انضغطت عند فيض المحتوى. تحديثات البث تُجمَّع كل 80ms. التمرير: عجلة الماوس (SGR 1006) أو الأسهم.
-- **`resolveKey` في `keymap.ts` هو سياسة الإدخال الوحيدة**: كل مفتاح يُحوَّل إلى `KeyAction` موحّد، والتسميات والاختبارات تشتق منه. لا معالجات متنافسة مبعثرة.
-- **درس تصميمي مُوثّق**: يعيد تثبيت `useInput` كل رسم، وقد يصل مفتاح قبل تسطير التأثيرات → المعالج المرتبط يقرأ اقترانًا قديماً. الحل: **مرآة refs** تُكتب كل رسم (`overlayRef`, `escArmedRef`, `draftKindRef` …) والمعالج يقرأ منها حصراً.
-- `Esc` يُغلق الطبقة على **مستوى التطبيق** في `resolveKey` — يعمل حتى قبل تثبيت اشتراك الأوفرلاي، و`onClose` يعيد الإغلاق بأمان (idempotent).
-- النص المتعدد الأحرف يصل كـ chunk واحد = لصق؛ يُحافظ على أسطره.
-
-القائمة المرجعية للاختصارات: `KEYS_HELP` في `tui/commands.ts` (يُعرض بـ `/help`).
+**Non-negotiable:** any new path that shows model or tool output must pass `scrubAll` before it is saved or displayed.
 
 ---
 
-## 10. البيانات على القرص
+## 9. Terminal UI
+
+- **Ink** (React for the terminal). State lives in `App.tsx`; rendering is in small components (`home`, `palette`, `sessions`, `entries`, `markdown`, `sidebar`, `tabs`, `settings`, `providers`, `mcp`, `format`). **Theme** `theme.ts`: a live palette swapped in place (`applyTheme`).
+- **Frame stability:** full-screen mode (alternate buffer) with a frame of `rows-1` height (a frame as tall as the terminal makes Ink redraw everything); fixed rows are `flexShrink={0}`, otherwise they are squeezed when content overflows. Streaming updates are batched every 80 ms. Scrolling: mouse wheel (SGR 1006) or arrow keys.
+- **`resolveKey` in `keymap.ts` is the only input policy:** every key becomes one `KeyAction`; labels and tests derive from it. No competing scattered handlers.
+- **Documented design lesson:** `useInput` is re-attached on every render and a key can arrive before effects run, so a bound handler could read a stale closure. The fix: **ref mirrors** written every render (`overlayRef`, `escArmedRef`, `draftKindRef`…) from which the handler reads exclusively.
+- `Esc` closes the layer at **application level** in `resolveKey` — it works even before an overlay's subscription attaches, and `onClose` closes again safely (idempotent).
+- Multi-character input arriving as one chunk is a paste; its line breaks are kept.
+
+The reference list of shortcuts is `KEYS_HELP` in `tui/commands.ts` (shown by `/help`).
+
+## 9.1 Web UI (`ui/`)
+
+React 18 bundled by esbuild into the host (see `ui-assets.ts`). Key points:
+
+- **Same powers, one source:** the UI shows controls from what the server computed (`view.can`, `me.role`), never from guesses.
+- **Safe rendering:** a small markdown parser produces nodes (no `innerHTML`); only `http(s)` and `mailto` links are clickable.
+- **Live updates:** `fetch`-based SSE so the token stays in a header; reconnects with backoff and resumes after the last event id.
+- **Commands everywhere:** one command list (`ui/src/commands.ts`) feeds `/` in the message box, the palette (`Ctrl K`) and help; a command that is not allowed for the person is simply absent.
+- **Pages:** home (start screen), session (conversation, composer, side panel with Proof / Cost / Files), Team (owner), Settings (owner: models & providers, agent, skills, MCP; everyone: look & feel, this host). English and Arabic (`i18n.ts`, right-to-left via logical CSS properties), 9 themes, a mobile layout.
+- **Owner token** lives in sessionStorage; a guest's in localStorage. Tests cover the pure logic (`tests/ui-logic.test.ts`).
+
+---
+
+## 10. Data on disk
 
 ```
-~/.vara/                    # تُغيَّر بالكامل بمتغيّر البيئة VARA_HOME
-├── config.json             # الإعدادات (لا أسرار — فقط اسم السِر المطلوب)
-├── vault/                  # الأسرار المشفّرة + حزمة المفتاح المحميّة بالجهاز
+~/.vara/                    # moved entirely by the VARA_HOME environment variable
+├── config.json             # settings (no secrets — only the names of secrets)
+├── vault/                  # encrypted secrets + the device-protected key bundle
+├── host/                   # shared-session state: invites, guests, last server address
+├── skills/<name>/SKILL.md  # your skills (projects add <cwd>/.vara/skills)
 └── sessions/<id>/
-    ├── state.json          # لقطة الحالة الكاملة (Session)
-    └── events.jsonl        # سجل أحداث كامل (append-only)
+    ├── state.json          # full state snapshot (Session)
+    └── events.jsonl        # complete event log (append-only)
 ```
 
-**الاختيار**: الحالة تُحفظ بلقطة + سجل أحداث، لا بسجل واحد قابل للكتابة فوق نفسه. الاستئناف يقرأ اللقطة، والسجل يبقى للأرشيف والتشخيص — فانقطاع في منتصف الكتابة لا يُتلف التاريخ.
+**The choice:** state is kept as a snapshot plus an event log, not one log that overwrites itself. Resume reads the snapshot; the log stays for archive and diagnosis — so a crash mid-write cannot corrupt history. Snapshots are saved atomically (write, then rename), so a second reader never sees a half-written file.
 
-الجلسات تُرشَّح حسب `cwd` (مع مقارنة آمنة على Windows) — `vara sessions` يعرض جلسات المجلد الحالي فقط.
+Sessions are filtered by `cwd` (with a Windows-safe comparison) — `vara sessions` lists the current folder's sessions only (`--all` for every folder).
 
 ---
 
-## 11. حدود التصميم الحالية
+## 11. Current design limits
 
-هذه **قرارات واعية** لا إغفالات:
+These are **deliberate decisions**, not omissions:
 
-- **سياق مقصوص دون تلخيص** — النص القديم يُقص عند الاقتراب من النافذة. التلخيص الذكي مؤجَّل.
-- **تسعير نماذج محدود بالسجل** — نموذج غير مسجَّل = تكلفة `null` بالتصميم (صحيح أكثر من تخمين).
-- **المزوّد يُغيَّر لكل جلسة لا لكل دورة** — الجلسة تحفظ اسم النموذج لا المزوّد؛ فتح جلسة قديمة بعد تبديل المزوّد قد يرسل اسم نموذج لا يعرفه.
-- **كشف توقف التقدم بسيط** (عدّ دورات فارغة) — كاشف أدق مؤجَّل.
+- **Context is trimmed, not summarised** — old text is dropped as the window fills. Smart summarisation is deferred.
+- **Pricing is limited to the registry** — an unregistered model has cost `null` by design (more correct than guessing).
+- **The provider is chosen per session, not per turn** — a session stores the model name, not the provider, so reopening an old session after switching provider may send a model name the new provider does not know.
+- **Stall detection is simple** (counting empty turns) — a finer detector is deferred.
+- **Remote guests need a tunnel you run** — there is no relay.

@@ -1,5 +1,5 @@
 /**
- * Live end-to-end flow check against the REAL provider (KTAI): create a
+ * Live end-to-end flow check against a REAL provider (configured through VARA_LIVE_* env vars): create a
  * session in a throwaway cwd, run the real engine with the REAL tools, and
  * print every meaningful event — tool calls, verification evidence, the
  * final report and the cost truth. This is what "sending a task" actually is.

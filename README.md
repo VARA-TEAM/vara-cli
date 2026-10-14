@@ -1,137 +1,165 @@
 # VARA
 
-وكيل برمجة في الطرفية يعمل بمفتاح **مزوّدك أنت** — وكيل بنفس جودة الأدوات المدفوعة، لكن **بفاتورة أصغر بكثير**، لأن كل ما يُرسَل إلى النموذج يمرّ على محرّك توفير تكلفة. تعطيه رسالة، فيفهم هل هي دردشة أو سؤال أو مهمة أو هدف مستمر، ثم يعمل ويُثبت النتيجة بأدلة مسجّلة — لا بادعاء النموذج.
+**English** · [العربية](README.ar.md)
+
+A coding agent for your terminal and your browser that runs on **your own provider key**. It does the work of the paid tools at a much smaller bill, because everything sent to the model passes through a cost-saving engine. You give it a message; it works out whether that is a chat, a question, a task or an ongoing goal, does the work, and proves the result with recorded evidence — not with the model's say-so.
 
 ```
-vara                 # شاشة البداية: اكتب أي شيء، أو افتح جلسة سابقة
-vara setup           # أضف مزوّداً، الصق المفتاح، اسحب النماذج واختبرها
+vara            # terminal interface: start screen, type anything or reopen a session
+vara ui         # the same agent in your browser
+vara setup      # add a provider, paste the key, fetch and test models
 ```
 
 ---
 
-## لماذا VARA
+## Why VARA
 
 | | |
 | --- | --- |
-| **يفهم ما تريد** | كل رسالة تُصنَّف: `chat` (يردّ بلا أدوات) · `question` (يقرأ المشروع ويجيب) · `task` (يعمل ويُثبت) · `goal` (يراقب ويكرّر). عند الشك يختار الأضعف صلاحية — لن يغيّر ملفاتك بسبب تخمين. |
-| **أرخص بوضوح** | كاش المزوّد، ضغط مخرجات الأدوات القديمة، منع إعادة قراءة ملف لم يتغيّر، نموذج أرخص للدردشة والأسئلة والوكلاء الفرعيين، تفكير فقط حين يلزم. `/cost` يعرض ما وُفِّر. |
-| **أي مزوّد** | OpenAI · Anthropic · OpenRouter · DeepSeek · Groq · Gemini · Mistral · xAI · Together · Ollama · LM Studio · أي endpoint مخصّص. حالة كل نموذج (● يعمل / ● معطّل)، ونافذة سياق ذكية لكل نموذج قابلة للتعديل. |
-| **وكلاء بالتوازي** | أداة `delegate`: حتى 4 وكلاء فرعيين بسياق نظيف ونموذج أرخص، يبحثون أو يعملون معاً ويعيدون تقريراً موجزاً. |
-| **MCP** | اربط أي خادم Model Context Protocol (محلي أو بعيد): أدواته تصل للوكيل مباشرة، وما كان للقراءة فقط يعمل حتى في وضع PLAN. |
-| **مهارات (Skills)** | ملفات `SKILL.md` يحمّلها الوكيل عند الحاجة. 5 مدمجة، وتضيف مهاراتك لكل المستخدمين أو للمشروع فقط. |
-| **تفكير قابل للتحكم** | يكتشف أي نموذج يدعم التفكير الممتد/جهد الاستدلال ويعرض لك المستويات التي يدعمها فقط. |
-| **إثبات لا ادّعاء** | الإنهاء يمرّ على تحقق مستقل يشغّله **المحرك** (أمر التحقق + git) — فشله = لم تكتمل. |
-| **أمان** | الصلاحيات مفروضة في الأدوات لا في الطلب · مخزن أسرار مشفّر · ممحّ أسرار على كل مخرج · التكلفة غير المعروفة `null` لا صفر. |
+| **Understands what you want** | Every message is classified: `chat` (answered without tools) · `question` (reads the project, answers) · `task` (does the work and proves it) · `goal` (keeps going). When unsure it picks the least powerful option, so a guess never changes your files. The model can still `escalate`. |
+| **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. |
+| **Any provider** | OpenAI · Anthropic · OpenRouter · DeepSeek · Groq · Gemini · Mistral · xAI · Together · Ollama · LM Studio · any custom OpenAI-compatible or Anthropic endpoint. Every model has a tested status (works / failed / untested) and an editable context window. |
+| **Parallel sub-agents** | The `delegate` tool runs up to 4 sub-agents (3 at a time) with a clean context and the cheaper model, then returns a short report. |
+| **MCP** | Connect any Model Context Protocol server (local command or remote URL). Its tools reach the agent directly; read-only tools also work in PLAN mode. |
+| **Skills** | `SKILL.md` playbooks the agent loads when they fit. 5 are built in (`code-review`, `debug`, `write-tests`, `explain-code`, `git-commit`); add your own for every project or for one. |
+| **Controllable thinking** | VARA detects which models support extended thinking / reasoning effort and offers only the levels they support. |
+| **Proof, not claims** | Finishing goes through an independent check run by the **engine** (your verify command + git state). If it fails, the work is not complete. |
+| **Safety** | Permissions are enforced inside the tools, not in the prompt · encrypted secret vault · every output is scrubbed of secrets · unknown cost is `null`, never `0`. |
+| **Share a session** | Invite people by link or QR into your host with exactly the powers you choose; see what they use. Your keys never leave your machine. |
 
 ---
 
-## التثبيت (دقيقة واحدة، بلا Node ولا npm)
+## Install (one minute, no Node or npm needed)
 
-الحزمة تحمل بداخلها بيئة Node خاصة بها، فلا تحتاج تثبيت شيء قبلها.
+Each download carries its own Node.js runtime, so nothing has to be installed first.
 
 **Windows** (PowerShell):
+
 ```powershell
 irm https://raw.githubusercontent.com/VARA-TEAM/vara-cli/main/install.ps1 | iex
 ```
 
-**macOS (Apple Silicon) / Linux (x64):**
+**macOS (Apple Silicon) and Linux (x64):**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VARA-TEAM/vara-cli/main/install.sh | sh
 ```
 
-ثم افتح نافذة طرفية جديدة:
+Then open a new terminal window:
+
 ```bash
-vara setup     # مزوّد + مفتاح + نموذج
-vara           # ابدأ
-vara doctor    # يتحقق أن كل شيء يعمل
+vara setup     # provider + key + model
+vara           # start
+vara doctor    # check that everything works
 ```
 
-المثبّت يتحقق من بصمة SHA-256 قبل تشغيل أي شيء، ولا يحتاج صلاحيات مدير. التحديث: أعد تشغيل نفس الأمر. الإزالة: احذف `%LOCALAPPDATA%ara` (Windows) أو `~/.local/share/vara` و`~/.local/bin/vara`، وبياناتك في `~/.vara` منفصلة تبقى.
+The installer verifies the download's SHA-256 before running anything and needs no administrator rights. To update, run the same command again.
 
-> **المستودع ما زال خاصاً:** الأوامر أعلاه تعمل لمن سجّل دخوله بـ `gh auth login` (المثبّت يستعمله تلقائياً). للعموم يلزم جعل المستودع عاماً. التحميل اليدوي من صفحة [Releases](https://github.com/VARA-TEAM/vara-cli/releases) متاح للفريق: `vara-win-x64.zip` · `vara-macos-arm64.tar.gz` · `vara-linux-x64.tar.gz`. macOS على Intel وLinux/Windows على ARM: استعمل التثبيت من المصدر أدناه.
+Manual downloads are on the [Releases](https://github.com/VARA-TEAM/vara-cli/releases) page: `vara-win-x64.zip`, `vara-macos-arm64.tar.gz`, `vara-linux-x64.tar.gz`, with `SHA256SUMS.txt`. macOS on Intel and ARM builds for Windows/Linux are not published yet — use the source install below.
 
-## من المصدر (للمطوّرين)
+**Uninstall:** delete `%LOCALAPPDATA%\vara` (Windows; also remove it from your user PATH) or `~/.local/share/vara` and `~/.local/bin/vara` (macOS/Linux). Your data in `~/.vara` is separate and stays until you delete it.
+
+Installer options (macOS/Linux): `VARA_INSTALL_DIR` (default `~/.local/share/vara`) and `VARA_BIN_DIR` (default `~/.local/bin`).
+
+## From source (for developers)
 
 ```bash
 git clone https://github.com/VARA-TEAM/vara-cli.git
 cd vara-cli
 npm install
 npm run build
-npm link            # يوفّر الأمر `vara`
-vara setup          # أول مرة: مزوّد + مفتاح + نموذج
+npm link            # provides the `vara` command
+vara setup
 vara
 ```
 
-> بعد أي `git pull` أعد `npm run build` — الأمر `vara` يشغّل `dist/`. أثناء التطوير: `npm run dev`.
+After any `git pull`, run `npm run build` again — `vara` runs `dist/`. While developing, `npm run dev` runs straight from source.
 
-المتطلبات: Node ≥ 20. اختياري: `rg` (ripgrep) لبحث أسرع، `uvx`/`npx` لخوادم MCP.
-
----
-
-## داخل الأداة
-
-اكتب رسالتك مباشرة. للأوامر اضغط `Ctrl+K` أو اكتب `/`.
-
-| الأمر | الوظيفة |
-| --- | --- |
-| `/providers` · `/models` · `/model <id>` · `/provider <name>` | المزوّدون والنماذج (في القائمة: `t` اختبار · `a` اختبار الكل · `r` سحب النماذج · `c` السياق · `h` التفكير · `n` إضافة) |
-| `/think [off\|low\|medium\|high]` | مستوى التفكير للنموذج الحالي (إن دعمه) |
-| `/mcp` | خوادم MCP: إضافة من قائمة جاهزة أو أي أمر/URL |
-| `/skills` · `/skills new <name>` · `/skill <name>` | المهارات |
-| `/settings` (`Ctrl+O`) | كل الخيارات: ثيم، اللوحة الجانبية وأقسامها، فهم النيّة، النموذج الرخيص، الميزانيات، السياق، التحقق… |
-| `/theme <name>` | 9 ثيمات فورية |
-| `/cost` | التكلفة والتوفير (كاش، ضغط، قراءات مكررة، نموذج رخيص، وكلاء فرعيون) |
-| `/export [file]` | حفظ المحادثة كملف markdown |
-| `/new` (`Ctrl+N`) · `/sessions` · `/resume <id>` | الجلسات — تبويبات، وشاشة البداية لا تطلب منك شيئاً |
-| `/mode` · `/kind auto\|task\|goal` · `/status` · `/evidence` · `/context` · `/help` | |
-
-في أي رسالة: `@src/app.ts` يُرفق الملف تلقائياً (داخل المجلد فقط، حتى 120KB).
-
-**الاختصارات:** `Enter` إرسال · `Tab` PLAN/BUILD · `Ctrl+N` جلسة جديدة · `Ctrl+K` الأوامر · `Ctrl+O` الإعدادات · `Ctrl+B` اللوحة · `Alt+←/→` التبويبات · عجلة الماوس أو `↑↓` للتمرير · `Esc Esc` يقطع التنفيذ.
-
-## سطر الأوامر
-
-| الأمر | الوظيفة |
-| --- | --- |
-| `vara` · `vara -c` | الأداة · إكمال آخر جلسة في المجلد |
-| `vara setup` · `vara providers` | إعداد المزوّدين · عرض حالتهم |
-| `vara run "<مهمة>" [--goal] [--plan] [--verify "npm test"] [--provider p] [--model m]` | تنفيذ بلا واجهة |
-| `vara secret set/list/delete` | المخزن المشفّر |
-| `vara config init/show` | الإعدادات |
+Requirements: Node ≥ 20. Optional: `rg` (ripgrep) for faster search — without it a built-in engine is used; `npx` / `uvx` for MCP servers; `git` for diffs and commits.
 
 ---
 
-## واجهة المتصفح والجلسات المشتركة
+## In the terminal
+
+Type your message. For commands press `Ctrl+K` or type `/`.
+
+| Command | What it does |
+| --- | --- |
+| `/providers` · `/models` · `/model [id]` · `/provider <name> [model]` | Providers and models. In the provider screens: `t` test a model · `a` test all · `r` fetch the model list · `c` edit context · `h` thinking level · `k` set the key · `n` add a model · `x` remove a model · `d` remove a provider |
+| `/think [off\|low\|medium\|high]` | Thinking level for the current model, if it supports it |
+| `/mcp` | MCP servers: add from a built-in list (filesystem, fetch, memory, playwright, github, context7) or any command / URL |
+| `/skills` · `/skills new <name>` · `/skill <name> [about]` | Skills |
+| `/settings` (`Ctrl+O`) | Theme, side panel and its sections, intent routing, default mode, verify command, cheaper model, publishing, task/goal budgets, context, skills |
+| `/theme <name>` | 9 themes, applied instantly |
+| `/cost` | Spend and savings: cache, compaction, repeated reads, cheaper model, sub-agents |
+| `/context` · `/status` · `/evidence` · `/last` | Context window · budget and progress · recorded evidence · full output of the last tool call |
+| `/export [file]` | Save the conversation as markdown |
+| `/new` (`Ctrl+N`) · `/sessions [--all]` · `/resume <id>` | Sessions — tabs; the start screen asks for nothing |
+| `/mode plan\|build` · `/kind auto\|task\|goal` · `/pause` · `/stop` · `/quit` · `/help` | |
+
+In any message, `@src/app.ts` attaches that file (inside the working folder only, up to 120 KB, at most 6 files per message).
+
+**Keys:** `Enter` send · `Ctrl+J` newline · `Tab` PLAN/BUILD · `Ctrl+N` new session · `Ctrl+K` commands · `Ctrl+O` settings · `Ctrl+B` side panel · `Ctrl+W` close tab · `Alt+←/→` switch tabs · mouse wheel or `↑↓` scroll (`PgUp/PgDn` faster) · `Ctrl+G` jump to latest · `Esc Esc` interrupt the agent · `Ctrl+C` save and quit.
+
+## Command line
+
+| Command | What it does |
+| --- | --- |
+| `vara` · `vara -c` | Open the tool · reopen the latest session in this folder |
+| `vara resume <id>` · `vara sessions [--all]` | Resume a saved session · list sessions (this folder, or all) |
+| `vara setup` · `vara providers` | Set up providers · show their status |
+| `vara run "<task>" [--goal] [--plan] [--cwd dir] [--verify "npm test"] [--publish] [--provider p] [--model m]` | Headless run; prints events |
+| `vara ui` · `vara serve` | Browser interface · run the host without opening a browser |
+| `vara invite` · `vara guests` | Invite someone · list and revoke guests |
+| `vara secret set\|list\|delete <NAME>` | The encrypted vault |
+| `vara config init\|show` | Write the default config · print it (secrets never shown) |
+| `vara doctor` · `vara --version` | Check the install · print the version |
+
+`VARA_HOME` overrides the data folder (default `~/.vara`).
+
+---
+
+## In the browser
 
 ```bash
-vara ui --lan                                   # تستضيف على جهازك (أنت المالك)
-vara invite --preset collaborator --label Sam   # رابط دعوة بصلاحيات تحددها
-vara guests                                     # من دخل وماذا يستهلك · vara guests revoke <id>
+vara ui                                         # opens the interface; only this machine can reach it
+vara ui --lan                                   # let devices on your network join
+vara invite --preset collaborator --label Sam   # an invite link with the powers you set
+vara guests                                     # who joined, what they use · vara guests revoke <id>
 ```
 
-قوالب: `viewer` (مشاهدة) · `participant` (مشاهدة + كتابة في جلستك) · `collaborator` (+ جلسة مستقلة بجانبك). لكل ضيف: سقف قوة (`plan` للقراءة فقط أو `build`)، قفل النموذج أو قائمة نماذج، سقف استدعاءات/تكلفة، انتهاء. مفاتيحك لا تغادر جهازك. **واجهة المتصفح جاهزة:** `vara ui` يفتح تطبيقاً كاملاً (محادثة بماركداون وجداول وكود، بطاقات أدوات، 9 ثيمات، عربي/إنجليزي مع RTL، جوال)، وصفحة «الفريق» لدعوات الضيوف برابط وQR وصلاحياتهم واستهلاكهم. وكل ما في الطرفية موجود أيضاً في المتصفح: المزوّدون والمفاتيح والنماذج واختبارها وسياقها ومستوى التفكير، الوكيل والميزانيات، المهارات، خوادم MCP، لوحة أوامر (`Ctrl K`)، أوامر `/` و`@ملف`، وتبويبات الإثبات والتكلفة والتوفير لكل جلسة. التفاصيل والتحذيرات الأمنية في [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.6.
+`vara ui` opens a full app with everything the terminal has:
+
+- **Conversation:** live streaming, markdown with tables and code, tool cards, a sub-agent list, `@file` attachments, `/` commands, a command palette (`Ctrl K`), drafts kept per session.
+- **Side panel (per session):** *Proof* (requirements, recorded evidence, limits) · *Cost* (spend, tokens, what VARA saved, context-window gauge) · *Files* changed. Export as markdown, pause, stop for good, switch task ↔ goal.
+- **Settings (owner):** providers, keys, model lists, testing, context, thinking level · agent behaviour, budgets, context · skills (view, create, edit, switch off) · MCP servers · look and feel (9 themes, English/Arabic with right-to-left, mobile layout).
+- **Team (owner):** invite by link or QR, edit or revoke a guest's powers, see who is working and what they use.
+
+Invite presets: `viewer` (watch) · `participant` (watch + write in your shared session) · `collaborator` (+ their own session beside yours). Per guest you can set a power ceiling (`plan` = read-only, or `build`), a locked model or a model list, a cap on model calls or cost, and an expiry. Your keys and provider settings are never exposed to guests, and a guest with `build` power runs commands on **your machine** — invite only people you trust. Details and the threat model are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.6.
 
 ---
 
-## الوثائق
+## Documentation
 
-| الوثيقة | متى |
+English is the default; Arabic versions are in `docs/ar/` and the `*.ar.md` files.
+
+| Document | When |
 | --- | --- |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | كيف يعمل كل شيء ولماذا |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | تعديل الكود بأمان، وفخاخ معروفة |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | ما المطلوب الآن |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | قبل أول commit |
-| [CHANGELOG.md](CHANGELOG.md) | ما تغيّر فعلاً |
-| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | أفكار مأخوذة من مشاريع أخرى |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How everything works and why |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Changing the code safely; known traps |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What is open, what is deliberately not done |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Before your first commit |
+| [CHANGELOG.md](CHANGELOG.md) | What actually changed |
+| [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) | Ideas taken from other projects |
 
-## الرخصة
+## License
 
-[MIT](LICENSE) — استعمل VARA وعدّله ووزّعه ودمجه في عملك، تجارياً أو غير تجاري، بلا قيود تذكر. رخص المكتبات المضمَّنة في الحزم داخل `THIRD_PARTY_LICENSES.txt`.
+[MIT](LICENSE) — use, modify, redistribute and embed VARA in your work, commercial or not. The licences of the libraries bundled in the release packages are in `THIRD_PARTY_LICENSES.txt`.
 
-## قواعد المشروع
+## Project rules
 
-1. **لا أسرار في المستودع** — المفاتيح في الـ vault المشفّر أو متغيّرات البيئة، والإعدادات تحمل **أسماءها** فقط.
-2. **`npm run check` أخضر قبل كل push** (typecheck + اختبارات + build). الفشل يُبلَّغ كما هو.
-3. **unknown ≠ 0** — قيمة غير معروفة تُسجَّل غير معروفة.
-4. **الإثبات بالاختبار** — سلوك جديد أو إصلاح = اختبار يفشل قبله وينجح بعده.
-5. **الصدق في الواجهة** — لا مؤشر نجاح بلا أدلة، ولا "تم" بلا تحقق.
+1. **No secrets in the repository** — keys live in the encrypted vault or in environment variables; the config holds only their **names**.
+2. **`npm run check` is green before every push** (typecheck + tests + build). A failure is reported as it is.
+3. **unknown ≠ 0** — a value that is not known stays unknown.
+4. **Proof by test** — new behaviour or a fix comes with a test that fails before it and passes after.
+5. **Honest interface** — no success indicator without evidence, no "done" without verification.

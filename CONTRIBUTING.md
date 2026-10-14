@@ -1,70 +1,73 @@
-# المساهمة — VARA
+# Contributing — VARA
 
-مستودع فريق VARA. القواعد قصيرة عن قصد: اقرأها مرة وانتقل للعمل.
+**English** · [العربية](CONTRIBUTING.ar.md)
+
+The rules are short on purpose: read them once, then get to work.
 
 ---
 
-## قبل أول خطوة
+## Before the first step
 
 ```bash
 npm install
-npm run check     # يجب أن تكون خضراء من أول يوم — إن لم تكن، أبلغها ولا تتجاوزها
+npm run check     # must be green from day one — if it is not, report it, do not bypass it
 ```
 
 ---
 
-## دورة العمل
+## Workflow
 
-1. **فرع لكل تغيير** — من `main`:
+1. **One branch per change**, from `main`:
    ```bash
-   git checkout -b fix/وصف-قصير   # أو feat/… أو test/… أو docs/…
+   git checkout -b fix/short-description   # or feat/… test/… docs/…
    ```
-2. **غيّر أقل قدر ممكن** — لا إعادة تنسيق ملفات لم تلمسها، لا "تحسينات" مجاورة. المشروع لا يستعيد ملفاً محذوفاً (لا خط زمني غني) — احترم ما لا تعرفه.
-3. **الإثبات إلزامي** — سلوك جديد أو إصلاح = اختبار يفشل قبل الإصلاح وينجح بعده.
-4. **البوابة قبل الدفع**:
+2. **Change as little as possible** — no reformatting of files you did not touch, no drive-by "improvements".
+3. **Proof is mandatory** — new behaviour or a fix comes with a test that fails before the change and passes after.
+4. **The gate before pushing:**
    ```bash
-   npm run check    # typecheck + الاختبارات + build
+   npm run check    # typecheck + tests + build
    ```
-   الرقم الدقيق للاختبارات يتغيّر مع كل دفعة — لا تعتمد رقماً محفوظاً هنا، اعتمد نجاح `npm run check` نفسه.
-5. **Commit بـ Conventional Commits**:
+   The exact number of tests changes with every batch — do not rely on a number written anywhere; rely on `npm run check` passing.
+5. **Conventional Commits:**
    ```
    fix: prevent stale-closure Enter on the welcome screen
 
    - App.tsx: submit reads inputRef instead of the render closure
    - tests/tui-app.test.tsx: regression test that fails without the ref fix
    ```
-   الأنواع: `feat` `fix` `refactor` `docs` `test` `chore` `perf` `ci`.
-6. **Push ثم أبلغ الشريك** بسطر واحد: ماذا تغيّر ولماذا، وأي ملف يستحق نظرته.
+   Types: `feat` `fix` `refactor` `docs` `test` `chore` `perf` `ci`.
+6. **Push, then tell your partner** in one line: what changed, why, and which file deserves a look.
 
 ```bash
-git push -u origin fix/وصف-قصير
+git push -u origin fix/short-description
 ```
 
 ---
 
-## قواعد غير قابلة للتفاوض
+## Non-negotiable rules
 
-| القاعدة | لماذا |
+| Rule | Why |
 | --- | --- |
-| **لا أسرار في المستودع أبداً** — `.env` محجوب، والمفاتيح في الـ vault أو متغيّرات البيئة | تسريب مفتاح = استبداله على الأقل، وأحياناً أكثر |
-| **`npm run check` أخضر قبل كل push** — والفشل يُبلَّغ كما هو | الوعود الكاذبة أسوأ من الفشل الصريح |
-| **unknown ≠ 0** — قيمة غير معروفة تبقى `null` | صفر يعني "قِست ولم يُصرف"، وهذا كذب إن لم يُقَس |
-| **لا تعديل `engine.ts`/`permissions.ts`/`vault.ts` دون مناقشة مسبقة** | هذه ملفات وعود المشروع — خرقها يُبطل معناها |
-| **لا تعديل اختبارات خط الدفاع لجعلها تعبر** (`keymap` `commands` `engine` `permissions` `redact` `vault` `runtime-refs` `tui-app`) | اختبار يُضعف يصبح زينة |
+| **Never commit secrets** — `.env` is ignored; keys live in the vault or in environment variables | A leaked key means at least replacing it, sometimes more |
+| **`npm run check` is green before every push** — a failure is reported as it is | A false promise is worse than an honest failure |
+| **unknown ≠ 0** — an unknown value stays `null` | Zero means "measured and nothing was spent", which is a lie if it was not measured |
+| **No change to `engine.ts` / `permissions.ts` / `vault.ts` without discussing it first** | They carry the project's promises — breaking them voids their meaning |
+| **Never weaken a defence-line test to make it pass** (`keymap` `commands` `engine` `permissions` `redact` `vault` `runtime-refs` `tui-app`) | A weakened test is decoration |
+| **Docs follow the code, in both languages** — English is the default; update the Arabic twin (`docs/ar/`, `*.ar.md`) in the same change | A document that disagrees with the code is a bug |
 
 ---
 
-## مراجعة الشريك
+## Reviewing
 
-- راجع **diff** لا الرسالة: ما الذي تغيّر فعلاً؟
-- اسأل: هل الاختبار الجديد يفشل بدون الإصلاح؟ (اطلب تجربته إن شككت)
-- أي تعليق يُرفع كـ BLOCKER (يمنع الدمج) أو MINOR (يُنفَّذ لاحقاً) — لا خلاف على التفاصيل الصغيرة.
-- النزاع يُحسم بتجربة: اختبار صغير يثبت من يتذكر.
+- Review the **diff**, not the message: what actually changed?
+- Ask: does the new test fail without the fix? (Ask for a demonstration if in doubt.)
+- Label each comment BLOCKER (blocks the merge) or MINOR (do it later) — no arguing over small details.
+- Disputes are settled by experiment: a small test that shows who is right.
 
 ---
 
-## ما ليس ضرورياً
+## What is not necessary
 
-- صياغة عربية/إنجليزية مثالية في commit — المضمون أهم.
-- إصلاح كل ما تراه سيئاً — سجّله كـ issue أو ملاحظة للشريك وواصل مهمتك.
-- ميزات جديدة قبل ثبات ما هو قائم.
+- Perfect English or Arabic in a commit message — substance matters more.
+- Fixing everything you think is bad — file an issue or tell your partner, and carry on with your task.
+- New features before what exists is stable.
