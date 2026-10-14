@@ -17,8 +17,10 @@ $ProgressPreference = 'SilentlyContinue'
 $repo = if ($env:VARA_REPO) { $env:VARA_REPO } else { 'VARA-TEAM/vara-cli' }
 $version = if ($env:VARA_VERSION) { $env:VARA_VERSION } else { 'latest' }
 
-$arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-if ($arch -ne 'X64') { throw "VARA has no Windows build for $arch yet (x64 only). Please open an issue at https://github.com/$repo/issues" }
+# Windows PowerShell 5.1 on older .NET has no reliable RuntimeInformation: read the environment instead.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
+$arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+if ($arch -ne 'AMD64') { throw "VARA has no Windows build for $arch yet (x64 only). Please open an issue at https://github.com/$repo/issues" }
 $asset = 'vara-win-x64.zip'
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('vara-install-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -70,9 +72,11 @@ if (Test-Path $app) {
 if (-not (Test-Path (Join-Path $app 'vara.cmd'))) { throw 'The archive did not contain VARA - installation failed.' }
 
 # PATH (user level, no admin needed).
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+# The user PATH can be unset on a fresh account (then it is $null): treat that as empty.
+$userPath = [string][Environment]::GetEnvironmentVariable('Path', 'User')
 if (($userPath -split ';') -notcontains $app) {
-  [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ';' + $app), 'User')
+  $newPath = if ($userPath.Trim()) { $userPath.TrimEnd(';') + ';' + $app } else { $app }
+  [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
 }
 if (($env:Path -split ';') -notcontains $app) { $env:Path = $env:Path + ';' + $app }
 
