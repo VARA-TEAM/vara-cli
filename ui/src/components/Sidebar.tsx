@@ -3,7 +3,9 @@ import { relativeTime } from '../transcript'
 import type { Me, SessionSummary } from '../types'
 import { Icon, StateBadge } from './ui'
 
-export type Route = { page: 'home' } | { page: 'session'; id: string } | { page: 'team' } | { page: 'settings' }
+import type { SettingsTab } from './Settings'
+
+export type Route = { page: 'home' } | { page: 'session'; id: string } | { page: 'team' } | { page: 'settings'; tab?: SettingsTab }
 
 function Item({ s, active, onOpen }: { s: SessionSummary; active: boolean; onOpen: (id: string) => void }) {
   return (
@@ -31,6 +33,7 @@ export function Sidebar({
   onSignOut,
   open,
   onClose,
+  onPalette,
 }: {
   me: Me
   host: { folder: string; version: string } | null
@@ -40,6 +43,7 @@ export function Sidebar({
   onSignOut: () => void
   open: boolean
   onClose: () => void
+  onPalette: () => void
 }) {
   const t = useT()
   const activeId = route.page === 'session' ? route.id : null
@@ -68,6 +72,12 @@ export function Sidebar({
 
         <button className="new-btn" onClick={() => go({ page: 'home' })}>
           <Icon name="plus" size={16} /> {t('newSession')}
+        </button>
+
+        <button className="search-btn" onClick={() => (onClose(), onPalette())} aria-label={t('pal_title')}>
+          <Icon name="search" size={15} />
+          <span>{t('pal_short')}</span>
+          <span className="kbds"><kbd>Ctrl</kbd><kbd>K</kbd></span>
         </button>
 
         <div className="sidebar-scroll">

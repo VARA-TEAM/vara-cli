@@ -2,7 +2,13 @@ import type { EngineEvent, Session } from '../core/types.js'
 import type { Provider } from '../llm/provider.js'
 import type { VaraConfig } from '../config/config.js'
 import { activeProviderName } from '../config/providers.js'
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { createSession, CreateSessionInput } from '../core/session.js'
+import { contextStatus, estimateSessionTokens } from '../core/context.js'
+import { contextSettingsFor } from '../config/providers.js'
+import { findModel } from '../llm/registry.js'
+import { cleanTitle, expandMentions } from '../tui/mentions.js'
 import { listSessions, loadSession, saveSession, type SessionSummary } from '../core/store.js'
 import { SessionRunner } from '../core/runner.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
@@ -36,6 +42,8 @@ interface Live {
   events: StampedEvent[]
   nextId: number
   listeners: Set<{ principal: Principal; send: (e: StampedEvent) => void; close: () => void }>
+  /** Provider generation the runner was built with. */
+  pv: number
 }
 
 export interface HostOptions {
@@ -45,6 +53,8 @@ export interface HostOptions {
   access: AccessStore
   /** The folder every session (guests' included) works in. */
   cwd: string
+  /** Bumps whenever the active provider/model/key changes, so idle runners are rebuilt. */
+  providerVersion?: () => number
 }
 
 /** A session as a client may see it: no reasoning blocks, everything scrubbed. */
@@ -64,7 +74,7 @@ export interface SessionView {
   /** Requirement numbers ("1", "2"…) the last accepted completion covered. */
   verified: string[]
   /** What the REQUESTING principal may do here — the UI shows controls from this, never from guesses. */
-  can: { send: boolean; pause: boolean; setMode: boolean; setModel: boolean }
+  can: { send: boolean; pause: boolean; setMode: boolean; setModel: boolean; manage: boolean }
   updatedAt: string
   transcript: Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolName?: string; toolCallId?: string; at: string }>
 }
@@ -98,7 +108,7 @@ export class VaraHost {
   }
 
   private adopt(session: Session): Live {
-    const live: Live = { session, runner: null as never, events: [], nextId: 1, listeners: new Set() }
+    const live: Live = { session, runner: null as never, events: [], nextId: 1, listeners: new Set(), pv: this.opts.providerVersion?.() ?? 0 }
     live.runner = this.newRunner(live)
     this.live.set(session.id, live)
     return live
@@ -112,6 +122,14 @@ export class VaraHost {
       hub: this.opts.hub,
       onEvent: (e) => this.publish(live, e),
     })
+  }
+
+  /** An idle session picks up a provider/model/key change before its next turn. */
+  private refresh(live: Live): void {
+    const v = this.opts.providerVersion?.() ?? 0
+    if (live.pv === v || live.runner.isRunning) return
+    live.runner = this.newRunner(live)
+    live.pv = v
   }
 
   private publish(live: Live, event: HostEvent): void {
@@ -178,7 +196,7 @@ export class VaraHost {
     if (!d.ok) return fail(403, d.reason)
     const all = await this.summaries()
     const rows = all.filter((r) => authorize(p, 'session.read', { id: r.id, ...(r.participant ? { participantId: r.participant.id } : {}), shared: r.shared }).ok)
-    return { ok: true, value: rows.map((r) => ({ ...r, objective: scrubAll(r.objective) })) }
+    return { ok: true, value: rows.map((r) => ({ ...r, objective: cleanTitle(scrubAll(r.objective)) })) }
   }
 
   async get(p: Principal, id: string): Promise<Result<SessionView>> {
@@ -194,7 +212,7 @@ export class VaraHost {
     const ref = refOf(s)
     return {
       id: s.id,
-      objective: scrubAll(s.config.objective),
+      objective: cleanTitle(scrubAll(s.config.objective)),
       state: s.state,
       ...(s.stateReason ? { stateReason: scrubAll(s.stateReason) } : {}),
       kind: s.config.kind,
@@ -212,13 +230,14 @@ export class VaraHost {
         inputTokens: s.usage.inputTokens,
         outputTokens: s.usage.outputTokens,
       },
-      requirements: s.activeRequirements ?? [],
+      requirements: (s.activeRequirements ?? []).map((r) => cleanTitle(scrubAll(r))),
       verified: s.state === 'completed' ? (s.completionClaim?.verifiedRequirements ?? []) : [],
       can: {
         send: authorize(p, 'session.send', ref).ok,
         pause: authorize(p, 'session.pause', ref).ok,
         setMode: authorize(p, 'session.setMode', ref, { mode: 'plan' }).ok,
         setModel: p.kind === 'owner' || authorize(p, 'session.setModel', ref, { model: p.grant.allowedModels[0] ?? '' }).ok,
+        manage: p.kind === 'owner',
       },
       updatedAt: s.updatedAt,
       transcript: s.transcript
@@ -253,8 +272,10 @@ export class VaraHost {
   /* ---------- commands ---------- */
 
   async create(p: Principal, input: { message: string; mode?: 'plan' | 'build'; kind?: 'task' | 'goal' | 'auto'; model?: string }): Promise<Result<SessionView>> {
-    const text = input.message.trim()
-    if (!text) return fail(400, 'write a message first')
+    const typed = input.message.trim()
+    if (!typed) return fail(400, 'write a message first')
+    // Only the owner may pull host files into a prompt with @path.
+    const text = p.kind === 'owner' ? (await expandMentions(typed, this.opts.cwd)).text : typed
     const cfg = this.opts.config()
     // A guest limited to a model list starts on the first allowed model, not the owner's pick.
     const model = input.model ?? (p.kind === 'guest' && p.grant.modelPolicy === 'list' ? p.grant.allowedModels[0] : undefined) ?? cfg.provider.model
@@ -279,7 +300,7 @@ export class VaraHost {
     if (p.kind === 'guest') session.participant = { id: p.id, name: p.name }
     await saveSession(session)
     const live = this.adopt(session)
-    this.publish(live, { type: 'message', author: authorOf(p), text })
+    this.publish(live, { type: 'message', author: authorOf(p), text: typed })
     void this.run(live)
     return { ok: true, value: this.view(session, p) }
   }
@@ -294,15 +315,17 @@ export class VaraHost {
     if (!live) return fail(404, 'no such session')
     const ref = refOf(live.session)
     if (!authorize(p, 'session.read', ref).ok) return fail(404, 'no such session')
-    const message = text.trim()
-    if (!message) return fail(400, 'write a message first')
+    const typed = text.trim()
+    if (!typed) return fail(400, 'write a message first')
     const d = authorize(p, 'session.send', ref, await this.usageOf(p))
     if (!d.ok) return fail(403, d.reason)
+    const message = p.kind === 'owner' ? (await expandMentions(typed, this.opts.cwd)).text : typed
+    this.refresh(live)
 
     if (p.kind === 'guest') this.enforceGrant(live, p)
     // Others in a shared session must be able to tell who said what — the model too.
     const delivered = p.kind === 'guest' && ref.shared && !ref.participantId ? `[from ${p.name}] ${message}` : message
-    this.publish(live, { type: 'message', author: authorOf(p), text: message })
+    this.publish(live, { type: 'message', author: authorOf(p), text: typed })
     const wasRunning = live.runner.isRunning
     live.runner.send(delivered)
     if (!wasRunning) void this.run(live)
@@ -466,7 +489,149 @@ export class VaraHost {
         costUsd: cost,
       }
     })
-    return { ok: true, value: { guests, sessions: sessions.map((s) => ({ ...s, objective: scrubAll(s.objective) })) } }
+    return { ok: true, value: { guests, sessions: sessions.map((s) => ({ ...s, objective: cleanTitle(scrubAll(s.objective)) })) } }
+  }
+
+  /* ---------- per-session extras (what /cost, /context, /status, /evidence, /export, /stop, /kind show) ---------- */
+
+  async insights(p: Principal, id: string): Promise<Result<unknown>> {
+    const live = await this.load(id)
+    if (!live || !authorize(p, 'session.read', refOf(live.session)).ok) return fail(404, 'no such session')
+    const s = live.session
+    const u = s.usage
+    const sv = s.savings ?? { compactedChars: 0, dedupedReads: 0, cheapCalls: 0, subagents: 0 }
+    const cached = u.cachedInputTokens
+    const total = (u.inputTokens ?? 0) + (cached ?? 0)
+    const pricing = findModel(s.config.model ?? '')?.pricing
+    const cacheUsd = pricing && cached ? (cached / 1e6) * (pricing.inputPer1M - (pricing.cachedInputPer1M ?? pricing.inputPer1M)) : null
+    const compactTokens = Math.round(sv.compactedChars / 4)
+    const compactUsd = pricing ? (compactTokens / 1e6) * pricing.inputPer1M * Math.max(1, u.turns / 2) : null
+    const cfg = this.opts.config()
+    const ctx = contextStatus(s, contextSettingsFor(cfg, s.config.model ?? cfg.provider.model))
+    const used = estimateSessionTokens(s)
+    return {
+      ok: true,
+      value: {
+        cost: {
+          costUsd: u.costUsd,
+          costPartial: u.costPartial,
+          modelCalls: u.modelCalls,
+          toolCalls: u.toolCalls,
+          inputTokens: u.inputTokens,
+          cachedTokens: cached,
+          outputTokens: u.outputTokens,
+          cacheHitPercent: cached !== null && total > 0 ? Math.round(((cached ?? 0) / total) * 100) : null,
+        },
+        savings: { cacheUsd, compactedTokens: compactTokens, compactUsd, dedupedReads: sv.dedupedReads, cheapCalls: sv.cheapCalls, subagents: sv.subagents },
+        context: {
+          windowTokens: ctx.windowTokens,
+          source: ctx.source,
+          requestBudgetTokens: ctx.requestBudgetTokens,
+          reservedOutput: ctx.maxOutputTokens,
+          usedTokens: used,
+          percent: ctx.requestBudgetTokens ? Math.min(100, Math.round((used / ctx.requestBudgetTokens) * 100)) : 0,
+        },
+        budget: {
+          turns: u.turns,
+          maxTurns: s.config.budget.maxTurns,
+          modelCalls: u.modelCalls,
+          maxModelCalls: s.config.budget.maxModelCalls,
+          maxMinutes: Math.round(s.config.budget.maxDurationMs / 60_000),
+          evidence: s.evidence.length,
+        },
+        evidence: s.evidence.slice(-20).map((e) => ({
+          at: e.at,
+          kind: e.kind,
+          ok: e.ok,
+          ...(e.command ? { command: scrubAll(e.command) } : {}),
+          ...(e.exitCode !== undefined ? { exitCode: e.exitCode } : {}),
+          ...(e.output ? { output: scrubAll(e.output).slice(0, 600) } : {}),
+          ...(e.files ? { files: e.files.slice(0, 30) } : {}),
+        })),
+      },
+    }
+  }
+
+  /** The conversation as a markdown document (no hidden reasoning, everything scrubbed). */
+  async exportMarkdown(p: Principal, id: string): Promise<Result<{ filename: string; markdown: string }>> {
+    const live = await this.load(id)
+    if (!live || !authorize(p, 'session.read', refOf(live.session)).ok) return fail(404, 'no such session')
+    const s = live.session
+    const md = [`# ${cleanTitle(scrubAll(s.config.objective))}`, '', `session ${s.id} · ${s.config.model ?? ''} · ${s.state}`, '']
+    for (const m of s.transcript) {
+      if (m.role === 'user' && /^\[(ENGINE|SYSTEM|STATE|BUDGET|FOLLOW-UP INSTRUCTION)/.test(m.content)) continue
+      if (m.role === 'user') md.push('## You', '', scrubAll(m.content.split('\n\n[attached files]')[0]!), '')
+      else if (m.role === 'assistant' && m.content.trim()) md.push('## VARA', '', scrubAll(m.content), '')
+      for (const c of m.toolCalls ?? []) md.push(`> tool: \`${c.name}\` ${scrubAll(c.arguments).slice(0, 200)}`, '')
+    }
+    return { ok: true, value: { filename: `vara-${s.id}.md`, markdown: md.join('\n') } }
+  }
+
+  /** End a session for good (the terminal's /stop, without quitting the host). */
+  async stop(p: Principal, id: string): Promise<Result<true>> {
+    const live = await this.load(id)
+    if (!live || !authorize(p, 'session.read', refOf(live.session)).ok) return fail(404, 'no such session')
+    const d = authorize(p, 'session.pause', refOf(live.session))
+    if (!d.ok) return fail(403, d.reason)
+    live.runner.pause()
+    live.session.state = 'stopped'
+    live.session.stateReason = 'Stopped by the user.'
+    await saveSession(live.session)
+    this.publish(live, { type: 'state', state: 'stopped', reason: 'Stopped by the user.' })
+    return { ok: true, value: true }
+  }
+
+  /** Owner: switch a session between a bounded task and an ongoing goal. */
+  async setKind(p: Principal, id: string, kind: 'task' | 'goal'): Promise<Result<true>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const live = await this.load(id)
+    if (!live) return fail(404, 'no such session')
+    const cfg = this.opts.config()
+    live.session.config.auto = false
+    live.session.config.kind = kind
+    live.session.config.budget = kind === 'task' ? cfg.budgets.task : cfg.budgets.goal
+    await saveSession(live.session)
+    return { ok: true, value: true }
+  }
+
+  private fileCache: { at: number; files: string[] } | null = null
+
+  /** Owner: project files matching a fragment, for @-mentions. Skips dependency and build folders. */
+  async files(p: Principal, query: string): Promise<Result<string[]>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    if (!this.fileCache || Date.now() - this.fileCache.at > 15_000) {
+      const out: string[] = []
+      const skip = new Set(['node_modules', 'dist', 'build', 'out', 'target', '__pycache__', 'coverage', 'venv'])
+      const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
+        if (out.length >= 20_000 || depth > 8) return
+        let entries
+        try {
+          entries = await readdir(dir, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const e of entries) {
+          if (out.length >= 20_000) return
+          if (e.isDirectory()) {
+            if (!skip.has(e.name) && !e.name.startsWith('.')) await walk(join(dir, e.name), `${rel}${e.name}/`, depth + 1)
+          } else if (e.isFile()) out.push(`${rel}${e.name}`)
+        }
+      }
+      await walk(this.opts.cwd, '', 0)
+      this.fileCache = { at: Date.now(), files: out }
+    }
+    const q = query.trim().toLowerCase().slice(0, 100)
+    const all = this.fileCache.files
+    const base = (f: string): string => f.slice(f.lastIndexOf('/') + 1).toLowerCase()
+    const hits = q ? all.filter((f) => f.toLowerCase().includes(q)) : [...all]
+    const rank = (f: string): number => {
+      const i = base(f).indexOf(q)
+      return i < 0 ? 999 : i
+    }
+    hits.sort((a, b) => rank(a) - rank(b) || a.length - b.length)
+    return { ok: true, value: hits.slice(0, 30) }
   }
 
   async closeAll(): Promise<void> {

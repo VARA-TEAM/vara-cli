@@ -24,6 +24,7 @@ const { ensureStore } = await import('../src/core/store.js')
 const { AccessStore, presetGrant } = await import('../src/server/access.js')
 const { VaraHost } = await import('../src/server/host.js')
 const { newOwnerToken, startServer } = await import('../src/server/http.js')
+const { Manager } = await import('../src/server/manage.js')
 
 const LONG = `## How this project is organised
 
@@ -91,11 +92,39 @@ class FakeProvider implements Provider {
 }
 
 await ensureStore()
-const config = ensureProviders({ ...DEFAULT_CONFIG, provider: { ...DEFAULT_CONFIG.provider, model: 'demo-model' } })
+let config = ensureProviders({ ...DEFAULT_CONFIG, provider: { ...DEFAULT_CONFIG.provider, model: 'demo-model' } })
+const keys = new Map<string, string>()
 const access = new AccessStore(join(work, 'host'))
-const host = new VaraHost({ config: () => config, provider: () => new FakeProvider(), hub: new McpHub(), access, cwd: work })
+const hub = new McpHub()
+let providerVersion = 0
+const host = new VaraHost({ config: () => config, provider: () => new FakeProvider(), hub, access, cwd: work, providerVersion: () => providerVersion })
+const manager = new Manager({
+  config: () => config,
+  apply: async (next) => {
+    config = next
+    providerVersion++
+  },
+  hub,
+  cwd: work,
+  // The "provider" offers a few models; one of them is broken so the red state can be seen.
+  discover: async () => [
+    { id: 'demo-model', contextWindow: 128_000 },
+    { id: 'demo-large', contextWindow: 1_000_000 },
+    { id: 'o3-mini', contextWindow: 200_000, reasoning: true },
+    { id: 'demo-retired', contextWindow: 32_000 },
+  ],
+  check: async (_ep, model) => {
+    await sleep(500)
+    return model === 'demo-retired' ? { status: 'fail', detail: 'HTTP 404 — the model has been retired', latencyMs: 500 } : { status: 'ok', detail: 'answered in 500ms', latencyMs: 500 }
+  },
+  endpoint: async (entry) => ({ type: entry.type, baseUrl: entry.baseUrl, apiKey: 'dev' }),
+  saveKey: async (name, value) => void keys.set(name, value),
+  deleteKey: async (name) => keys.delete(name),
+  keyState: async (entry) => (entry.keyless ? 'not needed' : keys.has(entry.apiKeySecret) ? 'vault' : 'none'),
+  mapLimit: async (items, _limit, fn) => Promise.all(items.map(fn)),
+})
 const ownerToken = process.env['VARA_DEV_TOKEN'] ?? newOwnerToken()
-const server = await startServer({ host, ownerToken, port: Number(process.env['PORT'] ?? 7788), onError: (e) => console.error('[dev-host] error', e) })
+const server = await startServer({ host, manager, ownerToken, port: Number(process.env['PORT'] ?? 7788), onError: (e) => console.error('[dev-host] error', e) })
 
 const guest = access.createInvite(presetGrant('collaborator'), { label: 'demo', ttlMs: 3_600_000, maxUses: 5 })
 console.log(`\nVARA dev host (fake model) — folder ${work}`)

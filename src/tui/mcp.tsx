@@ -4,27 +4,12 @@ import type { VaraConfig } from '../config/config.js'
 import { MCP_PRESETS, type McpHub, type ServerView } from '../mcp/hub.js'
 import type { McpServerConfig } from '../mcp/client.js'
 import { windowStart, useSync } from './providers.js'
+import { serverFromInput } from '../mcp/input.js'
 import { glyph, theme } from './theme.js'
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,30}$/
 
-/** `npx -y pkg "a b"` → ['npx', '-y', 'pkg', 'a b']. Exported for tests. */
-export function splitCommand(line: string): string[] {
-  const out: string[] = []
-  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
-  for (const m of line.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3] ?? '')
-  return out
-}
-
-/** Config for what the user typed: a URL becomes a remote server, anything else a command line. */
-export function serverFromInput(input: string): McpServerConfig | string {
-  const text = input.trim()
-  if (!text) return 'Type a command (npx -y @scope/server) or a URL (https://…).'
-  if (/^https?:\/\//i.test(text)) return { url: text, enabled: true }
-  const [command, ...args] = splitCommand(text)
-  if (!command) return 'Type a command (npx -y @scope/server) or a URL (https://…).'
-  return { command, args, enabled: true }
-}
+export { serverFromInput, splitCommand } from '../mcp/input.js'
 
 type Row = { kind: 'server'; view: ServerView } | { kind: 'preset'; index: number } | { kind: 'custom' }
 

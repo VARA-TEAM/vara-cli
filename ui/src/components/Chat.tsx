@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { buildItems, toolSummary, type ChatItem } from '../transcript'
 import { useT } from '../i18n'
+import { usePrefs } from '../prefs'
 import type { SessionView } from '../types'
 import type { SubagentRow } from '../hooks'
 import { Badge, Icon } from './ui'
@@ -23,6 +24,7 @@ const TOOL_ICON: Record<string, string> = {
 }
 
 function ToolCard({ item, running }: { item: Extract<ChatItem, { kind: 'tool' }>; running: boolean }) {
+  const { prefs } = usePrefs()
   const [open, setOpen] = useState(false)
   const status = item.ok === undefined ? (running ? 'running' : 'pending') : item.ok ? 'ok' : 'fail'
   let args = item.args
@@ -38,7 +40,7 @@ function ToolCard({ item, running }: { item: Extract<ChatItem, { kind: 'tool' }>
         <Icon name={TOOL_ICON[item.name] ?? 'terminal'} size={15} />
         <span className="tool-name">{item.name}</span>
         <span className="tool-sum" dir="auto">
-          {toolSummary({ name: item.name, arguments: item.args })}
+          {prefs.toolDetails ? toolSummary({ name: item.name, arguments: item.args }) : ''}
         </span>
         <span className="tool-status" aria-label={status}>
           {status === 'running' ? <span className="pulse" /> : status === 'ok' ? <Icon name="check" size={14} /> : status === 'fail' ? <Icon name="x" size={14} /> : null}
@@ -70,6 +72,7 @@ export function Chat({
   isOwner: boolean
 }) {
   const t = useT()
+  const { prefs } = usePrefs()
   const items = buildItems(view)
   const lastToolIndex = items.map((i) => i.kind).lastIndexOf('tool')
   const running = view.state === 'running'
@@ -112,7 +115,7 @@ export function Chat({
         </div>
       ) : null}
 
-      {isOwner && thinking && running ? (
+      {isOwner && prefs.showThinking && thinking && running ? (
         <details className="thinking">
           <summary>
             <span className="pulse" /> {t('thinking')}

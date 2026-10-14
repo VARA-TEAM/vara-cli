@@ -185,3 +185,24 @@ export function useStickToBottom<T extends HTMLElement>(dep: unknown): { ref: Re
     },
   }
 }
+
+/** A GET that can be reloaded and replaced by a fresh server answer (after a change the server returns the new state). */
+export function useResource<T>(path: string | null): { data: T | null; error: string | null; loading: boolean; reload: () => void; set: (v: T) => void } {
+  const [data, setData] = useState<T | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(!!path)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!path) return
+    let live = true
+    setLoading(true)
+    api<T>('GET', path)
+      .then((v) => live && (setData(v), setError(null)))
+      .catch((e: Error) => live && setError(e.message))
+      .finally(() => live && setLoading(false))
+    return () => {
+      live = false
+    }
+  }, [path, tick])
+  return { data, error, loading, reload: () => setTick((t) => t + 1), set: setData }
+}

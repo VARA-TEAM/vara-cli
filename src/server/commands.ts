@@ -2,11 +2,16 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
 import { join, resolve } from 'node:path'
-import { loadConfig } from '../config/config.js'
+import { loadConfig, persistConfig, type VaraConfig } from '../config/config.js'
 import { ensureProviders } from '../config/providers.js'
 import { hostDir } from '../config/paths.js'
 import { ensureStore } from '../core/store.js'
-import { buildProvider } from '../runtime.js'
+import { buildProvider, keySource, resolveApiKey } from '../runtime.js'
+import { checkModel, discoverModels, mapLimit } from '../llm/discovery.js'
+import { deleteSecret, setSecret } from '../security/vault.js'
+import { registerSecret } from '../security/redact.js'
+import type { Provider } from '../llm/provider.js'
+import { Manager } from './manage.js'
 import { McpHub } from '../mcp/hub.js'
 import { AccessStore, presetGrant, type Grant, type GrantPreset } from './access.js'
 import { VaraHost } from './host.js'
@@ -67,22 +72,48 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be 0-65535')
 
   await ensureStore()
-  const config = ensureProviders(await loadConfig())
-  let provider
+  let config: VaraConfig = ensureProviders(await loadConfig())
+  let provider: Provider
   try {
     provider = (await buildProvider(config)).provider
   } catch (err) {
     throw new Error(`${(err as Error).message}\nRun: vara setup`)
   }
+  let providerVersion = 0
   const hub = new McpHub()
   void hub.sync(config.mcp.servers as never)
   mkdirSync(hostDir, { recursive: true })
   const access = new AccessStore()
-  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd })
+  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, providerVersion: () => providerVersion })
+  const manager = new Manager({
+    config: () => config,
+    // Build the provider FIRST: a change that cannot work (no key, bad URL) is refused before it is saved.
+    apply: async (next) => {
+      const built = (await buildProvider(next)).provider
+      config = next
+      provider = built
+      providerVersion++
+      await persistConfig(next)
+      void hub.sync(next.mcp.servers as never)
+    },
+    hub,
+    cwd,
+    discover: (ep) => discoverModels(ep),
+    check: (ep, model) => checkModel(ep, model),
+    endpoint: async (entry) => ({ type: entry.type, baseUrl: entry.baseUrl, apiKey: await resolveApiKey(entry), ...(entry.flavor ? { flavor: entry.flavor } : {}) }),
+    saveKey: async (name, value) => {
+      await setSecret(name, value)
+      registerSecret(value, name)
+    },
+    deleteKey: (name) => deleteSecret(name),
+    keyState: (entry) => keySource(entry),
+    mapLimit,
+  })
   const ownerToken = newOwnerToken()
   let guestBase: string | undefined
   const server = await startServer({
     host,
+    manager,
     ownerToken,
     publicUrl: () => guestBase,
     bind: lan ? '0.0.0.0' : '127.0.0.1',

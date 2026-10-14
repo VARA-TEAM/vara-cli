@@ -26,6 +26,11 @@ const PATHS: Record<string, string> = {
   trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6',
   link: 'M10 13a5 5 0 007.5.5l3-3a5 5 0 00-7-7l-1.7 1.7M14 11a5 5 0 00-7.5-.5l-3 3a5 5 0 007 7l1.7-1.7',
   down: 'M12 5v14M19 12l-7 7-7-7',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  download: 'M12 3v12M7 10l5 5 5-5M5 21h14',
+  stop: 'M6 6h12v12H6z',
+  goal: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 18a6 6 0 100-12 6 6 0 000 12zM12 14a2 2 0 100-4 2 2 0 000 4z',
+  command: 'M18 3a3 3 0 00-3 3v12a3 3 0 103-3H6a3 3 0 103 3V6a3 3 0 10-3 3h12a3 3 0 000-6z',
   alert: 'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
 }
 
@@ -168,5 +173,47 @@ export function Field({ label, children, hint }: { label: ReactNode; children: R
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
     </label>
+  )
+}
+
+/** A small pop-over menu: opens under its button, closes on outside click or Escape. */
+export function Menu({ label, icon = 'more', children }: { label: string; icon?: string; children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const down = (e: MouseEvent): void => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const key = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', down)
+    window.addEventListener('keydown', key)
+    return () => {
+      window.removeEventListener('mousedown', down)
+      window.removeEventListener('keydown', key)
+    }
+  }, [open])
+  return (
+    <div className="pop-wrap" ref={ref}>
+      <button className="icon-btn" onClick={() => setOpen((o) => !o)} aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open}>
+        <Icon name={icon} />
+      </button>
+      {open ? (
+        <div className="pop" role="menu">
+          {children(() => setOpen(false))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function MenuItem({ icon, children, onClick, danger, disabled }: { icon?: string; children: ReactNode; onClick: () => void; danger?: boolean; disabled?: boolean }) {
+  return (
+    <button role="menuitem" className={`pop-item${danger ? ' danger' : ''}`} onClick={onClick} disabled={disabled}>
+      {icon ? <Icon name={icon} size={16} /> : <span className="pop-gap" />}
+      {children}
+    </button>
   )
 }

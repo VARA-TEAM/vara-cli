@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { PRESETS, presetGrant, type Grant, type GrantPreset, type Principal } from './access.js'
 import type { StampedEvent, VaraHost } from './host.js'
+import type { Manager } from './manage.js'
 import { VERSION } from '../version.js'
 import { uiAssets } from './ui-assets.js'
 
@@ -22,6 +23,8 @@ import { uiAssets } from './ui-assets.js'
 
 export interface ServerOptions {
   host: VaraHost
+  /** Providers, models, settings, skills and MCP — owner only. Without it those routes answer 404. */
+  manager?: Manager
   /** Secret that identifies the OWNER. Generate with newOwnerToken(). */
   ownerToken: string
   bind?: string
@@ -249,6 +252,26 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (b && c === 'model' && method === 'POST') return reply(await host.setModel(p, b, str((await readBody(req))['model'], 200)))
       if (b && c === 'share' && method === 'POST') return reply(await host.share(p, b, (await readBody(req))['shared'] === true))
       if (b && c === 'events' && method === 'GET') return sse(req, res, url, who.token, p, b)
+      if (b && c === 'insights' && method === 'GET') return reply(await host.insights(p, b))
+      if (b && c === 'export' && method === 'GET') return reply(await host.exportMarkdown(p, b))
+      if (b && c === 'stop' && method === 'POST') return reply(await host.stop(p, b))
+      if (b && c === 'kind' && method === 'POST') {
+        const kind = (await readBody(req))['kind']
+        if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })
+        return reply(await host.setKind(p, b, kind))
+      }
+    }
+
+    /* ---- project files for @-mentions (owner) ---- */
+    if (a === 'files' && method === 'GET') return reply(await host.files(p, url.searchParams.get('q') ?? ''))
+
+    /* ---- owner management: providers, models, settings, skills, MCP ---- */
+    if (a === 'manage') {
+      if (p.kind !== 'owner') return json(res, 403, { error: 'only the owner can do that' })
+      if (!opts.manager) return json(res, 404, { error: 'not found' })
+      const body = method === 'GET' || method === 'DELETE' ? {} : await readBody(req)
+      const r = await opts.manager.route(method, parts.slice(2), body)
+      return r.ok ? json(res, 200, r.value) : json(res, r.status, { error: r.error })
     }
 
     /* ---- owner administration ---- */

@@ -107,6 +107,12 @@ export class McpHub {
     })
   }
 
+  /** Name + description of one server's tools (for display). */
+  toolsOf(name: string): Array<{ name: string; description: string; readOnly: boolean }> {
+    const c = this.clients.get(name)
+    return c?.status === 'ready' ? c.tools.map((t) => ({ name: t.name, description: t.description, readOnly: t.readOnly })) : []
+  }
+
   /** Tools of every ready server, adapted to the agent's tool interface. */
   tools(): Tool<never>[] {
     const out: Tool<never>[] = []

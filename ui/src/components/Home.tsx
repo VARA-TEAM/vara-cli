@@ -1,16 +1,25 @@
 import { useState } from 'react'
 import { api } from '../api'
+import type { Cmd } from '../commands'
+import { useResource } from '../hooks'
 import { useT } from '../i18n'
 import { relativeTime } from '../transcript'
-import type { Me, ModelsInfo, SessionSummary, SessionView } from '../types'
+import type { Me, ModelsInfo, ProvidersState, SessionSummary, SessionView } from '../types'
 import { Composer } from './Composer'
-import { Icon, StateBadge } from './ui'
+import type { Route } from './Sidebar'
+import { useToast } from './toast'
+import { Button, Icon, StateBadge } from './ui'
 
 const SUGGESTIONS = ['Explain how this project is organised', 'Find and fix the failing tests', 'Review my latest changes', 'Keep the build green and tell me when it breaks']
 
 /** The start screen: type anything, nothing else is required. */
-export function Home({ me, models, sessions, onOpen, onToggleSidebar }: { me: Me; models: ModelsInfo | null; sessions: SessionSummary[]; onOpen: (id: string) => void; onToggleSidebar: () => void }) {
+export function Home({ me, models, sessions, commands, go, onOpen, onToggleSidebar }: { me: Me; models: ModelsInfo | null; sessions: SessionSummary[]; commands: Cmd[]; go: (r: Route) => void; onOpen: (id: string) => void; onToggleSidebar: () => void }) {
   const t = useT()
+  const toast = useToast()
+  const owner = me.role === 'owner'
+  const providers = useResource<ProvidersState>(owner ? '/api/manage/providers' : null)
+  const activeP = providers.data?.providers.find((p) => p.active)
+  const needsKey = !!activeP && activeP.key === 'none'
   const [kind, setKind] = useState<'auto' | 'task' | 'goal'>('auto')
   const guest = me.role === 'guest' ? me : null
   const canCreate = !guest || guest.grant.ownSession
@@ -51,11 +60,28 @@ export function Home({ me, models, sessions, onOpen, onToggleSidebar }: { me: Me
         <h1>{t('home_title')}</h1>
         <p className="muted">{t('home_sub')}</p>
 
+        {needsKey ? (
+          <div className="setup-note" role="alert">
+            <Icon name="alert" size={18} />
+            <div>
+              <strong>{t('onb_title', { p: activeP!.label })}</strong>
+              <span className="muted">{t('onb_body')}</span>
+            </div>
+            <Button kind="primary" onClick={() => go({ page: 'settings', tab: 'models' })}>
+              {t('onb_cta')}
+            </Button>
+          </div>
+        ) : null}
+
         {canCreate ? (
           <>
             <Composer
               big
               autoFocus
+              draftKey="home"
+              commands={commands}
+              files={owner}
+              onUnknownCommand={(n) => toast(t('cmd_unknown', { n }), 'err')}
               onSend={create}
               controls={
                 <>
