@@ -14,7 +14,7 @@
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,7 +40,7 @@ mkdirSync(app, { recursive: true })
 mkdirSync(outDir, { recursive: true })
 
 // 1. One bundled file. Ink only touches react-devtools-core when DEV=true, so it is stubbed.
-await build({
+const bundled = await build({
   entryPoints: [join(root, 'src', 'cli.tsx')],
   bundle: true,
   platform: 'node',
@@ -53,7 +53,32 @@ await build({
   logLevel: 'warning',
   legalComments: 'none',
   minify: false,
+  metafile: true,
 })
+
+// 1b. Licenses of everything inside the bundle. MIT/ISC/BSD require the copyright
+// notice to accompany copies, and this archive IS a copy.
+function licenseOf(pkgDir) {
+  const names = existsSync(pkgDir) ? readdirSync(pkgDir) : []
+  const file = names.find((n) => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(n))
+  return file ? readFileSync(join(pkgDir, file), 'utf8').trim() : null
+}
+const pkgDirs = new Set()
+for (const input of Object.keys(bundled.metafile.inputs)) {
+  const m = /^(.*?node_modules[\\/](?:@[^\\/]+[\\/])?[^\\/]+)/.exec(input)
+  if (m) pkgDirs.add(join(root, m[1]))
+}
+const notices = []
+for (const dir of [...pkgDirs].sort()) {
+  const info = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  const text = licenseOf(dir) ?? `(no license file shipped by the package; declared license: ${typeof info.license === 'string' ? info.license : JSON.stringify(info.license)})`
+  notices.push(`${'='.repeat(78)}\n${info.name}@${info.version}  -  ${typeof info.license === 'string' ? info.license : 'see below'}\n${info.repository?.url ?? info.homepage ?? ''}\n${'='.repeat(78)}\n${text}\n`)
+}
+writeFileSync(
+  join(app, 'THIRD_PARTY_LICENSES.txt'),
+  `VARA is MIT licensed (see LICENSE). This package bundles the following open-source components,\nand the Node.js runtime (node / node.exe; license: https://github.com/nodejs/node/blob/main/LICENSE).\n\n${notices.join('\n')}`,
+)
+console.log(`licenses: ${pkgDirs.size} bundled packages listed`)
 
 // 2. The runtime and launchers.
 const nodeName = process.platform === 'win32' ? 'node.exe' : 'node'
