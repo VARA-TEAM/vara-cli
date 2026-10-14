@@ -29,6 +29,7 @@ import { helpText } from './commands.js'
 import { ZodError } from 'zod'
 import { VERSION } from '../version.js'
 import { McpHub } from '../mcp/hub.js'
+import { makeSessionRunner } from '../core/runner-factory.js'
 import { McpScreen } from './mcp.js'
 import { cleanTitle, expandMentions } from './mentions.js'
 import { setModelThinking, thinkingFor } from '../config/providers.js'
@@ -309,21 +310,13 @@ export function App({ session, provider: initialProvider, config: initialConfig,
   /** One place builds runners, so model/provider switches can never leave a stale one. */
   const makeRunner = useCallback(
     (s: Session) =>
-      new SessionRunner(
-        s,
-        providerRef.current,
-        s.config.model ?? configRef.current.provider.model,
-        handleEvent,
-        () => contextSettingsFor(configRef.current, s.config.model ?? configRef.current.provider.model),
-        {
-          loadSkills: () => discoverSkills(s.config.cwd, configRef.current.skills.disabled),
-          budgetFor: (k) => budgetFor(k, configRef.current),
-          routeModel: () => configRef.current.agent.cheapModel || undefined,
-          thinkingLevel: (m) => thinkingFor(configRef.current, m).level,
-          extraTools: () => hubRef.current.tools(),
-          mcpSummary: () => hubRef.current.summary(),
-        },
-      ),
+      makeSessionRunner({
+        session: s,
+        provider: () => providerRef.current,
+        config: () => configRef.current,
+        hub: hubRef.current,
+        onEvent: handleEvent,
+      }),
     [handleEvent],
   )
 

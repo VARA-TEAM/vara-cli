@@ -6,6 +6,8 @@ export const VARA_HOME: string = process.env['VARA_HOME'] ?? join(homedir(), '.v
 
 export const sessionsDir: string = join(VARA_HOME, 'sessions')
 export const vaultDir: string = join(VARA_HOME, 'vault')
+/** Host (sharing) state: invites, guests, last server address. */
+export const hostDir: string = join(VARA_HOME, 'host')
 export const configFile: string = join(VARA_HOME, 'config.json')
 /** User-level skills: ~/.vara/skills/<name>/SKILL.md (projects add <cwd>/.vara/skills). */
 export const skillsDir: string = join(VARA_HOME, 'skills')

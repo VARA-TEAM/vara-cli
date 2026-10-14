@@ -7,6 +7,7 @@ import { activate, activeProviderName, defaultModelFor } from './config/provider
 import { keySource } from './runtime.js'
 import { SetupApp } from './tui/setup.js'
 import { applyTheme } from './tui/theme.js'
+import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
 import { buildProvider } from './runtime.js'
@@ -26,6 +27,10 @@ Usage:
   vara sessions [--all]                list sessions in this directory (--all: every directory)
   vara run "<objective>" [--goal] [--plan] [--cwd <dir>] [--verify <cmd>] [--publish] [--provider <name>] [--model <id>]
                                        headless run (no TUI), prints events
+  vara ui [--lan] [--port N]           open VARA in your browser (local web interface)
+  vara serve [--lan] [--port N]        run the host without opening a browser
+  vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
+  vara guests [revoke <id>]            who has access, what they use
   vara setup                           add providers, fetch & test their models, pick one (TUI)
   vara providers                       list providers, key status and model health
   vara secret set <NAME>               store a secret in the encrypted vault
@@ -80,6 +85,18 @@ async function main(): Promise<void> {
   }
   if (cmd === 'run') {
     await headlessRun(args.slice(1))
+    return
+  }
+  if (cmd === 'serve' || cmd === 'ui') {
+    await serveCommand(args.slice(1), cmd === 'ui')
+    return
+  }
+  if (cmd === 'invite') {
+    await inviteCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'guests') {
+    await guestsCommand(args.slice(1))
     return
   }
   if (cmd === 'setup') {

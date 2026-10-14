@@ -193,6 +193,10 @@ export interface Session {
   intent?: SessionIntent
   /** What the cost engine avoided — shown by /cost. */
   savings?: Savings
+  /** Who runs this session when it is not the host owner (shared sessions). */
+  participant?: { id: string; name: string }
+  /** The owner opened this session to guests with watch / send permission. */
+  shared?: boolean
   /** Last turn index that produced a tool call or text — used for no-progress detection. */
   lastProgressTurn: number
 }
