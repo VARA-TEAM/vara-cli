@@ -8,6 +8,8 @@ export interface ModelMessage {
   content: string
   toolCalls?: ToolCall[]
   toolCallId?: string
+  /** Reasoning blocks to replay with this assistant turn (provider-specific). */
+  reasoning?: unknown[]
 }
 
 export interface ProviderRequest {
@@ -16,12 +18,16 @@ export interface ProviderRequest {
   tools: Array<Record<string, unknown>>
   model: string
   maxTokens?: number
+  /** Reasoning effort for models that support it; undefined = provider default. */
+  thinking?: 'off' | 'low' | 'medium' | 'high'
   signal?: AbortSignal
 }
 
 export interface AssistantTurn {
   content: string
   toolCalls: ToolCall[]
+  /** Provider reasoning blocks that must accompany the tool calls on the next request. */
+  reasoning?: unknown[]
 }
 
 export type ProviderEvent =

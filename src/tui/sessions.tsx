@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { listSessions } from '../core/store.js'
 import { formatUsd } from '../llm/cost.js'
+import { theme } from './theme.js'
 
 export interface SessionRow {
   id: string
@@ -103,12 +104,12 @@ export function SessionBrowser({
   })
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1} marginBottom={1}>
-      <Text bold color="magenta">
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.user} paddingX={1} marginBottom={1}>
+      <Text bold color={theme.user}>
         Sessions {showAll ? '(all directories)' : '(this directory)'} <Text dimColor>[Tab toggles scope]</Text>
       </Text>
       <Box>
-        <Text color="magenta">▸ </Text>
+        <Text color={theme.user}>▸ </Text>
         <Text>{query || <Text dimColor>type to filter by id or objective…</Text>}</Text>
       </Box>
       <Box flexDirection="column" marginY={1}>
@@ -119,15 +120,15 @@ export function SessionBrowser({
             <Text key={r.id} inverse={i === selected}>
               <Text>{i === selected ? ' ▸ ' : '   '}</Text>
               <Text bold>{r.id}</Text>
-              {r.id === currentId ? <Text color="cyan"> (current)</Text> : null}
+              {r.id === currentId ? <Text color={theme.brand}> (current)</Text> : null}
               <Text dimColor> · </Text>
-              <Text color={stateColor(r.state)}>{r.state}</Text>
+              <Text color={sessColor(r.state)}>{r.state}</Text>
               <Text dimColor> · {r.kind}</Text>
               <Text> {truncate(r.objective, 60)}</Text>
               <Text dimColor>
                 {'  '}
                 {r.cwd} · {new Date(r.updatedAt).toLocaleString()} · cost{' '}
-                <Text color={r.costUsd === null || r.unpricedCalls > 0 ? 'yellow' : undefined}>
+                <Text color={r.costUsd === null || r.unpricedCalls > 0 ? theme.warn : undefined}>
                   {r.costUsd === null ? 'unknown' : `${formatUsd(r.costUsd)}${r.unpricedCalls > 0 ? '+' : ''}`}
                 </Text>
               </Text>
@@ -150,10 +151,8 @@ function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + '…' : text
 }
 
-function stateColor(state: string): string {
-  if (state === 'completed') return 'green'
-  if (state === 'failed') return 'red'
-  if (state === 'running') return 'green'
-  if (state === 'waiting_user') return 'yellow'
-  return 'gray'
+import { stateColor as sessColorBase } from './theme.js'
+import type { SessionState } from '../core/types.js'
+function sessColor(state: string): string {
+  return sessColorBase(state as SessionState)
 }

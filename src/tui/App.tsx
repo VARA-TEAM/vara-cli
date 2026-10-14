@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Box, Text, useApp, useInput } from 'ink'
-import type { EngineEvent, Mode, Session, SessionKind, SessionState } from '../core/types.js'
+import type { EngineEvent, Mode, Session, SessionIntent, SessionKind, SessionState } from '../core/types.js'
 import type { Provider } from '../llm/provider.js'
 import type { VaraConfig } from '../config/config.js'
+import { persistConfig, budgetFor } from '../config/config.js'
+import { activate, activeProviderName, contextSettingsFor, defaultModelFor, ensureProviders } from '../config/providers.js'
+import { buildProvider } from '../runtime.js'
+import { ProviderManager } from './providers.js'
 import { SessionRunner } from '../core/runner.js'
 import { loadSession, saveSession, listSessions } from '../core/store.js'
 import { createSession, CreateSessionInput } from '../core/session.js'
@@ -10,14 +14,30 @@ import { contextStatus, estimateSessionTokens, formatTokens } from '../core/cont
 import { formatUsd } from '../llm/cost.js'
 import { configFile } from '../config/paths.js'
 import { StateBadge, formatElapsed } from './format.js'
-import { EntryView, firstLine, truncate, type Entry } from './entries.js'
+import { EntryView, entryRows, firstLine, truncate, type Entry } from './entries.js'
 import { appendEntry, replayTranscript, resumeBanner } from './history.js'
 import { CommandPalette } from './palette.js'
 import { SessionBrowser } from './sessions.js'
 import { TabBar, nextTabId, type TabInfo } from './tabs.js'
-import { Sidebar } from './sidebar.js'
-import { WelcomeScreen } from './welcome.js'
+import { Sidebar, SIDEBAR_WIDTH } from './sidebar.js'
+import { PromptBox } from './prompt.js'
+import { applyTheme, findTheme, glyph, SPINNER, tailRows, theme, THEMES, wrappedRows } from './theme.js'
+import { HomeScreen, type DraftKind, type RecentSession } from './home.js'
+import { SettingsScreen, type SkillRow } from './settings.js'
+import { discoverAllSkills, discoverSkills, scaffoldSkill, type Skill } from '../core/skills.js'
 import { helpText } from './commands.js'
+import { ZodError } from 'zod'
+import { VERSION } from '../version.js'
+import { McpHub } from '../mcp/hub.js'
+import { McpScreen } from './mcp.js'
+import { cleanTitle, expandMentions } from './mentions.js'
+import { setModelThinking, thinkingFor } from '../config/providers.js'
+import { nextLevel } from '../llm/capabilities.js'
+import { findModel } from '../llm/registry.js'
+import { writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { Markdown } from './markdown.js'
+import { keySource } from '../runtime.js'
 import { resolveKey, type Overlay } from './keymap.js'
 
 interface Props {
@@ -42,11 +62,20 @@ function costLabel(usage: Session['usage']): string {
   return `${formatUsd(usage.costUsd)}${partial ? '+' : ''}`
 }
 
-/** Rows of chrome (headers, input, footer, tabs) reserved above the transcript. */
-const CHROME_ROWS = 13
+/** Terminals shorter than this hide the sidebar (it would out-grow the frame). */
+const SIDEBAR_MIN_ROWS = 30
 
-export function App({ session, provider, config, autoStart }: Props): React.ReactElement {
+export function App({ session, provider: initialProvider, config: initialConfig, autoStart }: Props): React.ReactElement {
   const { exit } = useApp()
+  // The active provider/config are state: /providers, /model and /provider
+  // swap them live, so every async callback reads them through refs.
+  const [config, setConfig] = useState(() => ensureProviders(initialConfig))
+  const [provider, setProvider] = useState(initialProvider)
+  const configRef = useRef(config)
+  const providerRef = useRef(provider)
+  const hubRef = useRef<McpHub>(new McpHub())
+  configRef.current = config
+  providerRef.current = provider
   // --- session tabs: every open session stays in memory with its own view ---
   const [tabs, setTabs] = useState<Session[]>(session ? [session] : [])
   const [activeId, setActiveId] = useState(session?.id ?? '')
@@ -68,9 +97,17 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
   const [termRows, setTermRows] = useState(process.stdout.rows ?? 30)
   const [termColumns, setTermColumns] = useState(process.stdout.columns ?? 100)
   const [sidebarOn, setSidebarOn] = useState(true)
-  // --- welcome-flow draft settings (no session yet) ---
-  const [draftKind, setDraftKind] = useState<SessionKind>('task')
-  const [draftMode, setDraftMode] = useState<Mode>('build')
+  // --- start screen: shown with no session, or as a "+ New" tab (Ctrl+N) ---
+  const [homeOpen, setHomeOpen] = useState(false)
+  const [recent, setRecent] = useState<RecentSession[]>([])
+  const [homeSel, setHomeSel] = useState(-1)
+  const [draftKind, setDraftKind] = useState<DraftKind>(() => (ensureProviders(initialConfig).agent.autoIntent ? 'auto' : 'task'))
+  const [draftMode, setDraftMode] = useState<Mode>(() => initialConfig.agent.defaultMode)
+  const [thinking, setThinking] = useState('')
+  const [intent, setIntent] = useState<SessionIntent | null>(session?.intent ?? null)
+  const [skillRows, setSkillRows] = useState<SkillRow[]>([])
+  const [skillNames, setSkillNames] = useState<string[]>([])
+  const [keyMissing, setKeyMissing] = useState(false)
 
   const runnerRef = useRef<SessionRunner | null>(null)
   const sessionRef = useRef<Session | null>(session)
@@ -99,8 +136,11 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
    * every render. */
   const overlayRef = useRef<Overlay>(null)
   const escArmedRef = useRef(false)
-  const draftKindRef = useRef<SessionKind>('task')
+  const draftKindRef = useRef<DraftKind>('auto')
   const draftModeRef = useRef<Mode>('build')
+  const homeOpenRef = useRef(false)
+  const homeSelRef = useRef(-1)
+  const recentRef = useRef<RecentSession[]>([])
 
   tabsRef.current = tabs
   inputRef.current = input
@@ -108,12 +148,36 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
   escArmedRef.current = escArmed
   draftKindRef.current = draftKind
   draftModeRef.current = draftMode
+  homeOpenRef.current = homeOpen
+  homeSelRef.current = homeSel
+  recentRef.current = recent
   const active = tabs.find((t) => t.id === activeId) ?? null
   const activeRef = useRef<Session | null>(active)
   activeRef.current = active
   const model = active?.config.model ?? config.provider.model
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
+
+  /**
+   * Streaming tokens arrive dozens of times a second; repainting the whole
+   * frame for each one makes the screen shimmer. Batch them to ~12 fps.
+   */
+  const thinkingRef = useRef('')
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleLive = useCallback(() => {
+    if (liveTimerRef.current) return
+    liveTimerRef.current = setTimeout(() => {
+      liveTimerRef.current = null
+      setStream(streamBuffer)
+      setThinking(thinkingRef.current)
+    }, 80)
+  }, [])
+  useEffect(
+    () => () => {
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current)
+    },
+    [],
+  )
 
   /** Append with collapsing rules; cache per tab so switching is lossless. */
   const push = useCallback((entry: Entry) => {
@@ -139,14 +203,35 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       switch (event.type) {
         case 'state':
           setState(event.state)
+          if (event.state !== 'running') {
+            thinkingRef.current = ''
+            setThinking('')
+          }
           if (event.reason) push({ kind: 'note', text: event.reason, color: 'gray', group: 'state' })
+          break
+        case 'intent':
+          setIntent(event.intent)
+          break
+        case 'subagent':
+          push({
+            kind: 'note',
+            text: `${event.status === 'running' ? '⧉' : event.status === 'done' ? glyph.ok : glyph.fail} sub-agent · ${event.title}${event.status === 'running' ? (event.detail ? ` — ${event.detail}…` : ' — working…') : event.status === 'done' ? ' — done' : ' — failed'}`,
+            color: event.status === 'failed' ? 'red' : event.status === 'done' ? 'green' : 'cyan',
+            group: `sub-${event.id}`,
+          })
+          break
+        case 'thinking':
+          thinkingRef.current = (thinkingRef.current + event.text).slice(-400)
+          scheduleLive()
           break
         case 'text':
           streamingRef.current = true
           streamBuffer += event.delta
-          setStream(streamBuffer)
-          break
+          scheduleLive()
+          return // no extra re-render: scheduleLive batches token updates
         case 'tool_start':
+          thinkingRef.current = ''
+          setThinking('')
           flushStream(push, setStream)
           activeToolRef.current = event.name
           push({ kind: 'tool', id: event.id, name: event.name, args: event.args })
@@ -221,6 +306,27 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     [push],
   )
 
+  /** One place builds runners, so model/provider switches can never leave a stale one. */
+  const makeRunner = useCallback(
+    (s: Session) =>
+      new SessionRunner(
+        s,
+        providerRef.current,
+        s.config.model ?? configRef.current.provider.model,
+        handleEvent,
+        () => contextSettingsFor(configRef.current, s.config.model ?? configRef.current.provider.model),
+        {
+          loadSkills: () => discoverSkills(s.config.cwd, configRef.current.skills.disabled),
+          budgetFor: (k) => budgetFor(k, configRef.current),
+          routeModel: () => configRef.current.agent.cheapModel || undefined,
+          thinkingLevel: (m) => thinkingFor(configRef.current, m).level,
+          extraTools: () => hubRef.current.tools(),
+          mcpSummary: () => hubRef.current.summary(),
+        },
+      ),
+    [handleEvent],
+  )
+
   /**
    * Attach a session as the active tab: pause any previous run, rebuild the
    * runner, and RESTORE its transcript — cached if this run already showed it,
@@ -235,7 +341,9 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       setActiveId(next.id)
       activeIdRef.current = next.id
       setState(next.state)
-      runnerRef.current = new SessionRunner(next, provider, next.config.model ?? config.provider.model, handleEvent)
+      setIntent(next.intent ?? null)
+      setHomeOpen(false)
+      runnerRef.current = makeRunner(next)
 
       const cached = entriesCacheRef.current[next.id]
       if (cached) {
@@ -252,13 +360,13 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       setScrollOffset(0)
       refresh()
     },
-    [provider, config.provider.model, handleEvent, refresh],
+    [makeRunner, refresh],
   )
 
   // The mount-time runner (a resumed session) lives in runnerRef alone — one
   // owner, no second ref that can drift out of sync with the tabs.
   if (!runnerRef.current && session) {
-    runnerRef.current = new SessionRunner(session, provider, model, handleEvent)
+    runnerRef.current = makeRunner(session)
   }
 
   const startRun = useCallback(() => {
@@ -300,8 +408,81 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     void listSessions().then((all) => {
       const here = process.cwd().replace(/[\\/]+$/, '').toLowerCase()
       setCwdHasSessions(all.some((s) => s.cwd.replace(/[\\/]+$/, '').toLowerCase() === here))
-    })
+    }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadRecent = useCallback(async () => {
+    try {
+      const all = await listSessions()
+      const here = process.cwd().replace(/[\\/]+$/, '').toLowerCase()
+      setRecent(
+        all
+          .filter((x) => x.cwd.replace(/[\\/]+$/, '').toLowerCase() === here)
+          .slice(0, 5)
+          .map((x) => ({ id: x.id, objective: cleanTitle(x.objective), state: x.state as SessionState, updatedAt: x.updatedAt })),
+      )
+    } catch {
+      setRecent([])
+    }
+  }, [])
+
+  const loadSkillRows = useCallback(async () => {
+    try {
+      const cwd = activeRef.current?.config.cwd ?? process.cwd()
+      const all = await discoverAllSkills(cwd, configRef.current.skills.disabled)
+      setSkillRows(all.map((x) => ({ name: x.name, description: x.description, source: x.source, enabled: x.enabled })))
+      setSkillNames(all.filter((x) => x.enabled).map((x) => x.name))
+    } catch {
+      /* skills are optional */
+    }
+  }, [])
+
+  // MCP: connect the configured servers in the background; re-sync on any change.
+  const mcpKey = JSON.stringify(config.mcp.servers)
+  useEffect(() => {
+    void hubRef.current.sync(config.mcp.servers as never)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mcpKey])
+  useEffect(() => {
+    const hub = hubRef.current
+    const off = hub.onChange(() => setTick((t) => t + 1))
+    return () => {
+      off()
+      hub.closeAll()
+    }
+  }, [])
+
+  // Warn on the start screen when the active provider has no key.
+  useEffect(() => {
+    void keySource(config.provider).then((k) => setKeyMissing(k === 'none')).catch(() => {})
+  }, [config.provider])
+
+  useEffect(() => {
+    void loadRecent()
+    void loadSkillRows()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const openHome = useCallback(
+    (prefill = '') => {
+      const current = activeRef.current
+      if (current) inputCacheRef.current[current.id] = inputRef.current
+      setInput(prefill)
+      inputRef.current = prefill
+      setHomeSel(-1)
+      setHomeOpen(true)
+      void loadRecent()
+    },
+    [loadRecent],
+  )
+
+  const closeHome = useCallback(() => {
+    const current = activeRef.current
+    setHomeOpen(false)
+    const draft = current ? (inputCacheRef.current[current.id] ?? '') : ''
+    setInput(draft)
+    inputRef.current = draft
   }, [])
 
   const switchTab = useCallback(
@@ -309,6 +490,10 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       const infos: TabInfo[] = tabsRef.current.map((s) => ({ id: s.id, label: s.config.objective, state: s.state }))
       const nextId = nextTabId(infos, activeIdRef.current, dir)
       const next = tabsRef.current.find((s) => s.id === nextId)
+      if (homeOpenRef.current) {
+        closeHome()
+        return
+      }
       if (!next || next.id === activeIdRef.current) return
       // Each tab keeps its own draft: save the current input, restore the target's.
       inputCacheRef.current[activeIdRef.current] = inputRef.current
@@ -317,7 +502,7 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         setInput(inputCacheRef.current[next.id] ?? '')
       })
     },
-    [attachSession],
+    [attachSession, closeHome],
   )
 
   /**
@@ -327,47 +512,30 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
    * created with Ctrl+N never started at all (the objective just sat there).
    */
   const createSessionFlow = useCallback(
-    (objective: string, opts: { kind: SessionKind; mode: Mode; cwd: string; model?: string }) => {
+    (objective: string, opts: { kind: DraftKind; mode: Mode; cwd: string; model?: string }) => {
       try {
+        const auto = opts.kind === 'auto'
         const parsed = CreateSessionInput.parse({
-          kind: opts.kind,
+          kind: auto ? 'task' : opts.kind,
           mode: opts.mode,
           objective,
           cwd: opts.cwd,
-          verifyCommand: config.defaultVerifyCommand || undefined,
-          model: opts.model ?? config.provider.model,
+          verifyCommand: configRef.current.defaultVerifyCommand || undefined,
+          model: opts.model ?? configRef.current.provider.model,
+          auto,
         })
-        const created = createSession(parsed, config)
+        const created = createSession(parsed, configRef.current)
         void saveSession(created)
-        attachSession(created, `new session ${created.id} — ${truncate(created.config.objective, 80)}`)
+        attachSession(created)
         push({ kind: 'user', text: objective })
         startRun()
       } catch (err) {
-        push({ kind: 'note', text: (err as Error).message, color: 'red' })
+        // Never show raw validation JSON: say what is wrong in one line.
+        const text = err instanceof ZodError ? err.issues.map((i) => i.message).join('; ') : (err as Error).message
+        push({ kind: 'note', text, color: 'red' })
       }
     },
-    [config, attachSession, push, startRun],
-  )
-
-  /** Open the focused "new objective" entry (Ctrl+N / /new). */
-  const openNewSession = useCallback(
-    (prefill = '') => {
-      const current = activeRef.current
-      if (!current) return
-      // Keep the tab's draft for when we return, and start the entry clean.
-      inputCacheRef.current[current.id] = inputRef.current
-      setDraftMode(current.config.mode)
-      setDraftKind(current.config.kind)
-      setInput(prefill)
-      inputRef.current = prefill
-      setOverlay('new-session')
-      push({
-        kind: 'note',
-        text: 'new session — type the objective and press Enter (Tab: PLAN/BUILD · Ctrl+G: task/goal · Esc cancels)',
-        color: 'cyan',
-      })
-    },
-    [push],
+    [attachSession, push, startRun],
   )
 
   /** Load a session by id and attach it — works from the welcome screen too. */
@@ -386,61 +554,106 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     [attachSession, push],
   )
 
+  /** Manager edits (add/remove/test/context): persist and mirror, keep running as is. */
+  const onProvidersChange = useCallback((next: VaraConfig) => {
+    configRef.current = next
+    setConfig(next)
+    void persistConfig(next)
+  }, [])
+
+  /**
+   * Switch the ACTIVE provider/model live: build the provider first (so a
+   * missing key fails here, visibly, and nothing changes), then swap config,
+   * provider and the session's runner together.
+   */
+  const useConfig = useCallback(
+    async (next: VaraConfig) => {
+      setOverlay(null)
+      const name = activeProviderName(next)
+      let built
+      try {
+        built = await buildProvider(next)
+      } catch (err) {
+        push({ kind: 'note', text: `cannot use ${name}: ${(err as Error).message}`, color: 'red' })
+        return
+      }
+      configRef.current = next
+      setConfig(next)
+      void persistConfig(next)
+      providerRef.current = built.provider
+      setProvider(built.provider)
+      const cur = activeRef.current
+      let text = `now using ${name} · ${next.provider.model}`
+      if (cur) {
+        const wasRunning = runnerRef.current?.isRunning ?? false
+        runnerRef.current?.pause()
+        cur.config.model = next.provider.model
+        void saveSession(cur)
+        runnerRef.current = makeRunner(cur)
+        if (wasRunning) text += ' — agent paused, send a message to continue'
+        else text += ' (applies from the next turn)'
+      }
+      push({ kind: 'note', text, color: 'yellow', group: 'model' })
+      refresh()
+    },
+    [push, makeRunner, refresh],
+  )
+  const useConfigRef = useRef(useConfig)
+  useConfigRef.current = useConfig
+
   const submit = useCallback(
     (raw: string) => {
       const value = raw.trim()
-      if (!value) return
+      const onHome = !activeRef.current || homeOpenRef.current
 
-      // Welcome flow: no session yet — the first message IS the objective.
-      if (!activeRef.current) {
-        // attachSession sets sessionRef synchronously; a second Enter in the
-        // same frame (before the re-render) must not create a duplicate.
-        if (sessionRef.current) return
+      // Home: Enter on a highlighted recent session opens it; otherwise the
+      // message (anything — even "hi") starts a new session.
+      if (onHome) {
+        if (!value && homeSelRef.current >= 0) {
+          const r = recentRef.current[homeSelRef.current]
+          if (r) {
+            setHomeOpen(false)
+            switchToSession(r.id)
+          }
+          return
+        }
+        if (!value) return
         if (value.startsWith('/')) {
-          // ONE dispatcher: runCommand's pre-session section handles /help,
-          // /palette, /sessions, /new, /resume, /quit and the /kind draft.
-          // The old inline check here blocked every command but /help and
-          // left that whole section dead code.
           runCommandRef.current(value)
           setInput('')
           return
         }
-        createSessionFlow(value, { kind: draftKindRef.current, mode: draftModeRef.current, cwd: process.cwd() })
+        // attachSession sets sessionRef synchronously; a second Enter in the
+        // same frame (before the re-render) must not create a duplicate.
+        if (!activeRef.current && sessionRef.current) return
+        const homeCwd = activeRef.current?.config.cwd ?? process.cwd()
         setInput('')
-        return
-      }
-
-      // Inline "new session" flow: the next message is the objective. The mode
-      // shown in the input line (Tab) is the mode the session is created with.
-      if (overlayRef.current === 'new-session') {
-        setOverlay(null)
-        const cur = activeRef.current!
-        createSessionFlow(value, {
-          kind: draftKindRef.current,
-          mode: draftModeRef.current,
-          cwd: cur.config.cwd,
-          model: cur.config.model,
+        void expandMentions(value, homeCwd).then(({ text, files }) => {
+          createSessionFlow(text, { kind: draftKindRef.current, mode: draftModeRef.current, cwd: homeCwd })
+          if (files.length) push({ kind: 'note', text: `attached ${files.join(', ')}`, color: 'gray' })
         })
-        setInput('')
         return
       }
 
+      if (!value) return
       if (value.startsWith('/')) {
         runCommandRef.current(value)
         return
       }
-      runnerRef.current?.send(value)
-      if (!runnerRef.current?.isRunning) {
-        push({ kind: 'user', text: value })
-        startRun()
-      } else {
-        push({ kind: 'note', text: 'follow-up queued — it will be applied at the next safe point', color: 'cyan', group: 'queue' })
-      }
-      refresh()
+      const sendCwd = activeRef.current?.config.cwd ?? process.cwd()
+      void expandMentions(value, sendCwd).then(({ text, files }) => {
+        runnerRef.current?.send(text)
+        if (!runnerRef.current?.isRunning) {
+          push({ kind: 'user', text: value })
+          startRun()
+        } else {
+          push({ kind: 'note', text: 'queued — the agent will see it at the next safe point', color: 'cyan', group: 'queue' })
+        }
+        if (files.length) push({ kind: 'note', text: `attached ${files.join(', ')}`, color: 'gray' })
+        refresh()
+      })
     },
-    // overlay/drafts are read via refs inside the body, so this callback stays
-    // fresh even when a keystroke reaches a not-yet-refreshed subscription.
-    [push, startRun, createSessionFlow, refresh],
+    [push, startRun, createSessionFlow, refresh, switchToSession],
   )
 
   useInput((raw, key) => {
@@ -449,15 +662,19 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     // ONE authoritative routing policy (src/tui/keymap.ts): the handler below
     // only performs the side effect of the resolved action, so no two
     // handlers can ever compete for the same keystroke.
+    const onHome = !activeRef.current || homeOpenRef.current
     const action = resolveKey(raw, key, {
-      view: activeRef.current ? 'session' : 'welcome',
+      view: onHome ? 'home' : 'session',
       overlay: overlayRef.current,
       running: runnerRef.current?.isRunning ?? false,
       escArmed: escArmedRef.current,
+      canLeaveHome: homeOpenRef.current && tabsRef.current.length > 0,
+      inputEmpty: inputRef.current.length === 0,
     })
 
     switch (action.type) {
       case 'quit': {
+        hubRef.current.closeAll()
         runnerRef.current?.pause()
         const current = sessionRef.current
         const done = current ? saveSession(current) : Promise.resolve()
@@ -466,21 +683,37 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       }
       case 'overlay-input':
         return // the overlay component's own useInput owns these keys
-      case 'close-overlay': {
+      case 'close-overlay':
         setOverlay(null)
-        if (action.overlay === 'new-session') {
-          // Restore the draft that was stashed when the entry was opened.
-          setInput(inputCacheRef.current[activeIdRef.current] ?? '')
-          push({ kind: 'note', text: 'new session cancelled', color: 'gray' })
-        }
         return
-      }
       case 'open-palette':
         setOverlay('palette')
         return
-      case 'open-new-session':
-        openNewSession()
+      case 'open-settings':
+        void loadSkillRows()
+        setOverlay('settings')
         return
+      case 'open-home':
+        openHome()
+        return
+      case 'close-home':
+        closeHome()
+        return
+      case 'home-move': {
+        const n = recentRef.current.length
+        if (!n) return
+        const cur = homeSelRef.current
+        const next = action.dir === 1 ? Math.min(n - 1, cur + 1) : cur - 1
+        setHomeSel(Math.max(-1, next))
+        return
+      }
+      case 'wheel':
+      case 'scroll-line': {
+        const step = action.type === 'wheel' ? -action.delta * 3 : -action.dir
+        scrollOffsetRef.current = Math.max(0, scrollOffsetRef.current + step)
+        setScrollOffset(scrollOffsetRef.current)
+        return
+      }
       case 'arm-interrupt':
         setEscArmed(true)
         push({ kind: 'note', text: 'press Esc again to interrupt the agent (state is saved)', color: 'yellow', group: 'esc' })
@@ -498,6 +731,10 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
       case 'close-tab': {
         const current = activeRef.current
         if (!current) return
+        if (homeOpenRef.current) {
+          closeHome()
+          return
+        }
         // A closed tab must never keep writing into the transcript that
         // replaces it — stop its engine and drop the runner first.
         if (current.id === activeIdRef.current) {
@@ -522,7 +759,7 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         switchTab(action.dir)
         return
       case 'scroll':
-        scrollOffsetRef.current = Math.max(0, scrollOffsetRef.current + (action.dir === -1 ? 6 : -6))
+        scrollOffsetRef.current = Math.max(0, scrollOffsetRef.current + (action.dir === -1 ? 8 : -8))
         setScrollOffset(scrollOffsetRef.current)
         return
       case 'scroll-latest':
@@ -531,9 +768,8 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         return
       case 'toggle-mode': {
         const cur = activeRef.current
-        // Welcome draft, or the mode of the session BEING created (shown in
-        // the input line) — never the old session's mode.
-        if (!cur || overlayRef.current === 'new-session') {
+        // Start screen: the mode of the session BEING created — never an old session's.
+        if (!cur || homeOpenRef.current) {
           setDraftMode((m) => (m === 'build' ? 'plan' : 'build'))
           return
         }
@@ -546,9 +782,8 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         return
       }
       case 'toggle-kind':
-        // Draft only: the kind of the session BEING created (welcome box or
-        // the new-objective entry) — never the running session's policy.
-        setDraftKind((k) => (k === 'task' ? 'goal' : 'task'))
+        // Draft only: the kind of the session BEING created.
+        setDraftKind((k) => (k === 'auto' ? 'task' : k === 'task' ? 'goal' : 'auto'))
         return
       case 'submit': {
         // Read the LIVE draft from the ref — a stale `input` here once made
@@ -583,19 +818,19 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
   // Spinner + heartbeat while running.
   useEffect(() => {
     if (state !== 'running') return
-    const id = setInterval(() => setSpinnerFrame((f) => f + 1), 120)
+    const id = setInterval(() => setSpinnerFrame((f) => f + 1), 250)
     return () => clearInterval(id)
   }, [state])
 
   const elapsedSec = active ? (Date.now() - new Date(active.usage.startedAt).getTime()) / 1000 : 0
   void tick
 
-  const spin = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'][spinnerFrame % 10] ?? '⠋'
+  const spin = SPINNER[spinnerFrame % SPINNER.length] ?? '⠋'
   const idleSec = Math.round((Date.now() - lastActivityRef.current) / 1000)
   const workingLabel =
     state !== 'running' ? null : activeToolRef.current ? `running ${activeToolRef.current}…` : idleSec >= 2 ? `waiting on model ${idleSec}s…` : 'thinking…'
 
-  const ctx = active ? contextStatus(active, config.context) : null
+  const ctx = active ? contextStatus(active, contextSettingsFor(config, active.config.model ?? config.provider.model)) : null
   const usedTokens = active ? estimateSessionTokens(active) : 0
   const ctxPercent = ctx ? Math.min(100, Math.round((usedTokens / ctx.requestBudgetTokens) * 100)) : 0
 
@@ -604,7 +839,7 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     // Read the CURRENT session from the ref — a stale closure here once made
     // /mode and /status act on the previously active tab after a switch.
     const cur = activeRef.current
-    const c = cur ? contextStatus(cur, config.context) : null
+    const c = cur ? contextStatus(cur, contextSettingsFor(config, cur.config.model ?? config.provider.model)) : null
     const ut = cur ? estimateSessionTokens(cur) : 0
     const cp = c ? Math.min(100, Math.round((ut / c.requestBudgetTokens) * 100)) : 0
 
@@ -612,11 +847,87 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     switch (cmd) {
       case '':
       case 'help':
-        push({ kind: 'note', text: helpText(), color: 'gray' })
+        setOverlay('help')
         return
       case 'palette':
         setOverlay('palette')
         return
+      case 'providers':
+      case 'setup':
+        setOverlay('providers')
+        return
+      case 'mcp':
+        setOverlay('mcp')
+        return
+      case 'think': {
+        const m = configRef.current.provider.model
+        const { support, level } = thinkingFor(configRef.current, m)
+        if (!support) {
+          push({ kind: 'note', text: `${m} has no thinking control on this endpoint (only reasoning models do).`, color: 'gray' })
+          return
+        }
+        const want = rest[0]
+        if (!want) {
+          push({ kind: 'note', text: `thinking: ${level} — options: ${support.levels.join(' | ')} (${support.note}). /think <level>, or /think next`, color: 'gray', group: 'think' })
+          return
+        }
+        const next = want === 'next' ? nextLevel(support, level) : (want as (typeof support.levels)[number])
+        if (!support.levels.includes(next)) {
+          push({ kind: 'note', text: `${m} supports: ${support.levels.join(' | ')}`, color: 'red' })
+          return
+        }
+        onProvidersChange(setModelThinking(configRef.current, activeProviderName(configRef.current), m, next))
+        push({ kind: 'note', text: `thinking → ${next} for ${m} (work turns; chat stays fast)`, color: 'yellow', group: 'think' })
+        return
+      }
+      case 'export': {
+        if (!cur) {
+          push({ kind: 'note', text: 'nothing to export yet', color: 'gray' })
+          return
+        }
+        const file = join(cur.config.cwd, rest[0] ?? `vara-${cur.id}.md`)
+        const md = [`# ${cleanTitle(cur.config.objective)}`, '', `session ${cur.id} · ${cur.config.model ?? ''} · ${cur.state}`, '']
+        for (const m of cur.transcript) {
+          if (m.role === 'user' && /^\[(ENGINE|SYSTEM|STATE|BUDGET|FOLLOW-UP INSTRUCTION)/.test(m.content)) continue
+          if (m.role === 'user') md.push('## You', '', m.content.split('\n\n[attached files]')[0]!, '')
+          else if (m.role === 'assistant' && m.content.trim()) md.push('## VARA', '', m.content, '')
+          for (const c of m.toolCalls ?? []) md.push(`> tool: \`${c.name}\` ${c.arguments.slice(0, 200)}`, '')
+        }
+        void writeFile(file, md.join('\n'), 'utf8')
+          .then(() => push({ kind: 'note', text: `exported → ${file}`, color: 'green' }))
+          .catch((err: Error) => push({ kind: 'note', text: `export failed: ${err.message}`, color: 'red' }))
+        return
+      }
+      case 'cost': {
+        if (!cur) {
+          push({ kind: 'note', text: 'no session yet', color: 'gray' })
+          return
+        }
+        push({ kind: 'note', text: costReport(cur), color: 'gray' })
+        return
+      }
+      case 'models':
+        setOverlay('models')
+        return
+      case 'provider': {
+        const target = rest[0]
+        const entry = target ? configRef.current.providers[target] : undefined
+        if (!target || !entry) {
+          push({
+            kind: 'note',
+            text: `usage: /provider <name> [model] — configured: ${Object.keys(configRef.current.providers).join(', ') || 'none'} (or /providers to add one)`,
+            color: 'red',
+          })
+          return
+        }
+        const chosen = rest[1] ?? defaultModelFor(entry)
+        if (!chosen) {
+          push({ kind: 'note', text: `${target} has no models yet — open /providers and press r to fetch them`, color: 'yellow' })
+          return
+        }
+        void useConfigRef.current(activate(configRef.current, target, chosen))
+        return
+      }
       case 'sessions':
         setOverlay('sessions')
         return
@@ -625,28 +936,68 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         else exit()
         return
       case 'new':
-        if (!cur) {
-          // On the welcome screen the objective entry IS the screen itself.
+        // Opens the start screen as a new tab — nothing has to be typed first.
+        openHome(rest.join(' '))
+        return
+      case 'settings':
+        void loadSkillRows()
+        setOverlay('settings')
+        return
+      case 'theme': {
+        const name = rest[0]
+        const found = name ? findTheme(name) : undefined
+        if (!found) {
+          push({ kind: 'note', text: `usage: /theme <name> — ${THEMES.map((t) => t.name).join(', ')}`, color: name ? 'red' : 'gray' })
+          return
+        }
+        onProvidersChange({ ...configRef.current, ui: { ...configRef.current.ui, theme: found.name } })
+        applyTheme(found.name)
+        push({ kind: 'note', text: `theme → ${found.label}`, color: 'gray', group: 'theme' })
+        return
+      }
+      case 'skills': {
+        if (rest[0] === 'new') {
+          const name = rest[1]
+          if (!name) {
+            push({ kind: 'note', text: 'usage: /skills new <name> [project]', color: 'red' })
+            return
+          }
+          void scaffoldSkill(name, rest[2] === 'project' ? 'project' : 'user', cur?.config.cwd ?? process.cwd())
+            .then((file) => {
+              push({ kind: 'note', text: `created ${file} — edit it, then it is available to the agent`, color: 'gray' })
+              void loadSkillRows()
+            })
+            .catch((err: Error) => push({ kind: 'note', text: err.message, color: 'red' }))
+          return
+        }
+        void discoverAllSkills(cur?.config.cwd ?? process.cwd(), configRef.current.skills.disabled).then((all) => {
+          const lines = all.map((x) => `  ${x.enabled ? glyph.ok : '○'} ${x.name.padEnd(14)} ${x.description}  [${x.source}]`)
           push({
             kind: 'note',
-            text: 'the welcome screen is already the objective entry — type the task and press Enter (Tab: PLAN/BUILD · Ctrl+G: task/goal)',
+            text: `Skills (the agent loads one when it fits; /skill <name> forces it):\n${lines.join('\n')}\n\nAdd your own: /skills new <name> [project] · toggle in /settings`,
             color: 'gray',
           })
-          return
-        }
-        // The objective opens pre-filled in the focused entry — the mode that
-        // will be used is visible BEFORE anything is created.
-        openNewSession(rest.join(' '))
+        })
         return
-      case 'kind': {
-        const kind = rest[0] as SessionKind | undefined
-        if (kind !== 'task' && kind !== 'goal') {
-          push({ kind: 'note', text: 'usage: /kind task | /kind goal', color: 'red' })
+      }
+      case 'skill': {
+        const name = rest[0]
+        if (!name) {
+          push({ kind: 'note', text: 'usage: /skill <name> [what to apply it to]', color: 'red' })
           return
         }
-        // Welcome: sets the DRAFT the next session is created with. In a
-        // session this falls through to the session section below.
-        if (cur) break
+        invokeSkill(name, rest.slice(1).join(' '))
+        return
+      }
+      case 'kind': {
+        const kind = rest[0] as DraftKind | undefined
+        if (kind !== 'task' && kind !== 'goal' && kind !== 'auto') {
+          push({ kind: 'note', text: 'usage: /kind auto | task | goal', color: 'red' })
+          return
+        }
+        // On the start screen this sets the DRAFT; in a session it falls
+        // through to the session section below (auto is a draft-only value).
+        if (cur && !homeOpenRef.current && kind !== 'auto') break
         setDraftKind(kind)
         push({ kind: 'note', text: `kind → ${kind.toUpperCase()} — new sessions start with it`, color: 'yellow', group: 'kind' })
         return
@@ -688,10 +1039,14 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
           push({ kind: 'note', text: 'usage: /kind task | /kind goal', color: 'red' })
           return
         }
+        cur.config.auto = false
         cur.config.kind = kind
+        // Update budget when switching kind
+        const newBudget = kind === 'task' ? config.budgets.task : config.budgets.goal
+        cur.config.budget = newBudget
         push({
           kind: 'note',
-          text: `kind switched to ${kind.toUpperCase()} — ${kind === 'task' ? 'bounded work, completes when requirements are verified' : 'continuing goal, cycles until the state is reached'}`,
+          text: `kind switched to ${kind.toUpperCase()} — ${kind === 'task' ? 'bounded work, completes when requirements are verified' : 'continuing goal, cycles until the state is reached or user stops'}`,
           color: 'yellow',
           group: 'kind',
         })
@@ -699,6 +1054,18 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         refresh()
         return
       }
+      case 'model': {
+        const modelId = rest.join(' ').trim()
+        if (!modelId) {
+          setOverlay('models')
+          return
+        }
+        void useConfigRef.current(activate(configRef.current, activeProviderName(configRef.current), modelId))
+        return
+      }
+      case 'models':
+        setOverlay('models')
+        return
       case 'context': {
         const sourceLabel = { configured: 'Configured by you', detected: 'Detected from model registry', fallback: 'Fallback — model unknown, window unconfirmed' }[c.source]
         push({
@@ -709,19 +1076,6 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
             `(window − ${formatTokens(c.maxOutputTokens)} reserved output − 2k safety)\n` +
             `estimated in-flight context ~${formatTokens(ut)} tok (~${cp}% of budget)\n` +
             `Override: set context.windowTokens in ${configFile}`,
-          color: 'gray',
-        })
-        return
-      }
-      case 'settings': {
-        push({
-          kind: 'note',
-          text:
-            `provider: ${config.provider.id} · baseUrl: ${config.provider.baseUrl || '(default)'}\n` +
-            `model: ${config.provider.model}\n` +
-            `context override: ${config.context.windowTokens ? `~${formatTokens(config.context.windowTokens)} tok` : 'auto'} · reserved output ${formatTokens(config.context.maxOutputTokens)} tok\n` +
-            `config file: ${configFile}\n` +
-            `session model: ${cur.config.model ?? '(from config)'}`,
           color: 'gray',
         })
         return
@@ -768,16 +1122,39 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         return
       }
       default:
+        if (cmd && skillNames.includes(cmd)) {
+          invokeSkill(cmd, rest.join(' '))
+          return
+        }
         push({ kind: 'note', text: `unknown command /${cmd} — try /help or Ctrl+K`, color: 'red' })
         return
+    }
+  }
+
+  /** `/skill <name> …`: ask the agent to apply a skill (it loads the body itself). */
+  function invokeSkill(name: string, about: string): void {
+    const wanted = name.toLowerCase()
+    if (!skillNames.includes(wanted)) {
+      push({ kind: 'note', text: `no enabled skill "${name}" — see /skills`, color: 'red' })
+      return
+    }
+    const text = `Use the "${wanted}" skill${about ? `: ${about}` : ' on the current work.'}`
+    const cur = activeRef.current
+    if (!cur || homeOpenRef.current) {
+      createSessionFlow(text, { kind: 'task', mode: draftModeRef.current, cwd: process.cwd() })
+      return
+    }
+    runnerRef.current?.send(text)
+    if (!runnerRef.current?.isRunning) {
+      push({ kind: 'user', text })
+      startRun()
     }
   }
   // Always point the submit path at the FREShest copy (fresh closures, refs).
   runCommandRef.current = runCommand
 
-  /* ---------------- overlays (rendered in BOTH views) ---------------- */
-  // Before this, overlays existed only in the session view: Ctrl+K on the
-  // welcome screen set state that swallowed every key while showing nothing.
+  /* ---------------- overlays (rendered on the start screen AND in a session) ---------------- */
+  const overlayRows = Math.max(4, Math.min(14, termRows - 14))
   const overlays =
     overlay === 'palette' ? (
       <CommandPalette
@@ -788,31 +1165,87 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
         }}
         onClose={() => setOverlay(null)}
       />
+    ) : overlay === 'help' ? (
+      <HelpView onClose={() => setOverlay(null)} />
+    ) : overlay === 'providers' || overlay === 'models' ? (
+      <ProviderManager
+        config={config}
+        initial={overlay === 'models' ? 'models' : 'list'}
+        maxRows={overlayRows}
+        onChange={onProvidersChange}
+        onUse={(next) => void useConfig(next)}
+        onClose={() => setOverlay(null)}
+      />
+    ) : overlay === 'mcp' ? (
+      <McpScreen config={config} hub={hubRef.current} maxRows={overlayRows} onChange={onProvidersChange} onClose={() => setOverlay(null)} />
+    ) : overlay === 'settings' ? (
+      <SettingsScreen
+        config={config}
+        skills={skillRows}
+        maxRows={overlayRows}
+        onChange={(next) => {
+          applyTheme(next.ui.theme)
+          onProvidersChange(next)
+          setDraftMode((m) => (m === configRef.current.agent.defaultMode ? m : m))
+        }}
+        onAction={(id) => {
+          if (id === 'providers') setOverlay('providers')
+          if (id === 'mcp') setOverlay('mcp')
+        }}
+        onClose={() => {
+          setOverlay(null)
+          void loadSkillRows()
+        }}
+      />
     ) : overlay === 'sessions' ? (
       <SessionBrowser
         cwd={active?.config.cwd ?? process.cwd()}
         currentId={active?.id ?? ''}
         onSwitch={(id) => {
           setOverlay(null)
+          setHomeOpen(false)
           switchToSession(id)
         }}
         onClose={() => setOverlay(null)}
       />
     ) : null
 
-  /* ---------------- welcome flow (no session yet) ---------------- */
-  if (!active || !ctx) {
+  const fullscreen = config.ui.fullscreen
+  /** One row shorter than the terminal: ink redraws the whole screen when a frame is as tall as the terminal. */
+  const frameHeight = fullscreen ? Math.max(8, termRows - 1) : undefined
+  const showHome = !active || !ctx || homeOpen
+  const tabInfos: TabInfo[] = tabs.map((s) => ({
+    id: s.id,
+    label: cleanTitle(s.config.objective),
+    state: s.id === activeId ? state : s.state,
+  }))
+
+  /* ---------------- start screen ---------------- */
+  if (showHome) {
+    const notes = entries.slice(-3)
     return (
-      <Box flexDirection="column" paddingX={1}>
-        <WelcomeScreen kind={draftKind} mode={draftMode} model={config.provider.model} hasSessions={cwdHasSessions} input={input} />
-        {overlays}
-        {/* Command feedback must be VISIBLE here: /help, /kind, /resume and
-            friends push notes, and hiding them on the welcome screen made
-            every "/" command look dead. Rendered below the box so a long
-            /help scrolls out of view instead of cropping the input. */}
-        {entries.length > 0 ? (
-          <Box flexDirection="column">
-            {entries.slice(-6).map((entry, i) => (
+      <Box flexDirection="column" paddingX={1} height={frameHeight}>
+        {tabs.length > 0 ? <TabBar tabs={tabInfos} activeId={activeId} homeActive /> : null}
+        {overlays ? (
+          overlays
+        ) : (
+          <HomeScreen
+            input={input}
+            kind={draftKind}
+            mode={draftMode}
+            providerName={activeProviderName(config)}
+            model={config.provider.model}
+            cwd={process.cwd()}
+            recent={recent}
+            selected={homeSel}
+            columns={termColumns}
+            version={VERSION}
+            notice={keyMissing ? `No API key for ${activeProviderName(config)} — type /providers to connect a model` : undefined}
+          />
+        )}
+        {notes.length > 0 && !overlay ? (
+          <Box flexDirection="column" height={Math.min(6, notes.reduce((n, e) => n + entryRows(e, termColumns - 2), 0))} overflow="hidden">
+            {notes.map((entry, i) => (
               <EntryView key={i} entry={entry} />
             ))}
           </Box>
@@ -821,118 +1254,216 @@ export function App({ session, provider, config, autoStart }: Props): React.Reac
     )
   }
 
-  /* ---------------- viewport: show the tail, honor scrollback ---------------- */
-  const visibleCount = Math.max(6, termRows - CHROME_ROWS)
-  const maxOffset = Math.max(0, entries.length - visibleCount)
-  const offset = Math.min(scrollOffset, maxOffset)
-  const startIndex = Math.max(0, entries.length - visibleCount - offset)
-  const visibleEntries = entries.slice(startIndex)
-  const sidebarVisible = sidebarOn && termColumns >= 100
+  /* ---------------- session view: fit the tail into the terminal rows ---------------- */
+  const sidebarVisible = config.ui.sidebar && sidebarOn && termColumns >= 100 && termRows >= SIDEBAR_MIN_ROWS
+  const rule = glyph.rule.repeat(Math.max(10, termColumns - 2))
+  const showTabs = tabs.length > 1
+  const inputRows = Math.min(6, wrappedRows(input || ' ', Math.max(10, termColumns - 10)))
+  // Fixed chrome: tabs (0/1) + header 1 + status 1 (no sidebar) + rule 1 +
+  // working line 1 + prompt (border 2 + input rows) + footer 1 + scroll hint 1.
+  const chromeRows = (showTabs ? 1 : 0) + (sidebarVisible ? 0 : 1) + 6 + 2 + inputRows
+  const contentWidth = Math.max(20, termColumns - 2 - (sidebarVisible ? SIDEBAR_WIDTH + 1 : 0))
+  const bodyRows = Math.max(4, (frameHeight ?? termRows) - chromeRows)
+  const streamShown = stream ? tailRows(stream, contentWidth - 4, Math.max(2, Math.floor(bodyRows / 2))) : ''
+  const streamRows = streamShown ? wrappedRows(streamShown, contentWidth - 4) + 1 : 0
+  const entryBudget = Math.max(2, bodyRows - streamRows - (scrollOffset > 0 ? 1 : 0))
 
-  const tabInfos: TabInfo[] = tabs.map((s) => ({
-    id: s.id,
-    label: s.config.objective,
-    state: s.id === activeId ? state : s.state,
-  }))
+  // Walk back from the newest visible entry, filling the row budget. A row
+  // budget (not an entry count) keeps the frame inside the terminal.
+  const maxOffset = Math.max(0, entries.length - 1)
+  const offset = Math.min(scrollOffset, maxOffset)
+  const endIndex = entries.length - offset
+  let startIndex = endIndex
+  let used = 0
+  // An entry taller than what is left is still included (the body clips it at
+  // the top, so its END stays visible) — skipping it hid long answers entirely.
+  while (startIndex > 0 && used < entryBudget) {
+    used += entryRows(entries[startIndex - 1]!, contentWidth)
+    startIndex--
+  }
+  const visibleEntries = entries.slice(startIndex, endIndex)
+
+  const promptAccent = state === 'running' ? theme.ok : theme.brand
+  const promptLabel = `${state === 'running' ? spin : glyph.prompt} `
+  const promptPlaceholder = state === 'running' ? 'send a follow-up…' : state === 'ready' ? 'reply, or ask for work…' : 'message, or /help'
+  const wide = termColumns >= 110
+  const hints = wide
+    ? 'Ctrl+N new · Ctrl+K cmds · Ctrl+O settings · Alt+←/→ tabs · Ctrl+B panel · Ctrl+C quit'
+    : termColumns >= 70
+      ? 'Ctrl+N new · Ctrl+K cmds · Ctrl+O settings'
+      : 'Ctrl+K cmds · Ctrl+C quit'
+  const shownIntent = intent ?? active.config.kind
+  const intentColor = shownIntent === 'chat' ? theme.chat : shownIntent === 'question' ? theme.question : shownIntent === 'goal' ? theme.goal : theme.task
+  const thinkingTail = config.ui.showThinking && thinking ? thinking.replace(/\s+/g, ' ').trim().slice(-90) : ''
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <TabBar tabs={tabInfos} activeId={activeId} />
+    <Box flexDirection="column" paddingX={1} height={frameHeight}>
+      {showTabs ? <TabBar tabs={tabInfos} activeId={activeId} /> : null}
       {/* Header: identity + state, always visible */}
-      <Box justifyContent="space-between">
-        <Text bold color="cyan">
-          VARA <Text dimColor>· {truncate(active.config.objective, sidebarVisible ? 50 : 70)}</Text>
-        </Text>
-        <Text>
-          <Text bold color={active.config.kind === 'task' ? 'blue' : 'magenta'}>
-            {active.config.kind.toUpperCase()}
+      <Box justifyContent="space-between" flexShrink={0}>
+        <Box flexShrink={1}>
+          <Text bold color={theme.brand}>
+            VARA
           </Text>
-          <Text dimColor> · </Text>
-          <Text color={active.config.mode === 'plan' ? 'yellow' : 'green'} bold>
-            {active.config.mode.toUpperCase()}
+          <Text color={theme.muted} wrap="truncate-end">
+            {' '}
+            {glyph.sep} {truncate(cleanTitle(active.config.objective), Math.max(10, termColumns - 46))}
           </Text>
-          <Text dimColor> · </Text>
+        </Box>
+        <Box flexShrink={0}>
+          <Text>
+            <Text bold color={intentColor}>
+              {shownIntent.toUpperCase()}
+            </Text>
+            <Text color={theme.muted}> {glyph.sep} </Text>
+            <Text color={active.config.mode === 'plan' ? theme.plan : theme.build} bold>
+              {active.config.mode.toUpperCase()}
+            </Text>
+            <Text color={theme.muted}> {glyph.sep} </Text>
+          </Text>
           <StateBadge state={state} />
-        </Text>
+        </Box>
       </Box>
       {/* Second status line only when the sidebar is hidden — no duplication. */}
       {!sidebarVisible ? (
-        <Box justifyContent="space-between">
-          <Text dimColor>
-            {config.provider.id} · {model} · turn {active.usage.turns}
+        <Box justifyContent="space-between" flexShrink={0}>
+          <Text color={theme.muted} wrap="truncate-end">
+            {activeProviderName(config)} · {model} · turn {active.usage.turns}
             {' · cost '}
-            <Text color={active.usage.costPartial || active.usage.unpricedCalls > 0 ? 'yellow' : undefined}>
+            <Text color={active.usage.costPartial || active.usage.unpricedCalls > 0 ? theme.warn : undefined}>
               {costLabel(active.usage)}
             </Text>
           </Text>
-          <Text dimColor>
-            context ~{formatTokens(usedTokens)}/{formatTokens(ctx.requestBudgetTokens)} tok{' '}
-            <Text color={ctxPercent > 80 ? 'red' : undefined}>
-              ({ctxPercent}%{ctx.source === 'fallback' ? ', fallback window' : ''})
+          <Text color={theme.muted} wrap="truncate-end">
+            ctx ~{formatTokens(usedTokens)}/{formatTokens(ctx.requestBudgetTokens)}{' '}
+            <Text color={ctxPercent > 80 ? theme.err : undefined}>
+              ({ctxPercent}%{ctx.source === 'fallback' ? ', assumed window' : ''})
             </Text>
           </Text>
         </Box>
       ) : null}
-
-      {/* Overlays replace the viewport while open — closing restores it and
-          the scroll position untouched. */}
-      {overlays}
-
-      {/* Conversation (viewport) + optional status sidebar */}
-      {overlay ? null : (
-        <Box flexDirection="row">
-          <Box flexDirection="column" flexGrow={1} marginRight={sidebarVisible ? 1 : 0}>
-            {offset > 0 ? (
-              <Text dimColor>
-                ▲ viewing older entries ({offset} back) — Ctrl+G jumps to latest
-              </Text>
-            ) : null}
-            {visibleEntries.map((entry, i) => (
-              <EntryView key={startIndex + i} entry={entry} />
-            ))}
-            {stream ? (
-              <Box marginLeft={2}>
-                <Text>{stream}</Text>
-              </Box>
-            ) : null}
-          </Box>
-          {sidebarVisible ? <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} /> : null}
-        </Box>
-      )}
-
-      {/* Input */}
-      <Box>
-        <Text color={state === 'running' ? 'green' : 'cyan'} bold>
-          {overlay === 'new-session'
-            ? `objective[${draftKind.toUpperCase()}·${draftMode.toUpperCase()}] ▸ `
-            : state === 'running'
-              ? `${spin} `
-              : '› '}
-        </Text>
-        <Text>
-          {input ||
-            (overlay === 'new-session'
-              ? 'describe what the new session should achieve…'
-              : state === 'running'
-                ? 'send a follow-up…'
-                : 'message, or /help')}
-        </Text>
+      <Box flexShrink={0}>
+        <Text color={theme.border}>{rule}</Text>
       </Box>
 
+      {/* Body: an overlay, or the conversation + optional side panel. flexGrow
+          pins the prompt to the bottom whatever the transcript length. */}
+      <Box flexGrow={1} flexShrink={1} flexBasis={0} minHeight={0} flexDirection="row" overflow="hidden">
+        {overlays ? (
+          <Box flexDirection="column" flexGrow={1}>
+            {overlays}
+          </Box>
+        ) : (
+          <>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} justifyContent="flex-end" overflow="hidden" marginRight={sidebarVisible ? 1 : 0}>
+              {offset > 0 ? (
+                <Text color={theme.warn}>
+                  {'▼'} {offset} newer entries below {glyph.sep} scroll down or Ctrl+G for the latest
+                </Text>
+              ) : null}
+              {visibleEntries.map((entry, i) => (
+                <Box key={startIndex + i} flexShrink={0} flexDirection="column">
+                  <EntryView entry={entry} compact={!config.ui.toolDetails} />
+                </Box>
+              ))}
+              {streamShown ? (
+                <Box marginTop={1} flexShrink={0}>
+                  <Box width={2} flexShrink={0}>
+                    <Text color={theme.assistant}>{glyph.dot}</Text>
+                  </Box>
+                  <Box flexGrow={1} flexShrink={1}>
+                    <Markdown text={streamShown} />
+                  </Box>
+                </Box>
+              ) : null}
+            </Box>
+            {sidebarVisible ? (
+              <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} sections={config.ui.sections} skillNames={skillNames} think={thinkingFor(config, model).level} mcpReady={hubRef.current.tools().length} />
+            ) : null}
+          </>
+        )}
+      </Box>
+
+      {/* Live activity line — always one row so the layout never jumps. */}
+      <Box flexShrink={0}>
+        {workingLabel ? (
+          <Text color={theme.ok} wrap="truncate-end">
+            {spin} {workingLabel}
+            <Text color={theme.muted}>
+              {' '}
+              {glyph.sep} {formatElapsed(elapsedSec)} {glyph.sep} Esc Esc to interrupt
+              {thinkingTail ? ` ${glyph.sep} ${thinkingTail}` : ''}
+            </Text>
+          </Text>
+        ) : (
+          <Text color={theme.muted}> </Text>
+        )}
+      </Box>
+
+      {/* Input */}
+      <PromptBox
+        value={input}
+        label={promptLabel}
+        placeholder={promptPlaceholder}
+        accent={promptAccent}
+        width={Math.max(20, termColumns - 2)}
+      />
+
       {/* Footer */}
-      <Box justifyContent="space-between">
-        <Text dimColor>
-          {active.id} · {truncate(active.config.cwd, 32)} · {formatElapsed(elapsedSec)} · {active.usage.toolCalls} tools
+      <Box justifyContent="space-between" flexShrink={0}>
+        <Text color={theme.muted} wrap="truncate-end">
+          {active.id} {glyph.sep} {truncate(active.config.cwd, wide ? 36 : 20)} {glyph.sep} {formatElapsed(elapsedSec)} {glyph.sep} {active.usage.toolCalls} tools
         </Text>
-        <Text dimColor>
-          {workingLabel ? `${workingLabel} · ` : ''}Ctrl+K cmds · Alt+←/→ tabs · PgUp scroll · Ctrl+B panel · Ctrl+C quit
+        <Text color={theme.muted} wrap="truncate-end">
+          {hints}
         </Text>
       </Box>
     </Box>
   )
 }
 
+/** /help: keys and commands in one box. Any key closes it. */
+function HelpView({ onClose }: { onClose: () => void }): React.ReactElement {
+  useInput(() => onClose())
+  return (
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.brand} paddingX={1} marginBottom={1} overflow="hidden">
+      <Text bold color={theme.brand}>
+        Help
+      </Text>
+      <Text>{helpText()}</Text>
+      <Text color={theme.muted}>any key closes</Text>
+    </Box>
+  )
+}
+
+/** Plain-text cost report: spend, tokens, cache hit rate and what the cost engine saved. */
+function costReport(s: Session): string {
+  const u = s.usage
+  const sv = s.savings ?? { compactedChars: 0, dedupedReads: 0, cheapCalls: 0, subagents: 0 }
+  const input = u.inputTokens
+  const cached = u.cachedInputTokens
+  const total = (input ?? 0) + (cached ?? 0)
+  const hit = cached !== null && total > 0 ? Math.round(((cached ?? 0) / total) * 100) : null
+  const spec = findModel(s.config.model ?? '')
+  const p = spec?.pricing
+  // What the cached tokens would have cost at the full input price, minus what they did cost.
+  const cacheSaved = p && cached ? (cached / 1e6) * (p.inputPer1M - (p.cachedInputPer1M ?? p.inputPer1M)) : null
+  const compactSaved = p ? ((sv.compactedChars / 4) / 1e6) * p.inputPer1M * Math.max(1, s.usage.turns / 2) : null
+  const money = (v: number | null) => (v === null ? 'n/a' : `~$${v.toFixed(v < 0.01 ? 4 : 2)}`)
+  return [
+    `cost ${costLabel(u)} · ${u.modelCalls} model calls · ${u.toolCalls} tool calls`,
+    `tokens in ${input === null ? '?' : formatTokens(input)} · cached ${cached === null ? '?' : formatTokens(cached)}${hit === null ? '' : ` (${hit}% of input served from cache)`} · out ${u.outputTokens === null ? '?' : formatTokens(u.outputTokens)}`,
+    `saved by VARA:`,
+    `  prompt caching        ${money(cacheSaved)}${cached ? '' : '  (no cache hits reported by this provider yet)'}`,
+    `  compaction            ${formatTokens(Math.round(sv.compactedChars / 4))} tokens of old tool output shortened  ${money(compactSaved)}`,
+    `  repeated reads        ${sv.dedupedReads} file reads answered from context`,
+    `  cheap model           ${sv.cheapCalls} calls routed to the cheaper model`,
+    `  sub-agents            ${sv.subagents} ran with their own small context`,
+  ].join('\n')
+}
+
 let streamBuffer = ''
+
 
 function flushStream(push: (e: Entry) => void, setStream: React.Dispatch<React.SetStateAction<string>>): void {
   if (streamBuffer) {

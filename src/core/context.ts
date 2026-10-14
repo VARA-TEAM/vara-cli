@@ -16,6 +16,8 @@ import type { Session } from './types.js'
 export interface ContextSettings {
   /** User override. Wins over everything when set. */
   windowTokens?: number
+  /** Where `windowTokens` came from; defaults to 'configured' (set by hand). */
+  windowOrigin?: ContextSource
   /** Reserve for the model's answer; never spend it on history. */
   maxOutputTokens: number
 }
@@ -47,7 +49,8 @@ const KNOWN_WINDOWS: Array<{ pattern: RegExp; windowTokens: number }> = [
   { pattern: /claude/i, windowTokens: 200_000 },
   { pattern: /gemini-(1\.5|2)/i, windowTokens: 1_000_000 },
   { pattern: /deepseek-(chat|v3|reasoner|r1)/i, windowTokens: 64_000 },
-  { pattern: /llama-3\.1/i, windowTokens: 128_000 },
+  { pattern: /llama-3\.[123]/i, windowTokens: 128_000 },
+  { pattern: /mistral-(large|medium|small)/i, windowTokens: 128_000 },
   { pattern: /command-r/i, windowTokens: 128_000 },
 ]
 
@@ -58,13 +61,19 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+/** Window from the built-in pattern table alone, or null when the model is unknown. */
+export function contextWindowFromPattern(model: string): number | null {
+  for (const entry of KNOWN_WINDOWS) if (entry.pattern.test(model)) return entry.windowTokens
+  return null
+}
+
 /** Resolve the context window for a model: user override → registry → marked fallback. */
 export function resolveWindow(model: string, settings: ContextSettings): {
   windowTokens: number
   source: ContextSource
 } {
   if (settings.windowTokens && settings.windowTokens > 0) {
-    return { windowTokens: settings.windowTokens, source: 'configured' }
+    return { windowTokens: settings.windowTokens, source: settings.windowOrigin ?? 'configured' }
   }
   for (const entry of KNOWN_WINDOWS) {
     if (entry.pattern.test(model)) {

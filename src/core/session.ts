@@ -6,7 +6,9 @@ import { budgetFor, type VaraConfig } from '../config/config.js'
 export const CreateSessionInput = z.object({
   kind: z.enum(['task', 'goal']).default('task'),
   mode: z.enum(['plan', 'build']).default('build'),
-  objective: z.string().min(5, 'The objective is too short to act on.'),
+  objective: z.string().trim().min(1, 'Write a message first.'),
+  /** Route each message by intent (chat / question / task / goal) instead of pinning `kind`. */
+  auto: z.boolean().default(false),
   acceptance: z.array(z.string()).default([]),
   cwd: z.string().min(1),
   verifyCommand: z.string().optional(),
@@ -39,6 +41,7 @@ export function createSession(input: CreateSessionInput, config: VaraConfig): Se
       cwd: input.cwd,
       model: input.model || config.provider.model,
       allowPublish: input.allowPublish ?? config.allowPublish,
+      ...(input.auto ? { auto: true } : {}),
     },
     transcript: [],
     followUps: [],

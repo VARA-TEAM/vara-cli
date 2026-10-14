@@ -2,6 +2,8 @@ import React from 'react'
 import { Box, Text } from 'ink'
 import type { SessionState } from '../core/types.js'
 import { outputPreview, summarizeArgs } from './format.js'
+import { glyph, theme, wrappedRows } from './theme.js'
+import { Markdown } from './markdown.js'
 
 export type Entry =
   | { kind: 'user'; text: string }
@@ -31,113 +33,136 @@ export function firstLine(text: string): string {
   return text.split('\n')[0] ?? ''
 }
 
-const TOOL_ICONS: Record<string, string> = {
-  read_file: '📖',
-  write_file: '📝',
-  edit_file: '✏️',
-  delete_file: '🗑️',
-  list_dir: '📁',
-  grep: '🔍',
-  shell: '⚡',
-  git_status: '🌿',
-  git_diff: '🌿',
-  git_log: '🌿',
-  git_commit: '📦',
-  gh: '🐙',
-  ask_user: '💬',
-  complete: '🎯',
+/**
+ * Rows an entry occupies at `width` columns. Deliberately generous: the
+ * viewport uses it to decide how many entries fit, and over-estimating only
+ * means one more Page Up to reveal an entry — under-estimating makes the
+ * frame taller than the terminal, which corrupts the display.
+ */
+export function entryRows(entry: Entry, width: number): number {
+  switch (entry.kind) {
+    case 'user':
+      return wrappedRows(entry.text, width - 4) + 1
+    case 'assistant':
+      return wrappedRows(entry.text, width - 4) + 1
+    case 'tool':
+      if (entry.ok === false) {
+        const out = entry.output ? Math.min(9, outputPreview(entry.output, 8).split('\n').length) : 0
+        return 3 + out
+      }
+      return 1
+    case 'note':
+      return wrappedRows(entry.text, width - 4)
+    case 'summary': {
+      const reqs = entry.requirements.length
+      const ev = entry.evidence.length ? entry.evidence.length + 2 : 0
+      return 6 + wrappedRows(entry.text, width - 6) + reqs + ev + 1
+    }
+  }
 }
 
-export function EntryView({ entry }: { entry: Entry }): React.ReactElement | null {
+function noteColor(color: string): string {
+  const map: Record<string, string> = { gray: theme.muted, yellow: theme.warn, red: theme.err, green: theme.ok, cyan: theme.accent, magenta: theme.user, blue: theme.info }
+  return map[color] ?? color
+}
+
+export function EntryView({ entry, compact = false }: { entry: Entry; compact?: boolean }): React.ReactElement | null {
   if (entry.kind === 'user') {
-    // User messages get a bordered block so they stand out from agent output
-    // at a glance — the conversation reads as a dialogue, not a wall of text.
+    // A left accent bar (not a full box) marks what the user said — light on
+    // screen space, scannable at a glance.
     return (
-      <Box flexDirection="column" marginBottom={1}>
-        <Box borderStyle="round" borderColor="magenta" paddingX={1}>
-          <Text color="magenta" bold>
-            ❯ you
-          </Text>
-          <Text>  {entry.text}</Text>
-        </Box>
+      <Box marginTop={1} borderStyle="single" borderColor={theme.user} borderTop={false} borderBottom={false} borderRight={false} paddingLeft={1}>
+        <Text>{entry.text}</Text>
       </Box>
     )
   }
   if (entry.kind === 'assistant') {
     return (
-      <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
-        <Text>{entry.text}</Text>
+      <Box marginTop={1}>
+        <Box width={2} flexShrink={0}>
+          <Text color={theme.assistant}>{glyph.dot}</Text>
+        </Box>
+        <Box flexGrow={1} flexShrink={1}>
+          <Markdown text={entry.text} />
+        </Box>
       </Box>
     )
   }
   if (entry.kind === 'tool') {
-    // Successful tools collapse to one clean line; failures expand into a block so
-    // problems cannot scroll past unnoticed. Full output stays on /last.
-    const icon = TOOL_ICONS[entry.name] ?? '🔧'
-    if (entry.ok === true || entry.ok === undefined) {
-      const detail = entry.output ? firstLine(entry.output) : summarizeArgs(entry.args)
+    const pending = entry.ok === undefined
+    const detail = !pending && entry.ok && entry.output ? firstLine(entry.output) : summarizeArgs(entry.args)
+    if (entry.ok !== false) {
       return (
-        <Box marginBottom={0} paddingLeft={1}>
-          <Text>
-            {entry.ok === true ? <Text color="green">✓ </Text> : <Text color="gray">⋯ </Text>}
-            <Text color="cyan" bold>{icon} {entry.name}</Text>
-            <Text dimColor> · {truncate(detail, 105)}</Text>
+        <Box paddingLeft={2}>
+          <Text wrap="truncate-end">
+            <Text color={pending ? theme.muted : theme.ok}>{pending ? glyph.pending : glyph.ok} </Text>
+            <Text bold>{entry.name}</Text>
+            {compact ? null : <Text dimColor> {glyph.sep} {truncate(detail, 100)}</Text>}
           </Text>
         </Box>
       )
     }
+    // Failures expand so problems cannot scroll past unnoticed.
     return (
-      <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
-        <Box flexDirection="column" borderStyle="round" borderColor="red" paddingX={1}>
-          <Text>
-            <Text color="red" bold>
-              ✗ {icon} {entry.name}
-            </Text>{' '}
-            <Text dimColor>{truncate(summarizeArgs(entry.args), 130)}</Text>
+      <Box marginLeft={2} flexDirection="column" borderStyle="single" borderColor={theme.err} borderTop={false} borderBottom={false} borderRight={false} paddingLeft={1}>
+        <Text wrap="truncate-end">
+          <Text color={theme.err} bold>
+            {glyph.fail} {entry.name}
           </Text>
-          {entry.output ? <Text color="red">{outputPreview(entry.output, 8)}</Text> : null}
-        </Box>
+          <Text dimColor> {truncate(summarizeArgs(entry.args), 110)}</Text>
+        </Text>
+        {entry.output ? <Text color={theme.err}>{outputPreview(entry.output, 8)}</Text> : null}
       </Box>
     )
   }
   if (entry.kind === 'summary') {
     // The heading must never contradict the actual session state.
     const completed = entry.state === 'completed'
+    const color = completed ? theme.ok : theme.warn
     const title = completed ? 'SESSION COMPLETE' : `SESSION REPORT — ${entry.state.replace('_', ' ').toUpperCase()}`
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor={completed ? 'green' : 'yellow'} paddingX={1} marginY={1}>
-        <Text bold color={completed ? 'green' : 'yellow'}>
-          {completed ? '✓ ' : '⚠ '}{title}
+      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} marginY={1}>
+        <Text bold color={color}>
+          {completed ? glyph.ok : glyph.warn} {title}
         </Text>
-        <Text>{entry.text}</Text>
-        <Box flexDirection="column" marginY={1}>
+        <Box marginTop={1}>
+          <Text>{entry.text}</Text>
+        </Box>
+        <Box flexDirection="column" marginTop={1}>
           {entry.requirements.map((r) => (
-            <Text key={r.id}>
-              <Text color={r.verified ? 'green' : 'red'} bold>{r.verified ? ' ✓ ' : ' ✗ '}</Text>
+            <Text key={r.id} wrap="truncate-end">
+              <Text color={r.verified ? theme.ok : theme.err} bold>
+                {r.verified ? glyph.ok : glyph.fail}{' '}
+              </Text>
               <Text dimColor>{r.id}.</Text> {truncate(r.text, 120)}
             </Text>
           ))}
         </Box>
         {entry.evidence.length ? (
-          <Box flexDirection="column" marginBottom={1}>
+          <Box flexDirection="column" marginTop={1}>
             <Text bold dimColor>
-              Evidence recorded by the engine:
+              Evidence recorded by the engine
             </Text>
             {entry.evidence.map((line, i) => (
-              <Text key={i} dimColor>
+              <Text key={i} dimColor wrap="truncate-end">
                 {'  '}
                 {truncate(line, 120)}
               </Text>
             ))}
           </Box>
         ) : null}
-        <Text dimColor>{entry.stats}</Text>
+        <Box marginTop={1}>
+          <Text dimColor>{entry.stats}</Text>
+        </Box>
       </Box>
     )
   }
   return (
-    <Box marginBottom={1} paddingLeft={1}>
-      <Text color={entry.color}>{entry.text}</Text>
+    <Box paddingLeft={2}>
+      <Text color={noteColor(entry.color)}>
+        <Text dimColor>{glyph.sep} </Text>
+        {entry.text}
+      </Text>
     </Box>
   )
 }

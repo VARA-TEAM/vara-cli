@@ -1,7 +1,7 @@
 {
   "name": "vara",
   "version": "0.1.0",
-  "description": "VARA — a local agent execution engine: give it a task or goal, it works until completion and proves it.",
+  "description": "VARA — a terminal coding agent that works with any provider, proves its results, and cuts your token bill.",
   "type": "module",
   "bin": {
     "vara": "./dist/cli.js"
@@ -29,5 +29,21 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VARA-TEAM/vara-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VARA-TEAM/vara-cli/issues"
+  },
+  "homepage": "https://github.com/VARA-TEAM/vara-cli#readme",
+  "keywords": [
+    "cli",
+    "agent",
+    "llm",
+    "mcp",
+    "terminal",
+    "coding-agent"
+  ]
 }

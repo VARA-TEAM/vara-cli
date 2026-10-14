@@ -1,7 +1,8 @@
 import type { EngineEvent, Session } from './types.js'
-import { Engine } from './engine.js'
+import { Engine, type EngineOptions } from './engine.js'
 import type { Provider } from '../llm/provider.js'
 import { loadSession, saveSession } from './store.js'
+import type { ContextSettings } from './context.js'
 
 /**
  * SessionRunner owns the engine lifecycle across pauses and resumes.
@@ -18,6 +19,8 @@ export class SessionRunner {
     private readonly provider: Provider,
     private readonly model: string | undefined,
     private readonly onEvent: (event: EngineEvent) => void,
+    private readonly contextSettings?: () => ContextSettings,
+    private readonly extras: Pick<EngineOptions, 'loadSkills' | 'budgetFor' | 'routeModel' | 'thinkingLevel' | 'extraTools' | 'mcpSummary'> = {},
   ) {}
 
   get isRunning(): boolean {
@@ -49,6 +52,8 @@ export class SessionRunner {
       session: this.session,
       provider: this.provider,
       model: this.model,
+      contextSettings: this.contextSettings,
+      ...this.extras,
       onEvent: this.onEvent,
     })
     for (const text of this.pendingFollowUps) this.engine.queueFollowUp(text)

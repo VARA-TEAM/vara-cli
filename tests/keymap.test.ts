@@ -18,7 +18,7 @@ const ctx = (over: Partial<KeyContext> = {}): KeyContext => ({
   ...over,
 })
 
-const welcome = ctx({ view: 'welcome' })
+const welcome = ctx({ view: 'home' })
 const session = ctx({ view: 'session' })
 
 describe('resolveKey — global chords', () => {
@@ -28,7 +28,8 @@ describe('resolveKey — global chords', () => {
       session,
       ctx({ overlay: 'palette' }),
       ctx({ overlay: 'sessions' }),
-      ctx({ overlay: 'new-session' }),
+      ctx({ overlay: 'providers' }),
+      ctx({ overlay: 'settings' }),
       ctx({ running: true }),
     ]
     for (const c of contexts) {
@@ -43,8 +44,8 @@ describe('resolveKey — global chords', () => {
     expect(resolveKey('k', key({ ctrl: true }), session)).toEqual({ type: 'open-palette' })
   })
 
-  it('Ctrl+N opens the objective entry only in a session view', () => {
-    expect(resolveKey('n', key({ ctrl: true }), session)).toEqual({ type: 'open-new-session' })
+  it('Ctrl+N opens the start screen from a session (and is inert on it)', () => {
+    expect(resolveKey('n', key({ ctrl: true }), session)).toEqual({ type: 'open-home' })
     expect(resolveKey('n', key({ ctrl: true }), welcome)).toEqual({ type: 'none' })
   })
 
@@ -63,7 +64,6 @@ describe('resolveKey — global chords', () => {
     // Where no session exists yet, Ctrl+G switches the DRAFT completion
     // policy shown in the welcome box / objective entry.
     expect(resolveKey('g', key({ ctrl: true }), welcome)).toEqual({ type: 'toggle-kind' })
-    expect(resolveKey('g', key({ ctrl: true }), ctx({ overlay: 'new-session' }))).toEqual({ type: 'toggle-kind' })
   })
 
   it('Alt+← / Alt+→ switch tabs only in a session view', () => {
@@ -87,10 +87,6 @@ describe('resolveKey — Tab (PLAN/BUILD)', () => {
 
   it('toggles the ACTIVE session mode in a session view', () => {
     expect(resolveKey('\t', key({ tab: true }), session)).toEqual({ type: 'toggle-mode' })
-  })
-
-  it('toggles the NEW session draft inside the objective entry', () => {
-    expect(resolveKey('\t', key({ tab: true }), ctx({ overlay: 'new-session' }))).toEqual({ type: 'toggle-mode' })
   })
 
   it('is owned by the overlays where Tab means something else (scope toggle)', () => {
@@ -158,20 +154,22 @@ describe('resolveKey — overlays own the keyboard', () => {
     }
   })
 
-  it('the objective entry is a focused form: global chords step aside', () => {
-    const focused = ctx({ overlay: 'new-session' })
-    // Only its own mini-form keys have meaning here.
-    expect(resolveKey('b', key({ ctrl: true }), focused)).toEqual({ type: 'none' })
-    expect(resolveKey('w', key({ ctrl: true }), focused)).toEqual({ type: 'none' })
-    expect(resolveKey('k', key({ ctrl: true }), focused)).toEqual({ type: 'none' })
-    expect(resolveKey('n', key({ ctrl: true }), focused)).toEqual({ type: 'none' })
-    expect(resolveKey('', key({ meta: true, leftArrow: true }), focused)).toEqual({ type: 'none' })
-    expect(resolveKey('', key({ pageUp: true }), focused)).toEqual({ type: 'none' })
-    // But its own keys work.
-    expect(resolveKey('\x1b', key({ escape: true }), focused)).toEqual({ type: 'close-overlay', overlay: 'new-session' })
-    expect(resolveKey('\r', key({ return: true }), focused)).toEqual({ type: 'submit' })
-    expect(resolveKey('\t', key({ tab: true }), focused)).toEqual({ type: 'toggle-mode' })
-    expect(resolveKey('z', key({}), focused)).toEqual({ type: 'text', text: 'z' })
+  it('the start screen: Esc / Ctrl+W go back only when it was opened over a session', () => {
+    const overSession = ctx({ view: 'home', canLeaveHome: true })
+    expect(resolveKey('', key({ escape: true }), overSession)).toEqual({ type: 'close-home' })
+    expect(resolveKey('w', key({ ctrl: true }), overSession)).toEqual({ type: 'close-home' })
+    expect(resolveKey('', key({ meta: true, rightArrow: true }), overSession)).toEqual({ type: 'switch-tab', dir: 1 })
+    // First launch: nowhere to go back to.
+    expect(resolveKey('', key({ escape: true }), welcome)).toEqual({ type: 'none' })
+    expect(resolveKey('w', key({ ctrl: true }), welcome)).toEqual({ type: 'none' })
+    // Arrows move through the recent list; typing still works.
+    expect(resolveKey('', key({ downArrow: true }), welcome)).toEqual({ type: 'home-move', dir: 1 })
+    expect(resolveKey('z', key({}), welcome)).toEqual({ type: 'text', text: 'z' })
+    expect(resolveKey('\r', key({ return: true }), welcome)).toEqual({ type: 'submit' })
+  })
+
+  it('help closes with Esc like the palette', () => {
+    expect(resolveKey('', key({ escape: true }), ctx({ overlay: 'help' }))).toEqual({ type: 'close-overlay', overlay: 'help' })
   })
 
   it('Esc closes the open overlay', () => {
@@ -203,5 +201,41 @@ describe('resolveKey — scrollback', () => {
     expect(resolveKey('', key({ pageUp: true }), session)).toEqual({ type: 'scroll', dir: -1 })
     expect(resolveKey('', key({ pageDown: true }), session)).toEqual({ type: 'scroll', dir: 1 })
     expect(resolveKey('', key({ pageUp: true }), welcome)).toEqual({ type: 'none' })
+  })
+})
+
+describe('resolveKey — provider manager overlay', () => {
+  it('owns every key (including Esc, which means "back" inside it) except Ctrl+C', () => {
+    for (const overlay of ['providers', 'models'] as const) {
+      const c = ctx({ overlay })
+      expect(resolveKey('', key({ escape: true }), c)).toEqual({ type: 'overlay-input' })
+      expect(resolveKey('t', key(), c)).toEqual({ type: 'overlay-input' })
+      expect(resolveKey('k', key({ ctrl: true }), c)).toEqual({ type: 'overlay-input' })
+      expect(resolveKey('c', key({ ctrl: true }), c)).toEqual({ type: 'quit' })
+    }
+  })
+})
+
+describe('resolveKey — mouse and arrow scrolling', () => {
+  it('wheel reports scroll the transcript; they are never typed as text', () => {
+    expect(resolveKey('[<64;10;5M', key(), session)).toEqual({ type: 'wheel', delta: -1 })
+    expect(resolveKey('[<65;10;5M', key(), session)).toEqual({ type: 'wheel', delta: 1 })
+    // Several reports can arrive in one chunk.
+    expect(resolveKey('[<65;10;5M\u001b[<65;10;5M\u001b[<65;1;1M', key(), session)).toEqual({ type: 'wheel', delta: 3 })
+    // Clicks, drags and releases are swallowed silently.
+    expect(resolveKey('[<0;10;5M', key(), session)).toEqual({ type: 'none' })
+    expect(resolveKey('[<0;10;5m', key(), session)).toEqual({ type: 'none' })
+    expect(resolveKey('[<32;10;5M', key(), welcome)).toEqual({ type: 'none' })
+    expect(resolveKey('[<64;10;5M', key(), ctx({ overlay: 'palette' }))).toEqual({ type: 'none' })
+  })
+
+  it('↑/↓ scroll a session by a line', () => {
+    expect(resolveKey('', key({ upArrow: true }), session)).toEqual({ type: 'scroll-line', dir: -1 })
+    expect(resolveKey('', key({ downArrow: true }), session)).toEqual({ type: 'scroll-line', dir: 1 })
+  })
+
+  it('Ctrl+O opens settings anywhere', () => {
+    expect(resolveKey('o', key({ ctrl: true }), session)).toEqual({ type: 'open-settings' })
+    expect(resolveKey('o', key({ ctrl: true }), welcome)).toEqual({ type: 'open-settings' })
   })
 })

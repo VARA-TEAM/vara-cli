@@ -7,14 +7,11 @@
  * of the resolved action.
  *
  * Contexts:
- *   - welcome:  no session yet (the landing screen).
+ *   - home:     the start screen (no session yet, or a new tab via Ctrl+N).
  *   - session:  a session is active.
- *   - new-session overlay: a focused mini-form for the next objective — global
- *     shortcuts step aside so typing never triggers a tab close or a mode
- *     switch of the WRONG session.
- *   - palette / sessions overlays: their own components own the keyboard; the
- *     app must not act on those keys (Ctrl+C still quits — it is the one
- *     global chord that survives every context).
+ *   - overlays: palette / sessions own the keyboard (Esc closes them here);
+ *     providers / models / settings are multi-screen forms where Esc means
+ *     "back", so they alone decide when they close. Ctrl+C always quits.
  */
 
 /** Structural view of ink's `Key` (booleans only) — keeps this module pure. */
@@ -30,15 +27,21 @@ export interface KeyEvent {
   pageDown?: boolean
   leftArrow?: boolean
   rightArrow?: boolean
+  upArrow?: boolean
+  downArrow?: boolean
 }
 
-export type Overlay = null | 'palette' | 'sessions' | 'new-session'
+export type Overlay = null | 'palette' | 'sessions' | 'help' | 'providers' | 'models' | 'settings' | 'mcp'
 
 export interface KeyContext {
-  view: 'welcome' | 'session'
+  view: 'home' | 'session'
   overlay: Overlay
   running: boolean
   escArmed: boolean
+  /** Home opened over existing sessions (Ctrl+N): Esc / Ctrl+W go back. */
+  canLeaveHome?: boolean
+  /** The prompt is empty (arrow keys then navigate instead of editing). */
+  inputEmpty?: boolean
 }
 
 export type KeyAction =
@@ -46,13 +49,18 @@ export type KeyAction =
   | { type: 'overlay-input' }
   | { type: 'close-overlay'; overlay: Exclude<Overlay, null> }
   | { type: 'open-palette' }
-  | { type: 'open-new-session' }
+  | { type: 'open-settings' }
+  | { type: 'open-home' }
+  | { type: 'close-home' }
+  | { type: 'home-move'; dir: -1 | 1 }
   | { type: 'arm-interrupt' }
   | { type: 'interrupt' }
   | { type: 'toggle-sidebar' }
   | { type: 'close-tab' }
   | { type: 'switch-tab'; dir: -1 | 1 }
   | { type: 'scroll'; dir: -1 | 1 }
+  | { type: 'scroll-line'; dir: -1 | 1 }
+  | { type: 'wheel'; delta: number }
   | { type: 'scroll-latest' }
   | { type: 'toggle-mode' }
   | { type: 'toggle-kind' }
@@ -62,17 +70,33 @@ export type KeyAction =
   | { type: 'text'; text: string }
   | { type: 'none' }
 
+/** SGR mouse reports as ink delivers them (leading ESC already stripped). */
+const MOUSE_RE = /\[<(\d+);\d+;\d+[Mm]/g
+
+/**
+ * Mouse reports → wheel delta (negative = up). Returns null when `raw` is not
+ * a mouse report. Clicks and drags resolve to 0 so they are never typed.
+ */
+export function parseMouse(raw: string): number | null {
+  if (!raw.startsWith('[<') && !raw.startsWith('\u001b[<')) return null
+  let delta = 0
+  let any = false
+  for (const m of raw.matchAll(MOUSE_RE)) {
+    any = true
+    const button = Number(m[1])
+    if (button === 64) delta -= 1
+    else if (button === 65) delta += 1
+  }
+  return any ? delta : null
+}
+
 /**
  * Resolve one keystroke. Order is the priority model:
  *   1. Ctrl+C always saves + quits (even under an overlay).
- *   2. listOverlays own the keyboard while open — Esc always closes them at
- *      the app level, so a not-yet-attached overlay subscription can never
- *      swallow it.
- *   3. The new-objective entry is a focused form (Tab = its own draft mode).
- *   4. Escape closes the overlay, or arms/executes the interrupt.
- *   5. Global chords fire only in contexts where they have a real effect —
- *      a shortcut that does nothing must resolve to 'none', never to a
- *      silent state change behind the user's back.
+ *   2. Mouse reports never become text.
+ *   3. Overlays own the keyboard while open.
+ *   4. Escape: back from home, or arm/execute the interrupt.
+ *   5. Global chords fire only where they have a real effect.
  *   6. Text entry (submit / backspace / newline / printable) is uniform.
  */
 export function resolveKey(raw: string, key: KeyEvent, ctx: KeyContext): KeyAction {
@@ -82,51 +106,55 @@ export function resolveKey(raw: string, key: KeyEvent, ctx: KeyContext): KeyActi
   // 1. Ctrl+C — save + quit, everywhere, always.
   if (ctrlChar === 'c') return { type: 'quit' }
 
-  // 2. Palette and session browser own the keyboard while open — except Esc,
-  // which is the APP's documented close action: resolving it here means it
-  // closes the overlay even when the overlay's own subscription has not
-  // attached yet (its onClose would do the same thing, idempotently).
-  if (ctx.overlay === 'palette' || ctx.overlay === 'sessions') {
+  // 2. Mouse: the wheel scrolls the transcript; everything else is ignored.
+  const wheel = parseMouse(raw)
+  if (wheel !== null) {
+    if (ctx.overlay || ctx.view !== 'session' || wheel === 0) return { type: 'none' }
+    return { type: 'wheel', delta: wheel }
+  }
+
+  // 3. Overlays.
+  if (ctx.overlay === 'providers' || ctx.overlay === 'models' || ctx.overlay === 'settings' || ctx.overlay === 'mcp') return { type: 'overlay-input' }
+  if (ctx.overlay === 'palette' || ctx.overlay === 'sessions' || ctx.overlay === 'help') {
+    // Esc is resolved here so it closes even before the overlay's own
+    // subscription attaches (its onClose does the same thing, idempotently).
     if (key.escape) return { type: 'close-overlay', overlay: ctx.overlay }
     return { type: 'overlay-input' }
   }
 
-  // 3. Focused "new objective" entry.
-  if (ctx.overlay === 'new-session') {
-    if (key.escape) return { type: 'close-overlay', overlay: 'new-session' }
-    if (key.return) return { type: 'submit' }
-    if (key.tab) return { type: 'toggle-mode' } // the mode of the session being created
-    if (ctrlChar === 'g') return { type: 'toggle-kind' } // its completion policy too
-    if (key.backspace || key.delete) return { type: 'delete-back' }
-    // Ctrl+J: terminals send it as a bare "\n" — never a submit (Enter is "\r").
-    if (raw === '\n') return { type: 'newline' }
-    if (raw && !key.ctrl && !key.meta) return { type: 'text', text: raw }
-    return { type: 'none' }
-  }
-
   // 4. Escape.
   if (key.escape) {
-    if (ctx.overlay) return { type: 'close-overlay', overlay: ctx.overlay }
+    if (ctx.view === 'home') return ctx.canLeaveHome ? { type: 'close-home' } : { type: 'none' }
     if (!ctx.running) return { type: 'none' }
     return ctx.escArmed ? { type: 'interrupt' } : { type: 'arm-interrupt' }
   }
 
   // 5. Global chords — only where they actually do something.
-  if (ctrlChar === 'k') return { type: 'open-palette' } // works pre-session too
-  if (ctrlChar === 'n') return ctx.view === 'session' ? { type: 'open-new-session' } : { type: 'none' }
+  if (ctrlChar === 'k') return { type: 'open-palette' }
+  if (ctrlChar === 'o') return { type: 'open-settings' }
+  if (ctrlChar === 'n') return ctx.view === 'session' ? { type: 'open-home' } : { type: 'none' }
   if (ctrlChar === 'b') return ctx.view === 'session' ? { type: 'toggle-sidebar' } : { type: 'none' }
-  if (ctrlChar === 'w') return ctx.view === 'session' ? { type: 'close-tab' } : { type: 'none' }
+  if (ctrlChar === 'w') {
+    if (ctx.view === 'session') return { type: 'close-tab' }
+    return ctx.canLeaveHome ? { type: 'close-home' } : { type: 'none' }
+  }
   if (key.meta && (key.leftArrow || key.rightArrow)) {
-    return ctx.view === 'session' ? { type: 'switch-tab', dir: key.leftArrow ? -1 : 1 } : { type: 'none' }
+    return ctx.view === 'session' || ctx.canLeaveHome ? { type: 'switch-tab', dir: key.leftArrow ? -1 : 1 } : { type: 'none' }
   }
   if (key.pageUp) return ctx.view === 'session' ? { type: 'scroll', dir: -1 } : { type: 'none' }
   if (key.pageDown) return ctx.view === 'session' ? { type: 'scroll', dir: 1 } : { type: 'none' }
-  // Ctrl+G: jump to the latest entry in a session; where there is no session
-  // yet it switches the DRAFT completion policy (task ↔ goal) shown live in
-  // the welcome box / objective entry.
+  if (key.upArrow || key.downArrow) {
+    const dir = key.upArrow ? -1 : 1
+    if (ctx.view === 'home') return { type: 'home-move', dir }
+    // Arrow keys scroll the transcript (also what terminals send for the
+    // wheel in "alternate scroll" mode when mouse reporting is off).
+    return { type: 'scroll-line', dir }
+  }
+  // Ctrl+G: jump to the latest entry in a session; on the home screen it
+  // cycles the draft kind (auto → task → goal).
   if (ctrlChar === 'g') return ctx.view === 'session' ? { type: 'scroll-latest' } : { type: 'toggle-kind' }
 
-  // 6. Text entry — identical in the welcome screen and the session view.
+  // 6. Text entry — identical on the home screen and in a session.
   if (key.tab) return { type: 'toggle-mode' }
   if (key.return) return { type: 'submit' }
   if (key.backspace || key.delete) return { type: 'delete-back' }

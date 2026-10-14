@@ -10,6 +10,10 @@ export interface ToolContext {
   /** Environment for spawned processes (base env + injected scoped secrets). */
   env: Record<string, string>
   allowPublish: boolean
+  /** Skills available to this session (for the `skill` tool). */
+  skills?: Array<{ name: string; description: string; body: string }>
+  /** Run sub-agents in parallel (absent inside a sub-agent: no recursion). */
+  spawn?: (tasks: Array<{ title: string; prompt: string; kind: 'explore' | 'work' }>) => Promise<string>
 }
 
 export interface ToolResult {
@@ -19,6 +23,8 @@ export interface ToolResult {
   pauseForUser?: string
   /** Set when the model claims the objective is met; the engine then verifies. */
   completeClaim?: { summary: string; verificationPlan: string; verifiedRequirements?: string[] }
+  /** Set by `escalate`: the conversation turned out to need real work. */
+  escalate?: { to: 'task' | 'goal'; objective: string }
 }
 
 export interface Tool<A = unknown> {
@@ -27,6 +33,10 @@ export interface Tool<A = unknown> {
   schema: z.ZodType
   /** True when the tool cannot change anything (allowed in plan mode). */
   readonly: boolean
+  /** Raw JSON Schema for the arguments (MCP tools bring their own; zod is skipped). */
+  jsonSchema?: Record<string, unknown>
+  /** True for tools served by an MCP server. */
+  mcp?: boolean
   /** Optional extra guard: mode-independent policy (e.g. publish blocking). */
   guard?: (args: unknown, ctx: ToolContext) => string | null
   execute: (args: A, ctx: ToolContext) => Promise<ToolResult>
@@ -35,6 +45,10 @@ export interface Tool<A = unknown> {
 /* ---------- minimal zod -> JSON Schema conversion ---------- */
 
 type Json = Record<string, unknown>
+
+export function rawToolDefinition(tool: { name: string; description: string; jsonSchema: Record<string, unknown> }): Json {
+  return { type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.jsonSchema } }
+}
 
 export function zodToJsonSchema(schema: z.ZodType, name: string): Json {
   const properties: Record<string, Json> = {}

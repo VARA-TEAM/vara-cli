@@ -65,3 +65,74 @@ export const completeTool: Tool<{
     }
   },
 }
+
+export const escalateTool: Tool<{ to: 'task' | 'goal'; objective: string; reason: string }> = {
+  name: 'escalate',
+  description:
+    'The conversation turned out to need REAL WORK. Call this when the user asks you to change files, run/build/fix/create ' +
+    'something (to: "task"), or to keep doing something over time — monitor, watch, keep green (to: "goal"). ' +
+    'Do not ask for permission first when the request is clear. Do NOT call it for greetings, questions or explanations.',
+  readonly: true,
+  schema: z
+    .object({
+      to: z.enum(['task', 'goal']).describe('"task" = bounded work that ends verified; "goal" = ongoing work'),
+      objective: z.string().min(3).describe('The work, restated as one clear, self-contained objective'),
+      reason: z.string().describe('Which words of the user show that work is wanted'),
+    })
+    .describe('Switch from conversation to work'),
+  async execute(args): Promise<ToolResult> {
+    return {
+      ok: true,
+      output: `Switched to ${args.to.toUpperCase()} mode. Objective: ${args.objective}. Start the work now.`,
+      escalate: { to: args.to, objective: args.objective },
+    }
+  },
+}
+
+export const skillTool: Tool<{ name: string }> = {
+  name: 'skill',
+  description:
+    'Load the full instructions of one of the available skills (listed in the system prompt) and follow them. ' +
+    'Use it when a skill matches what the user asked.',
+  readonly: true,
+  schema: z.object({ name: z.string().min(1).describe('Skill name exactly as listed') }).describe('Load a skill'),
+  async execute(args, ctx): Promise<ToolResult> {
+    const wanted = args.name.trim().toLowerCase()
+    const skill = ctx.skills?.find((s) => s.name === wanted)
+    if (!skill) {
+      const names = ctx.skills?.map((s) => s.name).join(', ') || 'none'
+      return { ok: false, output: `No skill named "${args.name}". Available: ${names}` }
+    }
+    return { ok: true, output: `# Skill: ${skill.name}\n${skill.body.slice(0, 20_000)}` }
+  },
+}
+
+export const delegateTool: Tool<{ tasks: Array<{ title: string; prompt: string; kind?: 'explore' | 'work' }> }> = {
+  name: 'delegate',
+  description:
+    'Hand independent sub-tasks to sub-agents that run IN PARALLEL, each with its own fresh context, and get their reports back. ' +
+    'Use it for broad research (search several areas of the codebase at once: kind "explore", read-only) or for independent pieces of work ' +
+    '(kind "work": each sub-agent edits its own files — never give two agents the same file). Up to 4 tasks per call. ' +
+    'Each prompt must be self-contained: the sub-agent sees nothing of this conversation. Sub-agents cannot delegate further.',
+  readonly: true,
+  schema: z
+    .object({
+      tasks: z
+        .array(
+          z.object({
+            title: z.string().min(2).describe('Short label shown to the user'),
+            prompt: z.string().min(10).describe('Complete, self-contained instructions, including the paths to look at and the exact report you want back'),
+            kind: z.enum(['explore', 'work']).optional().describe('explore = read-only research (default); work = may change files'),
+          }),
+        )
+        .min(1)
+        .max(4)
+        .describe('1–4 independent tasks'),
+    })
+    .describe('Run sub-agents in parallel'),
+  async execute(args, ctx): Promise<ToolResult> {
+    if (!ctx.spawn) return { ok: false, output: 'Sub-agents are not available here (a sub-agent cannot delegate).' }
+    const output = await ctx.spawn(args.tasks.map((t) => ({ title: t.title, prompt: t.prompt, kind: t.kind ?? 'explore' })))
+    return { ok: true, output }
+  },
+}

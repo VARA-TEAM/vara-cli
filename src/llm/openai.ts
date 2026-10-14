@@ -1,5 +1,6 @@
 import type { Provider, ProviderConfig, ProviderEvent, ProviderRequest, AssistantTurn } from './provider.js'
 import { readSSE } from './sse.js'
+import { openaiThinkingParams } from './capabilities.js'
 import { normalizeUsage, emptyUsage, type NormalizedUsage } from './usage.js'
 import { isRetryable, retryDelay, parseRetryAfter, sleep } from './retry.js'
 
@@ -66,6 +67,11 @@ export function openaiProvider(config: ProviderConfig): Provider {
         body['max_tokens'] = req.maxTokens ?? config.maxTokens ?? 8192
       }
 
+      // Thinking effort: only when the caller chose one AND this model is known to take it.
+      if (req.thinking !== undefined) {
+        Object.assign(body, openaiThinkingParams({ type: 'openai', baseUrl: config.baseUrl, model: modelId }, req.thinking))
+      }
+
       // Retry loop with exponential backoff
       let response: Response | null = null
       let lastError = ''
@@ -76,7 +82,7 @@ export function openaiProvider(config: ProviderConfig): Provider {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
-              authorization: `Bearer ${config.apiKey}`,
+              ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
             },
             body: JSON.stringify(body),
             signal: req.signal,

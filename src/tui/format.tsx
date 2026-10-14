@@ -1,23 +1,13 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SessionState } from '../core/types.js'
-
-const STATE_COLORS: Record<SessionState, string> = {
-  idle: 'gray',
-  running: 'green',
-  waiting_user: 'yellow',
-  paused: 'yellow',
-  interrupted: 'red',
-  completed: 'green',
-  failed: 'red',
-  stopped: 'gray',
-}
+import { stateColor, STATE_LABEL, theme } from './theme.js'
 
 export function StateBadge({ state }: { state: SessionState }): React.ReactElement {
   return (
-    <Text backgroundColor={STATE_COLORS[state]} color="black" bold>
+    <Text backgroundColor={stateColor(state)} color={theme.onAccent} bold>
       {' '}
-      {state.toUpperCase()}{' '}
+      {STATE_LABEL[state].toUpperCase()}{' '}
     </Text>
   )
 }
@@ -36,7 +26,7 @@ export function ToolLine({
   expanded?: boolean
 }): React.ReactElement {
   const symbol = ok === undefined ? '⋯' : ok ? '✓' : '✗'
-  const color = ok === undefined ? 'gray' : ok ? 'green' : 'red'
+  const color = ok === undefined ? theme.muted : ok ? theme.ok : theme.err
   const preview = summarizeArgs(args)
   return (
     <Box flexDirection="column" marginLeft={2}>
@@ -110,7 +100,7 @@ export function formatElapsed(seconds: number): string {
 export function percentBar(percent: number, width = 10): React.ReactElement {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)))
   const filled = Math.round((clamped / 100) * width)
-  const color = clamped > 85 ? 'red' : clamped > 70 ? 'yellow' : 'green'
+  const color = clamped > 85 ? theme.err : clamped > 70 ? theme.warn : theme.ok
   return (
     <Text>
       <Text color={color}>{'▓'.repeat(filled)}</Text>

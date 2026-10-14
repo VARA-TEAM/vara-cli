@@ -64,6 +64,8 @@ export function replayTranscript(session: Session, limit = REPLAY_LIMIT): Entry[
 
   messages.forEach((m: TranscriptMessage, i) => {
     if (m.role === 'user') {
+      // Engine-injected control messages are not something the user said.
+      if (/^\[(ENGINE|SYSTEM|BUDGET|FOLLOW-UP INSTRUCTION)/.test(m.content)) return
       entries.push({ kind: 'user', text: m.content })
       return
     }

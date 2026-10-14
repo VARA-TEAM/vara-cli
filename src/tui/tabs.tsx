@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Text } from 'ink'
 import type { SessionState } from '../core/types.js'
+import { stateColor, theme } from './theme.js'
 
 export interface TabInfo {
   id: string
@@ -8,23 +9,12 @@ export interface TabInfo {
   state: SessionState
 }
 
-const DOT_COLORS: Record<SessionState, string> = {
-  idle: 'gray',
-  running: 'green',
-  waiting_user: 'yellow',
-  paused: 'yellow',
-  interrupted: 'red',
-  completed: 'green',
-  failed: 'red',
-  stopped: 'gray',
-}
-
 function truncateLabel(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + '…' : text
 }
 
 /**
- * OpenCode-style session tabs: every open session is one tab, the active one
+ * Session tabs: every open session is one tab, the active one
  * is highlighted, and its state is a colored dot. Switching is Alt+← / Alt+→;
  * the session objects live in memory, so switching is instant and loses
  * nothing — each tab keeps its own transcript view.
@@ -32,26 +22,29 @@ function truncateLabel(text: string, max: number): string {
 export function TabBar({
   tabs,
   activeId,
+  homeActive = false,
 }: {
   tabs: TabInfo[]
   activeId: string
+  /** The start screen is open as a "+ New" tab. */
+  homeActive?: boolean
 }): React.ReactElement {
   return (
     <Box marginBottom={0}>
       {tabs.map((tab) => {
-        const active = tab.id === activeId
+        const active = !homeActive && tab.id === activeId
         const label = truncateLabel(tab.label, 28)
         return (
           <Text key={tab.id} inverse={active}>
             {' '}
-            <Text color={DOT_COLORS[tab.state]} bold>
+            <Text color={stateColor(tab.state)} bold>
               ●
             </Text>{' '}
             <Text bold={active}>{label}</Text>{' '}
           </Text>
         )
       })}
-      <Text dimColor> + </Text>
+      <Text inverse={homeActive} color={homeActive ? undefined : theme.muted}>{homeActive ? ' + New ' : ' + '}</Text>
     </Box>
   )
 }

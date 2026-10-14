@@ -10,14 +10,25 @@ export interface CommandDef {
 }
 
 export const COMMANDS: CommandDef[] = [
-  { name: '/new', args: '[objective]', description: 'Start a new session in this directory', hint: 'Ctrl+N', needsArgs: false },
+  { name: '/new', args: '[message]', description: 'Open the start screen in a new tab (nothing required)', hint: 'Ctrl+N', needsArgs: false },
   { name: '/palette', description: 'Open the command palette', hint: 'Ctrl+K' },
   { name: '/sessions', args: '[--all]', description: 'List sessions in this directory' },
   { name: '/resume', args: '<id>', description: 'Switch to a saved session', needsArgs: true },
   { name: '/mode', args: 'plan|build', description: 'Switch the permission mode', hint: 'Tab' },
-  { name: '/kind', args: 'task|goal', description: 'Switch the completion policy (task/goal)', hint: 'Ctrl+G' },
+  { name: '/kind', args: 'auto|task|goal', description: 'auto = the agent reads each message; task/goal pins it', hint: 'Ctrl+G' },
+  { name: '/providers', description: 'Add providers, fetch models, test them (green = works)' },
+  { name: '/provider', args: '<name> [model]', description: 'Switch provider', needsArgs: true },
+  { name: '/model', args: '[model-id]', description: 'Switch model (no argument: pick from a list)', needsArgs: false },
+  { name: '/models', description: 'Models of the current provider with status and context' },
   { name: '/context', description: 'Context window, usage estimate and source' },
-  { name: '/settings', description: 'Provider, model and config file location' },
+  { name: '/settings', description: 'Theme, side panel, budgets, context, skills…', hint: 'Ctrl+O' },
+  { name: '/theme', args: '<name>', description: 'Switch the color theme', needsArgs: true },
+  { name: '/mcp', description: 'Connect MCP servers (external tools for the agent)' },
+  { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
+  { name: '/cost', description: 'What this session cost — and what VARA saved you' },
+  { name: '/export', args: '[file]', description: 'Save this conversation as a markdown file' },
+  { name: '/skills', args: '[new <name>]', description: 'List skills, or create one' },
+  { name: '/skill', args: '<name> [about]', description: 'Make the agent apply a skill now', needsArgs: true },
   { name: '/status', description: 'Budget and progress' },
   { name: '/evidence', description: 'Recorded evidence' },
   { name: '/last', description: 'Full output of the last tool call' },
@@ -28,15 +39,16 @@ export const COMMANDS: CommandDef[] = [
 ]
 
 export const KEYS_HELP = `Keyboard:
-  Ctrl+N          new session (asks for the objective)
+  Ctrl+N          new session (opens the start screen as a new tab)
   Ctrl+K          command palette (type to filter)
+  Ctrl+O          settings
   Ctrl+J          insert a newline in the message
   Tab             toggle PLAN / BUILD
   Alt+← / Alt+→   switch between open session tabs
-  Ctrl+W          close the current tab (session stays on disk)
-  Ctrl+B          toggle the status sidebar
-  PgUp / PgDn     scroll the transcript
-  Ctrl+G          jump to the latest entry (welcome & new-session: task ↔ goal)
+  Ctrl+W          close the current tab (the session stays on disk)
+  Ctrl+B          toggle the side panel
+  Wheel / ↑ ↓     scroll the transcript (PgUp/PgDn: faster)
+  Ctrl+G          latest entry (start screen: auto → task → goal)
   Esc             close an overlay, or press twice to interrupt the agent
   Ctrl+C          save the session and quit
   Enter           send — multi-line pasted text keeps its line breaks`

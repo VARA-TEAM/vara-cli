@@ -2,7 +2,11 @@
 import React from 'react'
 import { render } from 'ink'
 import { App } from './tui/App.js'
-import { loadConfig, saveConfig, DEFAULT_CONFIG } from './config/config.js'
+import { loadConfig, saveConfig, DEFAULT_CONFIG, persistConfig, type VaraConfig } from './config/config.js'
+import { activate, activeProviderName, defaultModelFor } from './config/providers.js'
+import { keySource } from './runtime.js'
+import { SetupApp } from './tui/setup.js'
+import { applyTheme } from './tui/theme.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
 import { buildProvider } from './runtime.js'
@@ -16,11 +20,14 @@ import type { Session } from './core/types.js'
 const USAGE = `VARA — an autonomous agent execution engine.
 
 Usage:
-  vara                                 start the TUI (new session in this directory)
+  vara                                 start the TUI (start screen: new session or pick a recent one)
+  vara -c | --continue                 reopen the most recent session in this directory
   vara resume <session-id>             resume a saved session (any directory)
   vara sessions [--all]                list sessions in this directory (--all: every directory)
-  vara run "<objective>" [--goal] [--plan] [--cwd <dir>] [--verify <cmd>] [--publish]
+  vara run "<objective>" [--goal] [--plan] [--cwd <dir>] [--verify <cmd>] [--publish] [--provider <name>] [--model <id>]
                                        headless run (no TUI), prints events
+  vara setup                           add providers, fetch & test their models, pick one (TUI)
+  vara providers                       list providers, key status and model health
   vara secret set <NAME>               store a secret in the encrypted vault
   vara secret list                     list stored secrets (names only)
   vara secret delete <NAME>            remove a secret
@@ -36,8 +43,8 @@ async function main(): Promise<void> {
 
   await ensureStore()
 
-  if (!cmd || cmd === 'tui') {
-    await startTui(args[1])
+  if (!cmd || cmd === 'tui' || cmd === '-c' || cmd === '--continue') {
+    await startTui(cmd === '-c' || cmd === '--continue' ? 'latest' : args[1])
     return
   }
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -75,6 +82,14 @@ async function main(): Promise<void> {
     await headlessRun(args.slice(1))
     return
   }
+  if (cmd === 'setup') {
+    await runSetup(await loadConfig())
+    return
+  }
+  if (cmd === 'providers') {
+    await listProviders(await loadConfig())
+    return
+  }
   if (cmd === 'secret') {
     await secretCommand(args.slice(1))
     return
@@ -100,23 +115,32 @@ function normalizeDir(dir: string): string {
 /* ---------------- TUI ---------------- */
 
 async function startTui(sessionId?: string): Promise<void> {
-  const config = await loadConfig()
+  let config = await loadConfig()
 
   let session: Session | null = null
-  if (sessionId) {
+  if (sessionId === 'latest') {
+    const here = normalizeDir(process.cwd())
+    const latest = (await listSessions()).find((s) => normalizeDir(s.cwd) === here)
+    if (latest) session = await loadSession(latest.id)
+  } else if (sessionId) {
     session = await loadSession(sessionId)
     if (!session) fail(`No session with id ${sessionId}`)
-  } else {
-    // Open the most recent session in this directory directly (OpenCode-style):
-    // no console questionnaire — the TUI shows the transcript, and the user
-    // picks it up or starts fresh with Ctrl+N / the welcome screen.
-    const here = normalizeDir(process.cwd())
-    const sessions = await listSessions()
-    const latest = sessions.find((s) => normalizeDir(s.cwd) === here)
-    if (latest) session = await loadSession(latest.id)
   }
 
-  const { provider } = await buildProvider(config)
+  let built: Awaited<ReturnType<typeof buildProvider>> | null = null
+  try {
+    built = await buildProvider(config)
+  } catch (err) {
+    // First run (or a removed key): open the setup screen instead of dying
+    // with a message — then continue straight into the TUI.
+    if (!process.stdin.isTTY) throw err
+    console.log(`${(err as Error).message}
+Opening setup…
+`)
+    config = await runSetup(config)
+    built = await buildProvider(config)
+  }
+  const provider = built.provider
   // A session saved as "running" means the process died mid-run: no engine is
   // alive behind it. Report the truth instead of an eternal spinner — the user
   // resumes by sending a message.
@@ -126,10 +150,38 @@ async function startTui(sessionId?: string): Promise<void> {
   }
   // exitOnCtrlC: false — ink's default exits the process BEFORE our handler
   // runs, which silently skipped the session save on every Ctrl+C quit.
-  render(
-    <App session={session} provider={provider} config={config} autoStart={session?.state === 'idle'} />,
-    { exitOnCtrlC: false },
-  )
+  applyTheme(config.ui.theme)
+  const restoreScreen = enterFullscreen(config.ui.fullscreen, config.ui.mouse)
+  try {
+    const app = render(
+      <App session={session} provider={provider} config={config} autoStart={session?.state === 'idle'} />,
+      { exitOnCtrlC: false },
+    )
+    await app.waitUntilExit()
+  } finally {
+    restoreScreen()
+  }
+}
+
+/**
+ * Own screen buffer + mouse wheel reporting. The UI then stays put (no ghost
+ * frames when scrolling the terminal) and the shell's scrollback is untouched
+ * on exit. Always restored — also on crashes and signals.
+ */
+function enterFullscreen(fullscreen: boolean, mouse: boolean): () => void {
+  if (!fullscreen || !process.stdout.isTTY) return () => {}
+  const on = '\u001b[?1049h' + (mouse ? '\u001b[?1000h\u001b[?1006h' : '')
+  const off = (mouse ? '\u001b[?1006l\u001b[?1000l' : '') + '\u001b[?1049l'
+  let restored = false
+  const restore = (): void => {
+    if (restored) return
+    restored = true
+    process.stdout.write(off)
+  }
+  process.stdout.write(on)
+  process.on('exit', restore)
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, () => { restore(); process.exit(0) })
+  return restore
 }
 
 /* ---------------- headless ---------------- */
@@ -143,7 +195,15 @@ async function headlessRun(args: string[]): Promise<void> {
     return i >= 0 ? args[i + 1] : undefined
   }
 
-  const config = await loadConfig()
+  let config = await loadConfig()
+  const wantProvider = flag('--provider')
+  if (wantProvider) {
+    const entry = config.providers[wantProvider]
+    if (!entry) fail(`Unknown provider "${wantProvider}". Known: ${Object.keys(config.providers).join(', ') || 'none'} — see: vara providers`)
+    const chosen = flag('--model') ?? defaultModelFor(entry)
+    if (!chosen) fail(`Provider "${wantProvider}" has no models yet — run: vara setup`)
+    config = activate(config, wantProvider, chosen)
+  }
   const parsed = CreateSessionInput.parse({
     kind: args.includes('--goal') ? 'goal' : 'task',
     mode: args.includes('--plan') ? 'plan' : 'build',
@@ -190,6 +250,41 @@ async function headlessRun(args: string[]): Promise<void> {
   await engine.run()
   await saveSession(session)
   console.log(`\nSession ${session.id} → ${session.state}${session.stateReason ? ` (${session.stateReason})` : ''}`)
+}
+
+/* ---------------- setup & providers ---------------- */
+
+/** Run the interactive setup screen; resolves with the saved config. */
+async function runSetup(config: VaraConfig): Promise<VaraConfig> {
+  let result = config
+  applyTheme(config.ui.theme)
+  const app = render(<SetupApp config={config} onResult={(c) => (result = c)} />)
+  await app.waitUntilExit()
+  await persistConfig(result)
+  return result
+}
+
+async function listProviders(config: VaraConfig): Promise<void> {
+  const active = activeProviderName(config)
+  const names = Object.keys(config.providers)
+  if (!names.length) {
+    console.log('No providers configured. Run: vara setup')
+    return
+  }
+  for (const name of names) {
+    const e = config.providers[name]!
+    const key = await keySource(e)
+    const models = Object.entries(e.models)
+    const ok = models.filter(([, m]) => m.status === 'ok').length
+    const bad = models.filter(([, m]) => m.status === 'fail').length
+    console.log(`${name === active ? '*' : ' '} ${name}  [${e.type}]  ${e.baseUrl}  key: ${key}  models: ${models.length} (${ok} ok, ${bad} down)`)
+    for (const [id, m] of models.slice(0, 30)) {
+      const mark = m.status === 'ok' ? 'OK  ' : m.status === 'fail' ? 'DOWN' : '----'
+      const inUse = name === active && id === config.provider.model ? '  <- in use' : ''
+      console.log(`      ${mark} ${id}${m.contextWindow ? `  ctx ${m.contextWindow}` : ''}${inUse}`)
+    }
+    if (models.length > 30) console.log(`      … ${models.length - 30} more (use: vara setup)`)
+  }
 }
 
 /* ---------------- secrets & config ---------------- */

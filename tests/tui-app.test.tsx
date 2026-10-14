@@ -4,15 +4,31 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Provider, ProviderRequest, ProviderEvent, AssistantTurn } from '../src/llm/provider.js'
 import { DEFAULT_CONFIG, type VaraConfig } from '../src/config/config.js'
 import { App } from '../src/tui/App.js'
+import { applyTheme, theme } from '../src/tui/theme.js'
 
 /**
  * Component-level regression tests for the TUI — the layer where the incident
  * actually happened (unit tests stayed green the whole time). Keys are fed the
  * way a terminal delivers them: a lone "\r" is Enter, a multi-character chunk
- * is a paste, "\t" is Tab, "\x0b" is Ctrl+K, "\x0e" is Ctrl+N, "\x1b" is Esc.
+ * is a paste.
  */
 
-afterEach(() => cleanup())
+const ENTER = '\r'
+const ESC = '\x1b'
+const TAB = '\t'
+const CTRL_K = '\x0b'
+const CTRL_N = '\x0e'
+const CTRL_W = '\x17'
+const CTRL_G = '\x07'
+const CTRL_O = '\x0f'
+const RIGHT = '\x1b[C'
+
+afterEach(() => {
+  cleanup()
+  applyTheme('vara')
+})
+
+const settle = () => new Promise((r) => setTimeout(r, 70))
 
 /** Scripted provider: yields scripted turns in order. When the script runs
  * out it "thinks" forever and never answers — the engine then stays running
@@ -51,23 +67,32 @@ const completeTurn: AssistantTurn = {
   ],
 }
 
-async function renderWelcome(provider: Provider) {
-  const instance = render(<App session={null} provider={provider} config={testConfig} autoStart={false} />)
-  await vi.waitFor(() => expect(instance.lastFrame()).toContain('Enter starts the session'))
+async function renderHome(provider: Provider, config: VaraConfig = testConfig) {
+  const instance = render(<App session={null} provider={provider} config={config} autoStart={false} />)
+  await vi.waitFor(() => expect(instance.lastFrame()).toContain('Enter send'))
   // The first frame renders before React's passive effects run — and ink
   // attaches its stdin 'readable' listener inside an effect. Writing keys
   // before that silently drops them, so let effects flush first.
-  await new Promise((resolve) => setTimeout(resolve, 60))
+  await settle()
   return instance
 }
 
-describe('TUI — welcome screen', () => {
+describe('TUI — start screen', () => {
+  it('needs nothing typed: shows the prompt, the kind (AUTO) and the mode', async () => {
+    const { lastFrame, unmount } = await renderHome(new FakeProvider([]))
+    const f = lastFrame()!
+    expect(f).toContain('Ask anything')
+    expect(f).toContain('AUTO')
+    expect(f).toContain('BUILD')
+    expect(f).toContain('test-model')
+    unmount()
+  })
+
   it('Tab toggles the draft PLAN/BUILD mode shown in the box', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([]))
-    await vi.waitFor(() => expect(lastFrame()).toContain('BUILD'))
-    stdin.write('\t')
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write(TAB)
     await vi.waitFor(() => expect(lastFrame()).toContain('PLAN'))
-    stdin.write('\t')
+    stdin.write(TAB)
     await vi.waitFor(() => expect(lastFrame()).toContain('BUILD'))
     unmount()
   })
@@ -75,116 +100,146 @@ describe('TUI — welcome screen', () => {
   it('Ctrl+K opens the palette, Esc closes it, and typing still works afterwards', async () => {
     // The dead-keyboard bug: before the fix, Ctrl+K swallowed every key while
     // showing nothing — Tab, Enter and typing all appeared broken after it.
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([]))
-    stdin.write('\x0b') // Ctrl+K
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write(CTRL_K)
     await vi.waitFor(() => expect(lastFrame()).toContain('Command palette'))
-    stdin.write('\x1b') // Esc
+    stdin.write(ESC)
     await vi.waitFor(() => expect(lastFrame()).not.toContain('Command palette'))
     stdin.write('still typing')
     await vi.waitFor(() => expect(lastFrame()).toContain('still typing'))
     unmount()
   })
 
-  it('typed text shows in the box and Enter is not swallowed by pastes', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([]))
+  it('typed text shows in the box; a multi-character chunk is a paste, not a submit', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
     stdin.write('fix the failing tests')
     await vi.waitFor(() => expect(lastFrame()).toContain('fix the failing tests'))
-    // A multi-character chunk must stay text (paste semantics), not submit.
     stdin.write(' plus more')
     await vi.waitFor(() => expect(lastFrame()).toContain('fix the failing tests plus more'))
     unmount()
   })
 
-  it('Ctrl+G switches the draft kind, and "/" commands work before a session exists', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([]))
+  it('Ctrl+G cycles AUTO → TASK → GOAL, and "/" commands work before a session exists', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    await vi.waitFor(() => expect(lastFrame()).toContain('AUTO'))
+    stdin.write(CTRL_G)
     await vi.waitFor(() => expect(lastFrame()).toContain('TASK'))
-    stdin.write('\x07') // Ctrl+G
-    // The box itself shows the new policy — no hidden state.
+    stdin.write(CTRL_G)
     await vi.waitFor(() => expect(lastFrame()).toContain('GOAL'))
-    // "/kind" reaches the dispatcher on the welcome screen too — the old
-    // inline gate blocked every command except /help.
-    stdin.write('/kind task')
-    await vi.waitFor(() => expect(lastFrame()).toContain('/kind task'))
-    stdin.write('\r')
-    await vi.waitFor(() => expect(lastFrame()).toContain('kind → TASK'))
-    // "/sessions" opens the real overlay pre-session; Esc closes it.
+    stdin.write('/kind auto')
+    await vi.waitFor(() => expect(lastFrame()).toContain('/kind auto'))
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('kind → AUTO'))
     stdin.write('/sessions')
     await vi.waitFor(() => expect(lastFrame()).toContain('/sessions'))
-    stdin.write('\r')
+    stdin.write(ENTER)
     await vi.waitFor(() => expect(lastFrame()).toContain('Sessions (this directory)'))
-    stdin.write('\x1b')
+    await settle()
+    stdin.write(ESC)
     await vi.waitFor(() => expect(lastFrame()).not.toContain('Sessions (this directory)'))
+    unmount()
+  })
+
+  it('an empty Enter does nothing, and a very short message is a valid message (no raw validation JSON)', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([{ content: 'Hi there!', toolCalls: [] }]))
+    stdin.write(ENTER)
+    await settle()
+    expect(lastFrame()).not.toContain('too_small')
+    stdin.write('hi')
+    await vi.waitFor(() => expect(lastFrame()).toContain('hi'))
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Hi there!'), { timeout: 5_000 })
+    expect(lastFrame()).not.toContain('too_small')
+    unmount()
+  })
+})
+
+describe('TUI — conversation vs work', () => {
+  it('a greeting gets one reply, the badge says READY, and the agent does not repeat itself', async () => {
+    const provider = new FakeProvider([{ content: 'Hello! What should we work on?', toolCalls: [] }])
+    const { lastFrame, stdin, unmount } = await renderHome(provider)
+    stdin.write('hellp')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Hello! What should we work on?'), { timeout: 5_000 })
+    await vi.waitFor(() => expect(lastFrame()).toContain('READY'))
+    expect(lastFrame()).toContain('CHAT')
+    // Give a (buggy) engine time to re-ask: the script is empty, so a second
+    // request would show the provider's "thinking…" placeholder.
+    await new Promise((r) => setTimeout(r, 300))
+    expect(lastFrame()).not.toContain('thinking…')
     unmount()
   })
 })
 
 describe('TUI — session lifecycle', () => {
   it('Enter creates a session with the mode shown on screen; PLAN refuses to fake a completion', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([completeTurn]))
-    stdin.write('\t') // choose PLAN before submitting
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([completeTurn]))
+    stdin.write(TAB) // choose PLAN before submitting
     await vi.waitFor(() => expect(lastFrame()).toContain('PLAN'))
     stdin.write('make the thing work')
     await vi.waitFor(() => expect(lastFrame()).toContain('make the thing work'))
-    stdin.write('\r') // Enter
-    // The session view replaces the welcome screen — the logo is gone, and
-    // the objective, the user block and the chosen mode are all visible.
-    await vi.waitFor(() => expect(lastFrame()).not.toContain('██╗'))
+    stdin.write(ENTER)
+    // The session view replaces the start screen: the objective, the user
+    // block and the chosen mode are all visible.
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('Ask anything'))
     expect(lastFrame()).toContain('make the thing work')
-    expect(lastFrame()).toContain('TASK · PLAN')
+    await vi.waitFor(() => expect(lastFrame()).toContain('TASK · PLAN'))
     // The model still tries to finish: PLAN mode must refuse it VISIBLY
     // (complete is not read-only) — never pretend to a verification it
     // cannot run. The engine then keeps thinking (script exhausted).
     await vi.waitFor(() => expect(lastFrame()).toContain('Plan mode is read-only'), { timeout: 5_000 })
     expect(lastFrame()).not.toContain('SESSION COMPLETE')
     // Tab now toggles the ACTIVE session's mode, visibly in the note+header.
-    stdin.write('\t')
+    stdin.write(TAB)
     await vi.waitFor(() => expect(lastFrame()).toContain('mode → BUILD'))
     expect(lastFrame()).toContain('TASK · BUILD')
     unmount()
   })
 
-  it('Ctrl+N opens a focused objective entry; Esc cancels and restores the draft', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([completeTurn]))
-    stdin.write('first objective aaa')
-    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa'))
-    stdin.write('\r')
+  it('Ctrl+N opens the start screen as a new tab with nothing required; Esc returns to the session and its draft', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([completeTurn]))
+    stdin.write('first objective aaa create')
+    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa create'))
+    stdin.write(ENTER)
     // The engine runs the scripted turn: real verification, real report.
-    // (A full turn — chat + node verification + saves — takes ~1.5s, well
-    // past vi.waitFor's 1s default.)
     await vi.waitFor(() => expect(lastFrame()).toContain('SESSION COMPLETE'), { timeout: 10_000 })
     expect(lastFrame()).toContain('1/1 requirements verified')
 
     stdin.write('draft for later')
     await vi.waitFor(() => expect(lastFrame()).toContain('draft for later'))
-    stdin.write('\x0e') // Ctrl+N
-    // The entry is focused: it shows the mode that will be used, and the old
-    // draft does not leak into the new objective.
-    await vi.waitFor(() => expect(lastFrame()).toContain('objective[TASK·BUILD] ▸'))
+    stdin.write(CTRL_N)
+    // The start screen, not a forced questionnaire: empty prompt, kind/mode
+    // chips, recent sessions, a "+ New" tab.
+    await vi.waitFor(() => expect(lastFrame()).toContain('Ask anything'))
     expect(lastFrame()).not.toContain('draft for later')
-    stdin.write('\x1b') // Esc cancels
-    await vi.waitFor(() => expect(lastFrame()).toContain('new session cancelled'))
+    expect(lastFrame()).toContain('+ New')
+    await settle()
+    stdin.write(ESC)
+    await vi.waitFor(() => expect(lastFrame()).toContain('SESSION COMPLETE'))
     await vi.waitFor(() => expect(lastFrame()).toContain('draft for later'))
     unmount()
   })
 
   it('Ctrl+W closes the running tab, stops its engine, and returns to the previous session', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([completeTurn]))
-    stdin.write('first objective aaa')
-    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa'))
-    stdin.write('\r')
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([completeTurn]))
+    stdin.write('first objective aaa create')
+    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa create'))
+    stdin.write(ENTER)
     await vi.waitFor(() => expect(lastFrame()).toContain('SESSION COMPLETE'), { timeout: 10_000 })
 
     // Second session — its model never answers, so it stays running.
-    stdin.write('\x0e') // Ctrl+N
-    await vi.waitFor(() => expect(lastFrame()).toContain('objective[TASK·BUILD] ▸'))
-    stdin.write('second objective bbb')
-    await vi.waitFor(() => expect(lastFrame()).toContain('second objective bbb'))
-    stdin.write('\r')
+    stdin.write(CTRL_N)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Ask anything'))
+    await settle()
+    stdin.write('second objective bbb create')
+    await vi.waitFor(() => expect(lastFrame()).toContain('second objective bbb create'))
+    stdin.write(ENTER)
     // Created and attached: the new session's view takes over while it runs.
     await vi.waitFor(() => expect(lastFrame()).toContain('thinking…'), { timeout: 5_000 })
 
-    stdin.write('\x17') // Ctrl+W closes the RUNNING tab
-    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa'))
+    stdin.write(CTRL_W) // closes the RUNNING tab
+    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa create'))
     // The closed session's engine must not keep writing into the view that
     // replaced it — its text may never appear in the restored transcript.
     await new Promise((resolve) => setTimeout(resolve, 150))
@@ -195,18 +250,137 @@ describe('TUI — session lifecycle', () => {
 
 describe('TUI — command palette in a session', () => {
   it('Ctrl+K opens the palette over the session and Esc restores the transcript', async () => {
-    const { lastFrame, stdin, unmount } = await renderWelcome(new FakeProvider([completeTurn]))
-    stdin.write('palette objective')
-    await vi.waitFor(() => expect(lastFrame()).toContain('palette objective'))
-    stdin.write('\r')
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([completeTurn]))
+    stdin.write('create the palette objective')
+    await vi.waitFor(() => expect(lastFrame()).toContain('create the palette objective'))
+    stdin.write(ENTER)
     await vi.waitFor(() => expect(lastFrame()).toContain('SESSION COMPLETE'), { timeout: 10_000 })
 
-    stdin.write('\x0b') // Ctrl+K
+    stdin.write(CTRL_K)
     await vi.waitFor(() => expect(lastFrame()).toContain('Command palette'))
-    stdin.write('\x1b') // Esc
+    stdin.write(ESC)
     await vi.waitFor(() => expect(lastFrame()).not.toContain('Command palette'))
     // The transcript is back, intact.
     expect(lastFrame()).toContain('SESSION COMPLETE')
+    unmount()
+  })
+})
+
+describe('TUI — providers and models', () => {
+  it('/providers opens the manager on the start screen; Esc closes it and typing still works', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('/providers')
+    await vi.waitFor(() => expect(lastFrame()).toContain('/providers'))
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('+ Custom provider'))
+    expect(lastFrame()).toContain('+ Anthropic')
+    await settle() // the overlay's own key subscription attaches after its first frame
+    stdin.write(ESC)
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('+ Custom provider'))
+    stdin.write('typing works again')
+    await vi.waitFor(() => expect(lastFrame()).toContain('typing works again'))
+    unmount()
+  })
+
+  it('/models lists the current provider models; /provider rejects unknown names', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('/models')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Models'))
+    expect(lastFrame()).toContain('test-model')
+    await settle()
+    stdin.write(ESC)
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('Models —'))
+    stdin.write('/provider nope')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('usage: /provider <name>'))
+    unmount()
+  })
+})
+
+describe('TUI — settings, themes, skills, help', () => {
+  it('Ctrl+O opens settings; → on Theme switches the live palette; Esc closes', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write(CTRL_O)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Settings'))
+    expect(lastFrame()).toContain('Theme')
+    expect(lastFrame()).toContain('VARA (ember)')
+    await settle()
+    stdin.write(RIGHT)
+    await vi.waitFor(() => expect(lastFrame()).toContain('Tokyo Night'))
+    expect(theme.name).toBe('tokyo-night')
+    await settle()
+    stdin.write(ESC)
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('Settings'))
+    unmount()
+  })
+
+  it('/theme <name> applies a theme; an unknown name lists the choices', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('/theme nord')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('theme → Nord'))
+    expect(theme.name).toBe('nord')
+    stdin.write('/theme nope')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('usage: /theme <name>'))
+    unmount()
+  })
+
+  it('/skills lists the built-in skills', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('/skills')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('code-review'))
+    expect(lastFrame()).toContain('debug')
+    unmount()
+  })
+
+  it('/help opens a help view that any key closes', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('/help')
+    await settle()
+    stdin.write(ENTER)
+    await vi.waitFor(() => expect(lastFrame()).toContain('any key closes'))
+    await settle()
+    stdin.write('x')
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('any key closes'))
+    unmount()
+  })
+})
+
+describe('TUI — scrolling', () => {
+  it('mouse reports are never typed into the prompt', async () => {
+    const { lastFrame, stdin, unmount } = await renderHome(new FakeProvider([]))
+    stdin.write('\x1b[<64;10;5M')
+    stdin.write('\x1b[<0;10;5M')
+    await settle()
+    expect(lastFrame()).not.toContain('<64')
+    expect(lastFrame()).not.toContain('[<0')
+    unmount()
+  })
+})
+
+describe('TUI — resuming a session with a long last answer', () => {
+  it('shows the answer (its end) instead of an empty transcript', async () => {
+    const { createSession, CreateSessionInput } = await import('../src/core/session.js')
+    const session = createSession(CreateSessionInput.parse({ objective: 'hi', cwd: process.cwd(), auto: true }), testConfig)
+    const long = Array.from({ length: 80 }, (_, i) => `- line number ${i + 1} of a very long answer`).join('\n')
+    session.transcript.push(
+      { role: 'user', content: 'hi', at: new Date().toISOString() },
+      { role: 'assistant', content: long, at: new Date().toISOString() },
+    )
+    session.state = 'ready'
+    const { lastFrame, unmount } = render(<App session={session} provider={new FakeProvider([])} config={testConfig} autoStart={false} />)
+    await vi.waitFor(() => expect(lastFrame()).toContain('resumed session'))
+    // Contiguous lines, none squeezed out, and the resume note stays visible.
+    for (const n of [79, 78, 77, 76, 75]) expect(lastFrame()).toContain(`line number ${n} of`)
+    expect(lastFrame()).toContain('line number 80')
     unmount()
   })
 })

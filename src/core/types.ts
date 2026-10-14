@@ -6,6 +6,9 @@
 
 export type SessionKind = 'task' | 'goal'
 
+/** What the current conversation turn is about — see intent.ts. */
+export type SessionIntent = 'chat' | 'question' | 'task' | 'goal'
+
 /** User-facing operating mode. Enforced at the tool level, not by prompt alone. */
 export type Mode = 'plan' | 'build'
 
@@ -15,6 +18,7 @@ export type Mode = 'plan' | 'build'
  * - waiting_user:   agent paused itself, needs a decision from the user
  * - paused:         user paused it (or app stopped mid-run); resumable
  * - interrupted:    process died mid-turn; state recovered, turn NOT assumed complete
+ * - ready:          the agent answered (chat / question / finished a reply) and waits for the next message
  * - completed:      acceptance satisfied, evidence recorded
  * - failed:         gave up after retries/budget with reason
  * - stopped:        user aborted manually
@@ -25,6 +29,7 @@ export type SessionState =
   | 'waiting_user'
   | 'paused'
   | 'interrupted'
+  | 'ready'
   | 'completed'
   | 'failed'
   | 'stopped'
@@ -49,6 +54,10 @@ export interface TranscriptMessage {
   at: string
   /** Total characters of content; truncated copies keep this as the real size. */
   fullLength?: number
+  /** Provider reasoning blocks (e.g. Anthropic thinking + signature) that must be sent back with tool turns. */
+  reasoning?: unknown[]
+  /** True once a tool result was shrunk by compaction (the full output stays in the audit log). */
+  compacted?: boolean
 }
 
 export interface FollowUp {
@@ -141,6 +150,11 @@ export interface SessionConfig {
   model?: string
   /** Whether the agent may push / publish (gh, git push). Default false. */
   allowPublish: boolean
+  /**
+   * True when the user did not force TASK/GOAL: every message is routed (chat /
+   * question / task / goal) by intent. False pins the session to `kind`.
+   */
+  auto?: boolean
 }
 
 export interface Session {
@@ -175,8 +189,24 @@ export interface Session {
     verifiedRequirements?: string[]
     at: string
   }
+  /** The intent of the latest turn (set by the router; absent on old sessions). */
+  intent?: SessionIntent
+  /** What the cost engine avoided — shown by /cost. */
+  savings?: Savings
   /** Last turn index that produced a tool call or text — used for no-progress detection. */
   lastProgressTurn: number
+}
+
+/** Counters for work the cost engine did NOT send to the model. */
+export interface Savings {
+  /** Tool-output characters removed by compaction. */
+  compactedChars: number
+  /** read_file calls answered from context instead of the disk. */
+  dedupedReads: number
+  /** Model calls served by the cheaper routed model. */
+  cheapCalls: number
+  /** Sub-agent runs. */
+  subagents: number
 }
 
 /** Emitted by the engine so any frontend (TUI today, GUI later) can render. */
@@ -187,6 +217,8 @@ export type EngineEvent =
   | { type: 'tool_start'; name: string; args: string; id: string }
   | { type: 'tool_end'; id: string; name: string; ok: boolean; output: string; truncated?: boolean }
   | { type: 'turn'; turn: number }
+  | { type: 'intent'; intent: SessionIntent; reason: string }
+  | { type: 'subagent'; id: string; title: string; status: 'running' | 'done' | 'failed'; detail?: string }
   | { type: 'followup_applied'; id: string; turn: number }
   | { type: 'evidence'; record: EvidenceRecord }
   | { type: 'verification'; ok: boolean; detail: string }

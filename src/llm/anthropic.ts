@@ -1,5 +1,6 @@
 import type { Provider, ProviderConfig, ProviderEvent, ProviderRequest, AssistantTurn } from './provider.js'
 import { readSSE } from './sse.js'
+import { anthropicThinking } from './capabilities.js'
 import { normalizeUsage, emptyUsage } from './usage.js'
 import { isRetryable, retryDelay, parseRetryAfter, sleep } from './retry.js'
 
@@ -43,6 +44,8 @@ export function anthropicProvider(config: ProviderConfig): Provider {
           input_schema: t.function!.parameters ?? { type: 'object', properties: {} },
         }))
 
+      const thinking = req.thinking !== undefined ? anthropicThinking({ type: 'anthropic', baseUrl: config.baseUrl, model: req.model || config.model }, req.thinking) : null
+
       // Anthropic requires strictly alternating user/assistant messages and groups
       // all tool_result blocks following an assistant tool_use message into ONE user message.
       const anthropicMessages: Array<{ role: 'user' | 'assistant'; content: unknown }> = []
@@ -66,6 +69,8 @@ export function anthropicProvider(config: ProviderConfig): Provider {
 
         if (m.role === 'assistant' && m.toolCalls?.length) {
           const blocks: Array<Record<string, unknown>> = []
+          // Extended thinking: the signed blocks of a tool turn must be replayed first.
+          if (thinking && m.reasoning?.length) blocks.push(...(m.reasoning as Array<Record<string, unknown>>))
           if (m.content) blocks.push({ type: 'text', text: m.content })
           for (const call of m.toolCalls) {
             let input: unknown = {}
@@ -122,11 +127,26 @@ export function anthropicProvider(config: ProviderConfig): Provider {
         anthropicMessages.unshift({ role: 'user', content: 'Begin working on the objective described in your instructions.' })
       }
 
+      // Prompt caching: the system prompt, the tool list and the conversation so
+      // far are re-sent every turn. Marking them cacheable makes the repeats
+      // cost ~10% of the normal input price.
+      const cache = { type: 'ephemeral' as const }
+      if (tools.length) (tools[tools.length - 1] as Record<string, unknown>)['cache_control'] = cache
+      const lastMsg = anthropicMessages[anthropicMessages.length - 1]
+      if (lastMsg) {
+        if (typeof lastMsg.content === 'string') lastMsg.content = [{ type: 'text', text: lastMsg.content, cache_control: cache }]
+        else if (Array.isArray(lastMsg.content) && lastMsg.content.length) {
+          ;(lastMsg.content[lastMsg.content.length - 1] as Record<string, unknown>)['cache_control'] = cache
+        }
+      }
+      const maxTokens = req.maxTokens ?? config.maxTokens ?? 8192
       const body: Record<string, unknown> = {
         model: req.model || config.model,
         stream: true,
-        max_tokens: req.maxTokens ?? config.maxTokens ?? 8192,
-        system: req.system,
+        // Thinking tokens count against max_tokens: leave room for the answer.
+        max_tokens: thinking ? Math.max(maxTokens, thinking.budget_tokens + 4096) : maxTokens,
+        system: [{ type: 'text', text: req.system, cache_control: cache }],
+        ...(thinking ? { thinking } : {}),
         ...(tools.length ? { tools } : {}),
         messages: anthropicMessages,
       }
@@ -187,6 +207,9 @@ export function anthropicProvider(config: ProviderConfig): Provider {
 
       let content = ''
       let thinkingContent = ''
+      // Signed reasoning blocks to replay with the tool turn.
+      const reasoning: Array<Record<string, unknown>> = []
+      let openReasoning: Record<string, unknown> | null = null
       const calls = new Map<number, { id: string; name: string; arguments: string }>()
       let inputTokens: number | null = null
       let cachedInputTokens: number | null = null
@@ -213,8 +236,8 @@ export function anthropicProvider(config: ProviderConfig): Provider {
             cache_read_input_tokens?: number
             cache_creation_input_tokens?: number
           }
-          content_block?: { type?: string; id?: string; name?: string; text?: string; thinking?: string }
-          delta?: { type?: string; text?: string; thinking?: string; partial_json?: string; stop_reason?: string }
+          content_block?: { type?: string; id?: string; name?: string; text?: string; thinking?: string; data?: string }
+          delta?: { type?: string; text?: string; thinking?: string; signature?: string; partial_json?: string; stop_reason?: string }
           error?: { message?: string; type?: string }
         }
         try {
@@ -253,6 +276,8 @@ export function anthropicProvider(config: ProviderConfig): Provider {
               arguments: '',
             })
           }
+          if (currentBlockType === 'thinking') openReasoning = { type: 'thinking', thinking: event.content_block?.thinking ?? '', signature: '' }
+          if (currentBlockType === 'redacted_thinking') reasoning.push({ type: 'redacted_thinking', data: event.content_block?.data ?? '' })
           // Extended thinking block start
           if (currentBlockType === 'thinking' && event.content_block?.thinking) {
             thinkingContent += event.content_block.thinking
@@ -265,7 +290,11 @@ export function anthropicProvider(config: ProviderConfig): Provider {
             content += event.delta.text
             yield { type: 'text', delta: event.delta.text }
           }
+          if (event.delta.type === 'signature_delta' && event.delta.signature && openReasoning) {
+            openReasoning['signature'] = String(openReasoning['signature'] ?? '') + event.delta.signature
+          }
           if (event.delta.type === 'thinking_delta' && event.delta.thinking) {
+            if (openReasoning) openReasoning['thinking'] = String(openReasoning['thinking'] ?? '') + event.delta.thinking
             thinkingContent += event.delta.thinking
             yield { type: 'thinking', text: event.delta.thinking }
           }
@@ -276,6 +305,10 @@ export function anthropicProvider(config: ProviderConfig): Provider {
         }
 
         if (event.type === 'content_block_stop') {
+          if (openReasoning) {
+            reasoning.push(openReasoning)
+            openReasoning = null
+          }
           currentBlockType = ''
         }
       }
@@ -287,6 +320,7 @@ export function anthropicProvider(config: ProviderConfig): Provider {
           name: c.name,
           arguments: c.arguments || '{}',
         })),
+        ...(reasoning.length ? { reasoning } : {}),
       }
       const usage = sawUsage
         ? normalizeUsage({

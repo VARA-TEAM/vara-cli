@@ -1,26 +1,37 @@
 import { randomUUID } from 'node:crypto'
 import type {
+  Budget,
   EngineEvent,
   EvidenceRecord,
   FollowUp,
   Session,
+  SessionIntent,
+  SessionKind,
   SessionState,
   TranscriptMessage,
 } from './types.js'
+import { classifyIntent, isWorkIntent } from './intent.js'
+import { skillIndex, type Skill } from './skills.js'
 import type { ModelMessage, Provider } from '../llm/provider.js'
 import type { NormalizedUsage } from '../llm/usage.js'
 import { emptyUsage } from '../llm/usage.js'
 import { computeCost, aggregateModelCalls, type AggregatedUsage } from '../llm/cost.js'
 import type { ModelCallRecord } from './types.js'
-import { buildSystemPrompt } from './prompt.js'
+import { buildStateNote, buildSystemPrompt } from './prompt.js'
 import { authorize } from '../tools/permissions.js'
-import { findTool, toolDefinitions, toolsForMode } from '../tools/registry.js'
+import { findTool, toolDefinitions, toolsFor } from '../tools/registry.js'
+import type { Tool } from '../tools/types.js'
+import { createSession, CreateSessionInput } from './session.js'
+import { mapLimit } from '../llm/discovery.js'
+import { stat } from 'node:fs/promises'
+import { resolve as resolvePath } from 'node:path'
+import type { ThinkLevel } from '../llm/capabilities.js'
 import { runVerificationCommand } from '../tools/shell-tool.js'
 import type { ToolContext } from '../tools/types.js'
 import { getSecretsForScope } from '../security/vault.js'
 import { clearSecrets, registerSecret, scrubAll } from '../security/redact.js'
 import { appendEvent, saveSession } from './store.js'
-import { contextStatus, estimateTokens } from './context.js'
+import { contextStatus, estimateTokens, type ContextSettings } from './context.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
 
 const MAX_TOOL_OUTPUT_CHARS = 12_000
@@ -105,11 +116,36 @@ export function repairTruncatedJson(raw: string): Record<string, unknown> | null
 const STALL_LIMIT = 5
 /** The engine refuses a completion claim at most this many times before pausing for the user. */
 const MAX_FAILED_CLAIMS = 3
+/** Messages at the end of the conversation that are never compacted. */
+const KEEP_RECENT_MESSAGES = 8
+/** Tool outputs shorter than this are not worth compacting. */
+const COMPACT_THRESHOLD_CHARS = 1_200
+const MAX_PARALLEL_AGENTS = 3
 
 export interface EngineOptions {
   session: Session
   provider: Provider
   model?: string
+  /** Live context settings for the model in use (re-read every turn). */
+  contextSettings?: () => ContextSettings
+  /** Skills the agent may load (resolved once per run). */
+  loadSkills?: () => Promise<Skill[]>
+  /** Budget for a kind, from the user's config (defaults otherwise). */
+  budgetFor?: (kind: SessionKind) => Budget
+  /** Cheaper model for a kind of turn (chat / question / sub-agent); undefined = the session model. */
+  routeModel?: (kind: 'chat' | 'question' | 'subagent') => string | undefined
+  /** Reasoning level for the model about to be used; only consulted on work turns. */
+  thinkingLevel?: (model: string) => ThinkLevel | undefined
+  /** Tools from connected MCP servers (read live each turn). */
+  extraTools?: () => Tool<never>[]
+  /** One line per connected MCP server, for the prompt. */
+  mcpSummary?: () => string
+  /** Do not persist this session or its events (sub-agents). */
+  ephemeral?: boolean
+  /** Sub-agent depth: 0 = the user's session. Sub-agents cannot delegate. */
+  depth?: number
+  /** Run exactly this intent (sub-agents). */
+  forceIntent?: SessionIntent
   onEvent?: (event: EngineEvent) => void
 }
 
@@ -121,6 +157,24 @@ export class Engine {
   readonly session: Session
   private readonly provider: Provider
   private readonly model?: string
+  private readonly contextSettings?: () => ContextSettings
+  private readonly loadSkills?: () => Promise<Skill[]>
+  private readonly budgetFor?: (kind: SessionKind) => Budget
+  private skills: Skill[] = []
+  private lastModelUsed = ''
+  private readonly routeModel?: EngineOptions['routeModel']
+  private readonly thinkingLevel?: EngineOptions['thinkingLevel']
+  private readonly extraTools?: EngineOptions['extraTools']
+  private readonly mcpSummary?: EngineOptions['mcpSummary']
+  private readonly ephemeral: boolean
+  private readonly depth: number
+  private readonly forceIntent?: SessionIntent
+  private readonly options: EngineOptions
+  private children: Engine[] = []
+  /** Files already read in full: path → mtime + the tool call that holds the content. */
+  private readCache = new Map<string, { mtimeMs: number; callId: string }>()
+  /** What the current run is about; decides prompt, tools and when a turn ends. */
+  private intent: SessionIntent = 'task'
   private readonly emit: (event: EngineEvent) => void
   private abort: AbortController | null = null
   private env: Record<string, string> = {}
@@ -139,6 +193,17 @@ export class Engine {
     this.session = options.session
     this.provider = options.provider
     this.model = options.model
+    this.contextSettings = options.contextSettings
+    this.loadSkills = options.loadSkills
+    this.budgetFor = options.budgetFor
+    this.routeModel = options.routeModel
+    this.thinkingLevel = options.thinkingLevel
+    this.extraTools = options.extraTools
+    this.mcpSummary = options.mcpSummary
+    this.ephemeral = options.ephemeral ?? false
+    this.depth = options.depth ?? 0
+    this.forceIntent = options.forceIntent
+    this.options = options
     // Wrap the frontend callback so every meaningful event also lands in the
     // append-only audit log (events.jsonl). High-frequency text deltas are
     // excluded — the full text lives in the session transcript — and log
@@ -147,7 +212,7 @@ export class Engine {
       options.onEvent?.(event)
       // 'text' and 'thinking' are high-frequency transient streams — excluded
       // (the full text lives in the transcript; reasoning is not evidence).
-      if (event.type !== 'text' && event.type !== 'thinking') void appendEvent(this.session.id, event).catch(() => {})
+      if (!this.ephemeral && event.type !== 'text' && event.type !== 'thinking') void appendEvent(this.session.id, event).catch(() => {})
     }
   }
 
@@ -160,6 +225,16 @@ export class Engine {
 
   stop(): void {
     this.abort?.abort()
+    for (const c of this.children) c.stop()
+  }
+
+  private async save(): Promise<void> {
+    if (!this.ephemeral) await saveSession(this.session)
+  }
+
+  private savings(): NonNullable<Session['savings']> {
+    this.session.savings ??= { compactedChars: 0, dedupedReads: 0, cheapCalls: 0, subagents: 0 }
+    return this.session.savings
   }
 
   private setState(state: SessionState, reason?: string): void {
@@ -188,6 +263,8 @@ export class Engine {
       scope: `session:${this.session.id}`,
       env: this.env,
       allowPublish: this.session.config.allowPublish,
+      skills: this.skills,
+      ...(this.depth === 0 ? { spawn: (tasks) => this.spawnSubagents(tasks) } : {}),
     }
   }
 
@@ -217,7 +294,7 @@ export class Engine {
         : 'The agent has produced no actions or tool calls across several turns. Paused for your input.'
     this.setState('waiting_user', reason)
     this.emit({ type: 'waiting', reason: this.session.stateReason ?? '' })
-    await saveSession(this.session)
+    await this.save()
     return true
   }
 
@@ -229,9 +306,10 @@ export class Engine {
     // requestBudgetTokens entirely.
     // Session config has no per-session context override — the global default
     // is the single source of truth for output reservation.
-    const budget = contextStatus(this.session, {
-      maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens,
-    }).requestBudgetTokens
+    const budget = contextStatus(
+      this.session,
+      this.contextSettings?.() ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens },
+    ).requestBudgetTokens
 
     // Walk newest → oldest, keeping whole turns while they fit. Oldest tool
     // output is dropped first (it is the least reusable); the most recent
@@ -245,6 +323,7 @@ export class Engine {
         content: m.content,
         ...(m.toolCalls?.length ? { toolCalls: m.toolCalls } : {}),
         ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+        ...(m.reasoning?.length ? { reasoning: m.reasoning } : {}),
       }
       // A tool result is allowed to be replaced with a marker (cheaper), never
       // silently dropped — dropping it would orphan its assistant tool_call.
@@ -265,7 +344,44 @@ export class Engine {
       used += cost
       kept.push(msg)
     }
-    return kept.reverse()
+    const out = kept.reverse()
+    // The volatile situation (turn counter, recent evidence) rides at the END so
+    // the system prompt and the conversation before it stay cache-identical.
+    if (isWorkIntent(this.intent) && this.depth === 0) out.push({ role: 'user', content: buildStateNote(this.session) })
+    return out
+  }
+
+  /**
+   * Cost control: every turn re-sends the whole conversation, and old tool
+   * output (file dumps, test logs) is most of it. Once the context grows past a
+   * soft limit, shrink everything but the recent messages in ONE batch — the
+   * changed prefix is then stable again, so provider caching keeps working. The
+   * full output stays in the audit log; only the model's copy is shortened.
+   */
+  private compactIfNeeded(): void {
+    const msgs = this.session.transcript
+    const budget = contextStatus(
+      this.session,
+      this.contextSettings?.() ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens },
+    ).requestBudgetTokens
+    const soft = Math.min(Math.max(Math.floor(budget * 0.25), 8_000), 30_000)
+    let total = 0
+    for (const m of msgs) total += estimateTokens(m.content)
+    if (total < soft) return
+    const keepFrom = Math.max(0, msgs.length - KEEP_RECENT_MESSAGES)
+    let saved = 0
+    for (let i = 0; i < keepFrom; i++) {
+      const m = msgs[i]!
+      if (m.role !== 'tool' || m.compacted || m.content.length <= COMPACT_THRESHOLD_CHARS) continue
+      const head = m.content.slice(0, 500)
+      const tail = m.content.slice(-250)
+      const next = `${head}\n…[${m.content.length - 750} chars removed to save cost — the full output is in the audit log]…\n${tail}`
+      saved += m.content.length - next.length
+      m.fullLength = m.fullLength ?? m.content.length
+      m.content = next
+      m.compacted = true
+    }
+    if (saved > 0) this.savings().compactedChars += saved
   }
 
   private addMessage(message: Omit<TranscriptMessage, 'at'>): void {
@@ -275,6 +391,16 @@ export class Engine {
   private injectFollowUps(): void {
     if (this.followUpsToInject.length === 0) return
     const turn = this.session.usage.turns + 1
+    // Conversation turns: the message is just the next thing the user said.
+    if (!isWorkIntent(this.intent)) {
+      for (const f of this.followUpsToInject) {
+        f.appliedAtTurn = turn
+        this.addMessage({ role: 'user', content: f.text })
+        this.emit({ type: 'followup_applied', id: f.id, turn })
+      }
+      this.followUpsToInject = []
+      return
+    }
     for (const f of this.followUpsToInject) {
       f.appliedAtTurn = turn
       // A follow-up is not just chat: it becomes an active requirement that the
@@ -298,14 +424,21 @@ export class Engine {
   /** Runs until the session reaches a terminal or waiting state. */
   async run(): Promise<Session> {
     await this.prepareEnv()
+    try {
+      this.skills = (await this.loadSkills?.()) ?? []
+    } catch {
+      this.skills = []
+    }
+    this.routeIntent()
     await this.sessionStarted()
 
     for (;;) {
       if (this.isTerminal()) break
 
-      this.warnBudget()
+      // Budgets bound WORK. A long conversation must not "exhaust" a session.
+      if (isWorkIntent(this.intent)) this.warnBudget()
 
-      const budgetReason = this.checkBudget()
+      const budgetReason = isWorkIntent(this.intent) ? this.checkBudget() : null
       if (budgetReason) {
         this.setState('paused', budgetReason)
         this.emit({ type: 'budget_exhausted', reason: budgetReason })
@@ -315,20 +448,109 @@ export class Engine {
           `Budget exhausted — the session is PAUSED, not complete. ${budgetReason} ` +
             `Below is exactly what was verified and what remains.`,
         )
-        await saveSession(this.session)
+        await this.save()
         break
       }
 
       this.injectFollowUps()
+      this.compactIfNeeded()
       const outcome = await this.runTurn()
       this.session.usage.turns += 1
       this.session.usage.elapsedMs = Date.now() - new Date(this.session.usage.startedAt).getTime()
-      await saveSession(this.session)
+      await this.save()
 
       if (outcome === 'stop') break
     }
 
     return this.session
+  }
+
+  /**
+   * Decide what this run is about, from the newest user words.
+   *
+   *   - A pinned session (auto off) is always its kind.
+   *   - Unfinished work stays work: replies to ask_user, "continue", extra
+   *     instructions are follow-ups, not new conversations.
+   *   - Otherwise the message is classified; a new task/goal after a chat or a
+   *     completed task becomes the session's new objective.
+   */
+  private routeIntent(): void {
+    const s = this.session
+    const pending = this.followUpsToInject.map((f) => f.text)
+    const fresh = s.transcript.length === 0
+    if (this.forceIntent) {
+      if (fresh) this.addMessage({ role: 'user', content: s.config.objective })
+      this.setIntent(this.forceIntent, 'sub-agent')
+      return
+    }
+    const text = pending.length ? pending.join('\n') : fresh ? s.config.objective : ''
+    const prev = s.intent
+
+    let next: SessionIntent
+    let reason: string
+    if (!s.config.auto) {
+      next = s.config.kind
+      reason = `pinned to ${s.config.kind.toUpperCase()}`
+    } else if (!text) {
+      next = prev ?? s.config.kind
+      reason = 'resuming'
+    } else if (prev && isWorkIntent(prev) && !['completed', 'ready', 'idle'].includes(s.state)) {
+      next = prev
+      reason = 'continuing the unfinished work'
+    } else {
+      const guess = classifyIntent(text)
+      next = guess.intent
+      reason = guess.reason
+    }
+
+    const startsNewWork = isWorkIntent(next) && (!prev || !isWorkIntent(prev) || s.state === 'completed' || s.state === 'ready')
+    if (startsNewWork && s.config.auto) {
+      if (!fresh && pending.length) {
+        s.config.objective = pending.join('\n')
+      }
+      s.activeRequirements = [...s.config.acceptance]
+      if (!s.activeRequirements.length) s.activeRequirements.push(`The stated objective is achieved and verified: ${s.config.objective}`)
+      s.completionClaim = undefined
+      this.failedClaims = 0
+      this.applyKind(next as SessionKind)
+    }
+    if (fresh) this.addMessage({ role: 'user', content: s.config.objective })
+    if (startsNewWork && pending.length && !fresh) {
+      // The new objective IS these messages: deliver them as the request, not as follow-up requirements.
+      const turn = s.usage.turns + 1
+      for (const f of this.followUpsToInject) {
+        f.appliedAtTurn = turn
+        this.addMessage({ role: 'user', content: f.text })
+        this.emit({ type: 'followup_applied', id: f.id, turn })
+      }
+      this.followUpsToInject = []
+    }
+    this.setIntent(next, reason)
+  }
+
+  private setIntent(intent: SessionIntent, reason: string): void {
+    this.intent = intent
+    this.session.intent = intent
+    this.emit({ type: 'intent', intent, reason })
+  }
+
+  private applyKind(kind: SessionKind): void {
+    if (this.session.config.kind === kind) return
+    this.session.config.kind = kind
+    const budget = this.budgetFor?.(kind) ?? (kind === 'task' ? DEFAULT_CONFIG.budgets.task : DEFAULT_CONFIG.budgets.goal)
+    this.session.config.budget = { ...budget }
+  }
+
+  /** The model called `escalate`: the conversation is now real work. */
+  private escalate(to: 'task' | 'goal', objective: string): void {
+    const s = this.session
+    s.config.objective = objective
+    s.activeRequirements = [`The stated objective is achieved and verified: ${objective}`]
+    s.completionClaim = undefined
+    this.failedClaims = 0
+    this.turnsWithoutProgress = 0
+    this.applyKind(to)
+    this.setIntent(to, 'the agent recognised a request for work')
   }
 
   /**
@@ -394,13 +616,25 @@ export class Engine {
     this.session.usage.startedAt = new Date().toISOString()
     this.session.lastProgressTurn = this.session.usage.turns
     this.setState('running')
-    await saveSession(this.session)
+    await this.save()
   }
 
   private async runTurn(): Promise<'continue' | 'stop'> {
     this.emit({ type: 'turn', turn: this.session.usage.turns + 1 })
     const ctx = this.toolContext()
-    const tools = toolsForMode(this.session.config.mode)
+    const hasSkills = this.skills.length > 0
+    const extra = this.extraTools?.() ?? []
+    const toolSet = { hasSkills, extra, canDelegate: this.depth === 0 }
+    const allowed = new Set(toolsFor(this.intent, this.session.config.mode, toolSet).map((t) => t.name))
+
+    // Cost routing: conversation and research turns do not need the big model.
+    const sessionModel = this.model ?? this.session.config.model ?? ''
+    const routed = this.intent === 'chat' || this.intent === 'question' ? this.routeModel?.(this.intent) : undefined
+    const model = routed || sessionModel
+    if (routed && routed !== sessionModel) this.savings().cheapCalls += 1
+    // Thinking is for work: conversation stays fast and cheap.
+    const thinking = isWorkIntent(this.intent) ? this.thinkingLevel?.(model) : undefined
+    this.lastModelUsed = model
 
     this.abort = new AbortController()
     let assistantText = ''
@@ -409,10 +643,16 @@ export class Engine {
 
     try {
       for await (const event of this.provider.chat({
-        system: buildSystemPrompt(this.session),
+        system: buildSystemPrompt(this.session, {
+          intent: this.intent,
+          skills: skillIndex(this.skills),
+          mcp: this.mcpSummary?.() || undefined,
+          subagent: this.depth > 0,
+        }),
         messages: this.toModelMessages(),
-        tools: toolDefinitions(this.session.config.mode),
-        model: this.model ?? this.session.config.model ?? '',
+        tools: toolDefinitions(this.session.config.mode, this.intent, toolSet),
+        model,
+        ...(thinking !== undefined ? { thinking } : {}),
         signal: this.abort.signal,
       })) {
         if (event.type === 'text') {
@@ -429,14 +669,14 @@ export class Engine {
             // none were reported — record the attempt with UNKNOWN usage.
             this.recordModelCall(undefined, 'Aborted mid-request by user; usage unreported.')
             this.setState('paused', 'Paused by you. State saved; send a message to resume.')
-            await saveSession(this.session)
+            await this.save()
             return 'stop'
           }
           this.recordModelCall(undefined, `Provider error: ${event.message}`)
           this.addMessage({ role: 'assistant', content: assistantText || '(no output)' })
           this.setState('paused', `Model error: ${event.message}`)
           this.emit({ type: 'error', message: event.message })
-          await saveSession(this.session)
+          await this.save()
           return 'stop'
         } else if (event.type === 'done') {
           result = event.result
@@ -447,13 +687,13 @@ export class Engine {
       if (this.abort.signal.aborted) {
         this.recordModelCall(undefined, 'Aborted mid-request by user; usage unreported.')
         this.setState('paused', 'Paused by you. State saved; send a message to resume.')
-        await saveSession(this.session)
+        await this.save()
         return 'stop'
       }
       const message = (err as Error).message
       this.recordModelCall(undefined, `Request failed: ${message}`)
       this.setState('paused', `Run interrupted: ${message}`)
-      await saveSession(this.session)
+      await this.save()
       return 'stop'
     }
 
@@ -462,20 +702,39 @@ export class Engine {
     // so retries are counted exactly once each and never silently dropped.
     this.recordModelCall(usage)
     const turn = result ?? { content: assistantText, toolCalls: [] }
+    const reasoning = (result as { reasoning?: unknown[] } | null)?.reasoning
     this.addMessage({
       role: 'assistant',
       content: turn.content,
       ...(turn.toolCalls.length ? { toolCalls: turn.toolCalls } : {}),
+      ...(turn.toolCalls.length && reasoning?.length ? { reasoning } : {}),
     })
 
     if (turn.toolCalls.length === 0) {
-      // The model spoke without acting. That is fine once; stalling repeatedly is not.
+      // Conversation: a text reply IS the answer — the turn is over, wait for
+      // the user. (Looping here is what made the agent repeat itself.)
+      if (!isWorkIntent(this.intent)) {
+        this.turnsWithoutProgress = 0
+        this.setState('ready')
+        await this.save()
+        return 'stop'
+      }
+      // Work: a text-only turn means the model is talking instead of acting.
+      // Tell it exactly what the engine expects — never silently re-ask.
       if (await this.noteNoProgress()) return 'stop'
+      this.addMessage({
+        role: 'user',
+        content:
+          this.intent === 'goal'
+            ? '[ENGINE] No tool call this cycle. If nothing needs action right now, call ask_user to report the current state and wait; otherwise continue the goal with a tool call.'
+            : '[ENGINE] Your reply had no tool call. If the work is finished and verified, call `complete`. If you need a decision or information from the user, call `ask_user`. Otherwise continue the work with the next tool call.',
+      })
       return 'continue'
     }
 
     let pauseReason: string | null = null
     let completionClaim: { summary: string; verificationPlan: string; verifiedRequirements?: string[] } | null = null
+    let escalation: { to: 'task' | 'goal'; objective: string } | null = null
     // Real progress is a SUCCESSFUL tool or new evidence — not merely a
     // failing call that appends an error line to the transcript. Without this
     // distinction a loop of failing calls looks like forward motion and never
@@ -488,9 +747,20 @@ export class Engine {
         id: rawCall.id || `call_${randomUUID().slice(0, 8)}`,
       }
       this.session.usage.toolCalls += 1
-      const tool = findTool(call.name)
+      const tool = findTool(call.name, extra)
       if (!tool) {
         this.appendToolResult(call.id, call.name, false, `Unknown tool: ${call.name}`)
+        continue
+      }
+      // Work turns leave mode checks to authorize() (it explains plan mode);
+      // conversation turns only ever get their small tool set.
+      if (!allowed.has(call.name) && (!isWorkIntent(this.intent) || call.name === 'escalate' || call.name === 'skill')) {
+        const msg =
+          this.intent === 'chat' || this.intent === 'question'
+            ? `"${call.name}" is not available while answering. If the user wants work done, call escalate first.`
+            : `"${call.name}" is not available in this mode.`
+        this.appendToolResult(call.id, call.name, false, msg)
+        this.emit({ type: 'tool_end', id: call.id, name: call.name, ok: false, output: msg })
         continue
       }
 
@@ -527,23 +797,33 @@ export class Engine {
         continue
       }
 
-      let output: string
-      let ok: boolean
-      try {
-        const result2 = await (tool.execute as (a: unknown, c: ToolContext) => Promise<{
-          ok: boolean
-          output: string
-          pauseForUser?: string
-          completeClaim?: { summary: string; verificationPlan: string; verifiedRequirements?: string[] }
-        }>)(parsed, ctx)
-        ok = result2.ok
-        output = scrubAll(result2.output)
-        if (result2.pauseForUser) pauseReason = result2.pauseForUser
-        if (result2.completeClaim) completionClaim = result2.completeClaim
-      } catch (err) {
-        ok = false
-        output = `Tool crashed: ${(err as Error).message}`
+      let output = ''
+      let ok = false
+      const dedupe = await this.tryDedupeRead(call.name, parsed, call.id)
+      if (dedupe) {
+        this.savings().dedupedReads += 1
+        ok = true
+        output = dedupe
+      } else {
+        try {
+          const result2 = await (tool.execute as (a: unknown, c: ToolContext) => Promise<{
+            ok: boolean
+            output: string
+            pauseForUser?: string
+            completeClaim?: { summary: string; verificationPlan: string; verifiedRequirements?: string[] }
+            escalate?: { to: 'task' | 'goal'; objective: string }
+          }>)(parsed, ctx)
+          ok = result2.ok
+          output = scrubAll(result2.output)
+          if (result2.pauseForUser) pauseReason = result2.pauseForUser
+          if (result2.completeClaim) completionClaim = result2.completeClaim
+          if (result2.escalate) escalation = result2.escalate
+        } catch (err) {
+          ok = false
+          output = `Tool crashed: ${(err as Error).message}`
+        }
       }
+      if (ok && !dedupe && call.name === 'read_file') await this.rememberRead(parsed, call.id)
 
       // Loop detection: identical tool call repeated consecutively
       const callSignature = `${call.name}:${call.arguments}`
@@ -583,6 +863,12 @@ export class Engine {
 
     // Only genuine progress resets the stall counter: a successful tool or a
     // completed claim. A run of failing calls keeps counting toward the limit.
+    if (escalation) {
+      this.escalate(escalation.to, escalation.objective)
+      await this.save()
+      return 'continue'
+    }
+
     if (anyToolSucceeded || completionClaim) {
       this.turnsWithoutProgress = 0
       this.session.lastProgressTurn = this.session.usage.turns
@@ -597,7 +883,7 @@ export class Engine {
         this.setState('completed', completionClaim.summary)
         this.emit({ type: 'completed', summary: completionClaim.summary })
         this.emitSessionSummary(completionClaim.summary)
-        await saveSession(this.session)
+        await this.save()
         return 'stop'
       }
       this.failedClaims += 1
@@ -611,7 +897,7 @@ export class Engine {
           'failed',
           `Completion claimed ${this.failedClaims} times but verification kept failing: ${verified.detail.slice(0, 500)}`,
         )
-        await saveSession(this.session)
+        await this.save()
         return 'stop'
       }
       return 'continue'
@@ -620,11 +906,97 @@ export class Engine {
     if (pauseReason) {
       this.setState('waiting_user', pauseReason)
       this.emit({ type: 'waiting', reason: pauseReason })
-      await saveSession(this.session)
+      await this.save()
       return 'stop'
     }
 
     return 'continue'
+  }
+
+  /** A full read of a file we already hold, unchanged on disk: answer from context. */
+  private async tryDedupeRead(name: string, args: unknown, _callId: string): Promise<string | null> {
+    if (name !== 'read_file') return null
+    const a = args as { path?: string; offset?: number; limit?: number }
+    if (!a?.path || a.offset || a.limit) return null
+    const abs = resolvePath(this.session.config.cwd, a.path)
+    const prev = this.readCache.get(abs)
+    if (!prev) return null
+    try {
+      const st = await stat(abs)
+      if (st.mtimeMs !== prev.mtimeMs) return null
+    } catch {
+      return null
+    }
+    // Only if that earlier output is still in the conversation in full.
+    const holder = this.session.transcript.find((m) => m.role === 'tool' && m.toolCallId === prev.callId)
+    if (!holder || holder.compacted) return null
+    return `[unchanged since you read it earlier — the full content is already in this conversation (tool call ${prev.callId.slice(0, 8)}). Use it, or read a slice with offset/limit.]`
+  }
+
+  private async rememberRead(args: unknown, callId: string): Promise<void> {
+    const a = args as { path?: string; offset?: number; limit?: number }
+    if (!a?.path || a.offset || a.limit) return
+    const abs = resolvePath(this.session.config.cwd, a.path)
+    try {
+      this.readCache.set(abs, { mtimeMs: (await stat(abs)).mtimeMs, callId })
+    } catch {
+      /* not a regular file: nothing to remember */
+    }
+  }
+
+  /**
+   * Run up to 4 sub-agents in parallel (3 at a time). Each gets a fresh,
+   * ephemeral session: its own context, the parent's mode, a small budget, the
+   * cheaper routed model, and no right to delegate. Their model calls are
+   * merged into the parent's ledger so cost totals stay true.
+   */
+  private async spawnSubagents(tasks: Array<{ title: string; prompt: string; kind: 'explore' | 'work' }>): Promise<string> {
+    const parentMode = this.session.config.mode
+    const results = await mapLimit(tasks.slice(0, 4), MAX_PARALLEL_AGENTS, async (task) => {
+      const id = randomUUID().slice(0, 6)
+      const kind = parentMode === 'plan' ? 'explore' : task.kind
+      this.emit({ type: 'subagent', id, title: task.title, status: 'running' })
+      const child = createSession(
+        CreateSessionInput.parse({ kind: 'task', mode: parentMode, objective: task.prompt, cwd: this.session.config.cwd, auto: false }),
+        DEFAULT_CONFIG,
+      )
+      child.config.budget = { maxTurns: kind === 'work' ? 25 : 12, maxDurationMs: 10 * 60_000, maxModelCalls: 60 }
+      const childModel = this.routeModel?.('subagent') || this.model || this.session.config.model
+      child.config.model = childModel
+      let lastTool = ''
+      const engine = new Engine({
+        ...this.options,
+        session: child,
+        model: childModel,
+        ephemeral: true,
+        depth: this.depth + 1,
+        forceIntent: kind === 'explore' ? 'question' : 'task',
+        routeModel: undefined,
+        onEvent: (e) => {
+          if (e.type === 'tool_start' && e.name !== lastTool) {
+            lastTool = e.name
+            this.emit({ type: 'subagent', id, title: task.title, status: 'running', detail: e.name })
+          }
+        },
+      })
+      this.children.push(engine)
+      try {
+        await engine.run()
+      } finally {
+        this.children = this.children.filter((c) => c !== engine)
+      }
+      // Cost: the child's calls belong to this session's bill.
+      this.session.modelCalls ??= []
+      for (const rec of child.modelCalls ?? []) this.session.modelCalls.push({ ...rec, turn: this.session.usage.turns + 1 })
+      this.applyUsageTotals(aggregateModelCalls(this.session.modelCalls))
+      this.savings().subagents += 1
+      const lastText = [...child.transcript].reverse().find((m) => m.role === 'assistant' && m.content.trim())?.content.trim()
+      const report = child.completionClaim?.summary ?? lastText ?? '(the sub-agent produced no report)'
+      const failed = child.state === 'failed' || (child.state !== 'ready' && child.state !== 'completed' && !lastText)
+      this.emit({ type: 'subagent', id, title: task.title, status: failed ? 'failed' : 'done' })
+      return `### ${task.title} — ${failed ? `FAILED (${child.stateReason ?? child.state})` : 'done'}\n${report.slice(0, 6000)}`
+    })
+    return results.join('\n\n')
   }
 
   private appendToolResult(callId: string, name: string, ok: boolean, output: string): void {
@@ -749,7 +1121,7 @@ export class Engine {
    */
   private recordModelCall(usage: NormalizedUsage | undefined, note?: string): void {
     const normalized = usage ?? emptyUsage('provider')
-    const model = this.model ?? this.session.config.model ?? 'unknown'
+    const model = this.lastModelUsed || (this.model ?? this.session.config.model ?? 'unknown')
     const cost = computeCost(normalized, null, model, this.provider.id)
     const notes = [note, cost.reason].filter((n): n is string => Boolean(n))
     this.session.modelCalls ??= []

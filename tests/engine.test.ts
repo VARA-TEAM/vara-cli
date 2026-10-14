@@ -146,7 +146,9 @@ describe('engine', () => {
     expect(Math.ceil(sentChars / 4)).toBeLessThanOrEqual(budget)
 
     // The most recent message is never dropped.
-    expect(out[out.length - 1]?.content).toBe('final answer')
+    // The trailing [STATE] note is volatile by design (it keeps the cached prefix stable).
+    const real = out.filter((m) => !m.content.startsWith('[STATE]'))
+    expect(real[real.length - 1]?.content).toBe('final answer')
     // The oldest tool output is replaced by a marker, not sent verbatim.
     expect(out.some((m) => m.content === '[earlier tool output trimmed to save context]')).toBe(true)
     // No verbatim oldest result leaks through.
