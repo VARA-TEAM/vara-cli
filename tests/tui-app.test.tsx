@@ -239,10 +239,13 @@ describe('TUI — session lifecycle', () => {
     await vi.waitFor(() => expect(lastFrame()).toContain('thinking…'), { timeout: 15_000 })
 
     stdin.write(CTRL_W) // closes the RUNNING tab
-    await vi.waitFor(() => expect(lastFrame()).toContain('first objective aaa create'))
+    // Wait for the close to finish (slow machines take longer), not for a fixed time:
+    // the tab disappears and the first session is back.
+    await vi.waitFor(() => expect(lastFrame()).not.toContain('second objective bbb'), { timeout: 15_000 })
+    expect(lastFrame()).toContain('first objective aaa create')
     // The closed session's engine must not keep writing into the view that
-    // replaced it — its text may never appear in the restored transcript.
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    // replaced it — its text may never reappear in the restored transcript.
+    await new Promise((resolve) => setTimeout(resolve, 300))
     expect(lastFrame()).not.toContain('second objective bbb')
     unmount()
   })
