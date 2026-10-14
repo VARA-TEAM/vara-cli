@@ -4,7 +4,7 @@
  * print every meaningful event — tool calls, verification evidence, the
  * final report and the cost truth. This is what "sending a task" actually is.
  *
- * Requires KTAI_API_KEY in the environment. Writes only to (an isolated)
+ * Requires the provider key in the environment (see VARA_LIVE_KEY_ENV below). Writes only to (an isolated)
  * VARA_HOME and the throwaway cwd — run it with VARA_HOME pointed at a
  * disposable directory:
  *   $env:VARA_HOME="C:\temp\vara-live-home"; npx tsx scripts\live-flow-check.ts
@@ -19,15 +19,18 @@ import { createSession, CreateSessionInput } from '../src/core/session.js'
 import { Engine } from '../src/core/engine.js'
 import type { EngineEvent } from '../src/core/types.js'
 
-// The user's real provider setup, kept small so a live run stays cheap.
+// Any OpenAI-compatible endpoint, from the environment — nothing provider-specific is committed:
+//   VARA_LIVE_BASE_URL=https://api.openai.com/v1 VARA_LIVE_MODEL=gpt-4o-mini VARA_LIVE_KEY_ENV=OPENAI_API_KEY npx tsx scripts/live-flow-check.ts
+const keyEnv = process.env['VARA_LIVE_KEY_ENV'] ?? 'OPENAI_API_KEY'
 const config: VaraConfig = {
   ...DEFAULT_CONFIG,
   provider: {
     id: 'openai',
-    baseUrl: 'https://ktai.koyeb.app/v1',
-    apiKeySecret: 'KTAI_API_KEY',
-    apiKeyEnv: 'KTAI_API_KEY',
-    model: 'deepseek-ai/deepseek-v4.1-flash',
+    keyless: false,
+    baseUrl: process.env['VARA_LIVE_BASE_URL'] ?? 'https://api.openai.com/v1',
+    apiKeySecret: keyEnv,
+    apiKeyEnv: keyEnv,
+    model: process.env['VARA_LIVE_MODEL'] ?? 'gpt-4o-mini',
   },
   budgets: { task: { maxTurns: 12, maxDurationMs: 10 * 60_000, maxModelCalls: 12 }, goal: DEFAULT_CONFIG.budgets.goal },
 }
