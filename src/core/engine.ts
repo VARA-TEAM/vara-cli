@@ -246,7 +246,14 @@ export class Engine {
   private async prepareEnv(): Promise<void> {
     clearSecrets()
     const scope = `session:${this.session.id}`
-    const secrets = await getSecretsForScope(scope)
+    // A broken vault must not take the whole run down: continue without session
+    // secrets, and say so.
+    let secrets: Record<string, string> = {}
+    try {
+      secrets = await getSecretsForScope(scope)
+    } catch (err) {
+      this.emit({ type: 'error', message: scrubAll(`Secret vault unavailable — continuing without session secrets: ${(err as Error).message.split('\n')[0]}`) })
+    }
     const env: Record<string, string> = { ...process.env } as Record<string, string>
     for (const [name, value] of Object.entries(secrets)) {
       env[name] = value

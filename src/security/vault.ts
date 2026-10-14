@@ -48,11 +48,25 @@ async function writeSecrets(list: StoredSecret[]): Promise<void> {
   await writeFile(secretsFile(), JSON.stringify(list, null, 2), { encoding: 'utf8', mode: 0o600 })
 }
 
+/**
+ * Environment for the Windows PowerShell 5.1 child. When VARA is launched from
+ * PowerShell 7 (pwsh), `PSModulePath` points at PowerShell 7's modules and 5.1
+ * cannot load its own Security module ("ConvertTo-SecureString … could not be
+ * loaded"). Dropping the variable lets 5.1 use its default module path.
+ */
+function powershellEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env }
+  delete env['PSModulePath']
+  delete env['PSMODULEPATH']
+  return env
+}
+
 async function wrapWithDpapi(key: Buffer): Promise<string> {
   const hex = key.toString('hex')
   const ps = `ConvertTo-SecureString -AsPlainText -Force '${hex}' | ConvertFrom-SecureString`
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', ps], {
     windowsHide: true,
+    env: powershellEnv(),
   })
   return stdout.trim()
 }
@@ -61,6 +75,7 @@ async function unwrapWithDpapi(blob: string): Promise<Buffer> {
   const ps = `$s = ConvertTo-SecureString '${blob}'; [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))`
   const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', ps], {
     windowsHide: true,
+    env: powershellEnv(),
   })
   return Buffer.from(stdout.trim(), 'hex')
 }
