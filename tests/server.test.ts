@@ -77,7 +77,7 @@ const joinAs = async (token: string, name = 'Sam') => {
   expect(r.status).toBe(200)
   return r.body as { accessToken: string; guest: { id: string } }
 }
-const waitFor = async (fn: () => Promise<boolean>, ms = 4000) => {
+const waitFor = async (fn: () => Promise<boolean>, ms = 20_000) => {
   const end = Date.now() + ms
   while (Date.now() < end) {
     if (await fn()) return

@@ -204,8 +204,10 @@ export async function setSecret(name: string, value: string, scope = 'global'): 
 
 /** Returns secrets visible to the given scope, decrypted. Never log the result. */
 export async function getSecretsForScope(scope: string): Promise<Record<string, string>> {
-  const { key } = await getMasterKey()
   const list = await loadSecrets()
+  // Nothing stored: do not unlock the master key (on Windows that starts PowerShell, ~1 s cold).
+  if (list.length === 0) return {}
+  const { key } = await getMasterKey()
   const out: Record<string, string> = {}
   for (const s of list) {
     if (s.scope !== 'global' && s.scope !== scope) continue
