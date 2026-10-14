@@ -176,6 +176,17 @@ npx tsx scripts\live-usage-check.ts        # استدعاء واحد: تطبيع
 
 ---
 
+## 7.1 كيف تُصدر إصداراً
+
+```bash
+# 1) ارفع الإصدار في package.json وسجّل التغيير في CHANGELOG.md، وادفع إلى main (CI أخضر).
+# 2) وسم ودفع الوسم — هذا كل شيء:
+git tag v0.2.0 && git push origin v0.2.0
+```
+الـ workflow (`.github/workflows/release.yml`) يبني ويختبر ويثبّت ويرفع الحزم. **لا تعدّل الوسم بعد نشره**؛ إن فشل شيء أصلح وأصدر رقماً جديداً. تجربة محلية للحزمة: `node scripts/package-release.mjs` ثم فكّ `release/out/*` في مجلد نظيف وشغّل `vara doctor`.
+
+---
+
 ## 8. قائمة "لا تكسرها"
 
 قبل الادعاء بأن التغيير آمن، تأكد:

@@ -33,3 +33,6 @@ Thumbs.db
 
 # Conversation exports
 vara-*.md
+
+# Release packaging output (built by scripts/package-release.mjs)
+release/

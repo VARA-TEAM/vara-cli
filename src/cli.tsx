@@ -7,6 +7,8 @@ import { activate, activeProviderName, defaultModelFor } from './config/provider
 import { keySource } from './runtime.js'
 import { SetupApp } from './tui/setup.js'
 import { applyTheme } from './tui/theme.js'
+import { VERSION } from './version.js'
+import { doctorCommand } from './doctor.js'
 import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
@@ -31,6 +33,8 @@ Usage:
   vara serve [--lan] [--port N]        run the host without opening a browser
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
+  vara doctor                          check the install (interface, provider, git, ripgrep)
+  vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)
   vara providers                       list providers, key status and model health
   vara secret set <NAME>               store a secret in the encrypted vault
@@ -50,6 +54,14 @@ async function main(): Promise<void> {
 
   if (!cmd || cmd === 'tui' || cmd === '-c' || cmd === '--continue') {
     await startTui(cmd === '-c' || cmd === '--continue' ? 'latest' : args[1])
+    return
+  }
+  if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+    console.log(VERSION)
+    return
+  }
+  if (cmd === 'doctor') {
+    await doctorCommand()
     return
   }
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {

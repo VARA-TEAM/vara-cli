@@ -4,6 +4,16 @@
 
 ---
 
+## [2026-10-18] — أول إصدار قابل للتحميل (v0.1.0)
+
+- **حزمة مستقلة لكل نظام** (`scripts/package-release.mjs`): التطبيق كله في ملف واحد (`vara.mjs`) + بيئة Node مرفقة + مشغّل (`vara.cmd` / `vara`). المستخدم لا يثبّت Node ولا npm. Windows x64 · macOS arm64 · Linux x64.
+- **مثبّتات بأمر واحد:** `install.ps1` و`install.sh` — تتحقق من SHA-256 قبل أي تشغيل، بلا صلاحيات مدير، وتستعمل `gh` تلقائياً إن كان المستودع خاصاً.
+- **`vara doctor`** يفحص الواجهة (يرسمها في الذاكرة فعلاً)، المزوّد، git، ripgrep. **`vara --version`**.
+- **workflow الإصدار** (`release.yml`، يُشغَّل بدفع وسم `v*`): بوابة كاملة ← تغليف على 3 أنظمة ← اختبار دخاني للحزمة المفكوكة في مجلد نظيف ← نشر مع `SHA256SUMS.txt` ← تثبيت فعلي بالسكربتات الحقيقية على مشغّلات نظيفة.
+- **حدود معروفة:** macOS على Intel وARM على Windows/Linux غير مبنية بعد. بلا توقيع كود (تحذير SmartScreen/Gatekeeper محتمل). المستودع الخاص يقيّد التحميل العام.
+
+---
+
 ## [2026-10-17] — المضيف والجلسات المشتركة (الأساس) · CI
 
 **الجديد:** `src/server/{access,host,http,commands}.ts`، `src/core/runner-factory.ts`، `.github/workflows/ci.yml`؛ اختبارات `access` و`server`.

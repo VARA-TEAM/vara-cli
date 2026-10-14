@@ -25,7 +25,32 @@ vara setup           # أضف مزوّداً، الصق المفتاح، اسح�
 
 ---
 
-## البدء
+## التثبيت (دقيقة واحدة، بلا Node ولا npm)
+
+الحزمة تحمل بداخلها بيئة Node خاصة بها، فلا تحتاج تثبيت شيء قبلها.
+
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/VARA-TEAM/vara-cli/main/install.ps1 | iex
+```
+
+**macOS (Apple Silicon) / Linux (x64):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/VARA-TEAM/vara-cli/main/install.sh | sh
+```
+
+ثم افتح نافذة طرفية جديدة:
+```bash
+vara setup     # مزوّد + مفتاح + نموذج
+vara           # ابدأ
+vara doctor    # يتحقق أن كل شيء يعمل
+```
+
+المثبّت يتحقق من بصمة SHA-256 قبل تشغيل أي شيء، ولا يحتاج صلاحيات مدير. التحديث: أعد تشغيل نفس الأمر. الإزالة: احذف `%LOCALAPPDATA%ara` (Windows) أو `~/.local/share/vara` و`~/.local/bin/vara`، وبياناتك في `~/.vara` منفصلة تبقى.
+
+> **المستودع ما زال خاصاً:** الأوامر أعلاه تعمل لمن سجّل دخوله بـ `gh auth login` (المثبّت يستعمله تلقائياً). للعموم يلزم جعل المستودع عاماً. التحميل اليدوي من صفحة [Releases](https://github.com/VARA-TEAM/vara-cli/releases) متاح للفريق: `vara-win-x64.zip` · `vara-macos-arm64.tar.gz` · `vara-linux-x64.tar.gz`. macOS على Intel وLinux/Windows على ARM: استعمل التثبيت من المصدر أدناه.
+
+## من المصدر (للمطوّرين)
 
 ```bash
 git clone https://github.com/VARA-TEAM/vara-cli.git

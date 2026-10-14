@@ -1,0 +1,150 @@
+name: Release
+
+# Push a tag like v0.1.0 to publish a release:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The workflow builds a self-contained package per OS (it carries its own Node.js),
+# smoke-tests it, publishes the GitHub Release with checksums, and then installs it
+# with the real install scripts on a clean runner.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build, e.g. v0.1.0 (must already exist)'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  package:
+    name: package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install ripgrep (search tests)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then sudo apt-get update -y && sudo apt-get install -y ripgrep
+          elif [ "$RUNNER_OS" = "macOS" ]; then brew install ripgrep
+          else choco install ripgrep -y --no-progress
+          fi
+      - run: npm ci
+      - name: Gate - typecheck, tests, build
+        run: npm run check
+      - name: Package
+        shell: bash
+        run: node scripts/package-release.mjs --version "$TAG"
+      - name: Smoke test - unpack and run the package on a clean folder (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          mkdir smoke && cd smoke
+          tar -xzf ../release/out/vara-*.tar.gz
+          export VARA_HOME="$PWD/home"
+          test "$(./vara/vara --version)" = "${TAG#v}"
+          ./vara/vara doctor
+          ./vara/vara providers
+      - name: Smoke test - unpack and run the package on a clean folder (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory smoke | Out-Null
+          Set-Location smoke
+          & "$env:SystemRoot\System32\tar.exe" -xf ..\release\out\vara-win-x64.zip
+          $env:VARA_HOME = "$PWD\home"
+          $v = (& .\vara\vara.cmd --version)
+          if ($v -ne $env:TAG.TrimStart('v')) { throw "version mismatch: got $v, expected $env:TAG" }
+          & .\vara\vara.cmd doctor
+          if ($LASTEXITCODE -ne 0) { throw 'doctor failed' }
+          & .\vara\vara.cmd providers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ runner.os }}
+          path: release/out/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-release
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist-release
+          sha256sum vara-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="$(awk '/^## \[/{n++} n==1' CHANGELOG.md | head -60)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* install.sh install.ps1 --clobber
+          else
+            gh release create "$TAG" dist-release/* install.sh install.ps1 \
+              --title "VARA $TAG" --notes "$NOTES"$'\n\n'"**Install** - Windows: \`irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex\` - macOS/Linux: \`curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh\` - or download the archive for your system below."
+          fi
+
+  verify-install:
+    name: install from the release (${{ matrix.os }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install with the real script (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VARA_VERSION: ${{ env.TAG }}
+        run: |
+          set -e
+          sh install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          export VARA_HOME="$RUNNER_TEMP/vara-home"
+          test "$(vara --version)" = "${TAG#v}"
+          vara doctor
+      - name: Install with the real script (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VARA_VERSION: ${{ env.TAG }}
+        run: |
+          ./install.ps1
+          $env:VARA_HOME = "$env:RUNNER_TEMP\vara-home"
+          $vara = "$env:LOCALAPPDATA\vara\vara\vara.cmd"
+          $v = (& $vara --version)
+          if ($v -ne $env:TAG.TrimStart('v')) { throw "version mismatch: got $v" }
+          & $vara doctor
+          if ($LASTEXITCODE -ne 0) { throw 'doctor failed' }
