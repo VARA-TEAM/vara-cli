@@ -411,6 +411,10 @@ const en = {
   ap_title: 'The agent asks permission',
   ap_allow: 'Allow',
   ap_deny: 'Decline',
+  tab_tools: 'Tools',
+  st_help: 'Switch skills and connectors on or off for this conversation only. A skill change applies from your next message.',
+  st_none: 'Nothing to switch.',
+  st_tools: '{n} tools',
 } as const
 
 export type Key = keyof typeof en
@@ -819,6 +823,10 @@ const ar: Record<Key, string> = {
   ap_title: 'الوكيل يطلب إذنك',
   ap_allow: 'السماح',
   ap_deny: 'رفض',
+  tab_tools: 'الأدوات',
+  st_help: 'شغّل أو أوقف المهارات والموصّلات لهذه المحادثة فقط. تغيير المهارة يسري من رسالتك التالية.',
+  st_none: 'لا شيء للتبديل.',
+  st_tools: '{n} أدوات',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

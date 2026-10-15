@@ -297,6 +297,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (b && c === 'insights' && method === 'GET') return reply(await host.insights(p, b))
       if (b && c === 'export' && method === 'GET') return reply(await host.exportMarkdown(p, b))
       if (b && c === 'stop' && method === 'POST') return reply(await host.stop(p, b))
+      if (b && c === 'toggle' && method === 'POST') {
+        const body = await readBody(req)
+        if ((body['kind'] !== 'skill' && body['kind'] !== 'mcp') || typeof body['name'] !== 'string' || typeof body['enabled'] !== 'boolean') return json(res, 400, { error: 'kind (skill|mcp), name and enabled are required' })
+        return reply(await host.setToggle(p, b, body['kind'], str(body['name'], 80), body['enabled']))
+      }
       if (b && c === 'approvals' && parts[3] && method === 'POST') return reply(await host.resolveApproval(p, b, parts[3], (await readBody(req))['approved'] === true))
       if (b && c === 'kind' && method === 'POST') {
         const kind = (await readBody(req))['kind']

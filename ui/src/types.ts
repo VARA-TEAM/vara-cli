@@ -87,6 +87,8 @@ export interface SessionView {
   shared: boolean
   participant?: { id: string; name: string }
   usage: { turns: number; modelCalls: number; toolCalls: number; costUsd: number | null; costPartial: boolean; inputTokens: number | null; outputTokens: number | null }
+  disabledSkills: string[]
+  disabledMcp: string[]
   pendingApprovals: PendingApproval[]
   requirements: string[]
   verified: string[]

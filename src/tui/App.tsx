@@ -447,7 +447,8 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       const cwd = activeRef.current?.config.cwd ?? process.cwd()
       const all = await discoverAllSkills(cwd, configRef.current.skills.disabled)
       setSkillRows(all.map((x) => ({ name: x.name, description: x.description, source: x.source, enabled: x.enabled })))
-      setSkillNames(all.filter((x) => x.enabled).map((x) => x.name))
+      const offHere = new Set(activeRef.current?.config.disabledSkills ?? [])
+      setSkillNames(all.filter((x) => x.enabled && !offHere.has(x.name)).map((x) => x.name))
     } catch {
       /* skills are optional */
     }
@@ -1055,10 +1056,11 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           return
         }
         void discoverAllSkills(cur?.config.cwd ?? process.cwd(), configRef.current.skills.disabled).then((all) => {
-          const lines = all.map((x) => `  ${x.enabled ? glyph.ok : '○'} ${x.name.padEnd(14)} ${x.description}  [${x.source}]`)
+          const offHere = new Set(cur?.config.disabledSkills ?? [])
+          const lines = all.map((x) => `  ${x.enabled && !offHere.has(x.name) ? glyph.ok : '○'} ${x.name.padEnd(14)} ${x.description}  [${x.source}]${x.enabled && offHere.has(x.name) ? ' (off in this session)' : ''}`)
           push({
             kind: 'note',
-            text: `Skills (the agent loads one when it fits; /skill <name> forces it):\n${lines.join('\n')}\n\nAdd your own: /skills new <name> [project] · toggle in /settings`,
+            text: `Skills (the agent loads one when it fits; /skill <name> forces it):\n${lines.join('\n')}\n\nAdd your own: /skills new <name> [project] · toggle in /settings · /disable <name> or /enable <name> for this session only`,
             color: 'gray',
           })
         })
@@ -1118,6 +1120,34 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         push({ kind: 'note', text: `mode → ${modeLabel(cur.config).toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
         void saveSession(cur)
         refresh()
+        return
+      }
+      case 'enable':
+      case 'disable': {
+        const name = rest[0]
+        const on = cmd === 'enable'
+        if (!name) {
+          push({ kind: 'note', text: `usage: /${cmd} <skill or MCP server> — for this session only`, color: 'red' })
+          return
+        }
+        const isMcp = !!configRef.current.mcp.servers[name]
+        void discoverAllSkills(cur.config.cwd, []).then((all) => {
+          const isSkill = all.some((x) => x.name === name.toLowerCase())
+          if (!isMcp && !isSkill) {
+            push({ kind: 'note', text: `no skill or MCP server named "${name}"`, color: 'red' })
+            return
+          }
+          const key = isMcp ? 'disabledMcp' : 'disabledSkills'
+          const id = isMcp ? name : name.toLowerCase()
+          const off = new Set(cur.config[key] ?? [])
+          if (on) off.delete(id)
+          else off.add(id)
+          cur.config[key] = [...off]
+          void saveSession(cur)
+          void loadSkillRows()
+          push({ kind: 'note', text: `${isMcp ? 'MCP server' : 'skill'} ${id} → ${on ? 'on' : 'off'} for this session`, color: 'yellow', group: `toggle-${id}` })
+          refresh()
+        })
         return
       }
       case 'approve':
@@ -1474,7 +1504,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
               ) : null}
             </Box>
             {sidebarVisible ? (
-              <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} sections={config.ui.sections} skillNames={skillNames} think={thinkingFor(config, model).level} mcpReady={hubRef.current.tools().length} />
+              <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} sections={config.ui.sections} skillNames={skillNames} think={thinkingFor(config, model).level} mcpReady={hubRef.current.tools(new Set(active.config.disabledMcp ?? [])).length} />
             ) : null}
           </>
         )}

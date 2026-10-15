@@ -1,10 +1,11 @@
 import { useT, type Key } from '../i18n'
 import { changedFiles, formatCost, formatTokens, relativeTime } from '../transcript'
-import type { Insights, SessionView } from '../types'
+import type { Insights, McpServerRow, SessionView, SkillRow } from '../types'
+import { SessionTools } from './SessionTools'
 import { Icon } from './ui'
 import { Preview } from './Preview'
 
-export type PanelTab = 'proof' | 'cost' | 'files' | 'preview'
+export type PanelTab = 'proof' | 'cost' | 'files' | 'preview' | 'tools'
 
 function Gauge({ value, max, label, tone }: { value: number; max: number; label: string; tone?: 'warn' | 'err' }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((value / max) * 100))) : 0
@@ -187,7 +188,7 @@ function Files({ view }: { view: SessionView }) {
   )
 }
 
-export function Panel({ view, insights, tab, onTab, owner }: { view: SessionView; insights: Insights | null; tab: PanelTab; onTab: (t: PanelTab) => void; owner?: boolean }) {
+export function Panel({ view, insights, tab, onTab, owner, tools }: { view: SessionView; insights: Insights | null; tab: PanelTab; onTab: (t: PanelTab) => void; owner?: boolean; /** Owner only: per-session switches. */ tools?: { skills: SkillRow[]; servers: McpServerRow[]; onToggle: (kind: 'skill' | 'mcp', name: string, enabled: boolean) => void } }) {
   const t = useT()
   const files = changedFiles(view).length
   const tabs: Array<[PanelTab, Key]> = [
@@ -195,6 +196,7 @@ export function Panel({ view, insights, tab, onTab, owner }: { view: SessionView
     ['cost', 'tab_cost'],
     ['files', 'tab_files'],
     ...(owner ? [['preview', 'tab_preview'] as [PanelTab, Key]] : []),
+    ...(tools ? ([['tools', 'tab_tools']] as Array<[PanelTab, Key]>) : []),
   ]
   return (
     <aside className={`panel${tab === 'preview' ? ' panel-wide' : ''}`} aria-label={t('details')}>
@@ -211,6 +213,7 @@ export function Panel({ view, insights, tab, onTab, owner }: { view: SessionView
         {tab === 'cost' ? <Cost view={view} insights={insights} /> : null}
         {tab === 'files' ? <Files view={view} /> : null}
         {tab === 'preview' && owner ? <Preview sessionId={view.id} /> : null}
+        {tab === 'tools' && tools ? <SessionTools view={view} skills={tools.skills} servers={tools.servers} onToggle={tools.onToggle} /> : null}
       </div>
     </aside>
   )

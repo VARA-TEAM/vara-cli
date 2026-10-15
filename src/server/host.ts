@@ -21,6 +21,7 @@ import type { McpHub } from '../mcp/hub.js'
 import { scrubAll } from '../security/redact.js'
 import { VERSION } from '../version.js'
 import { modeNames, resolveModeChoice } from '../core/modes.js'
+import { discoverAllSkills } from '../core/skills.js'
 import { AccessStore, authorize, type Action, type Principal, type SessionRef, type Usage } from './access.js'
 
 /** What clients receive: engine events plus what only the host knows. */
@@ -82,6 +83,9 @@ export interface SessionView {
   shared: boolean
   participant?: { id: string; name: string }
   usage: { turns: number; modelCalls: number; toolCalls: number; costUsd: number | null; costPartial: boolean; inputTokens: number | null; outputTokens: number | null }
+  /** Skills and MCP servers switched off for this session only. */
+  disabledSkills: string[]
+  disabledMcp: string[]
   /** Changes the agent asked to make to itself, waiting for the owner's yes or no. */
   pendingApprovals: Array<{ id: string; action: string; title: string; detail: string }>
   requirements: string[]
@@ -309,6 +313,8 @@ export class VaraHost {
         inputTokens: s.usage.inputTokens,
         outputTokens: s.usage.outputTokens,
       },
+      disabledSkills: s.config.disabledSkills ?? [],
+      disabledMcp: s.config.disabledMcp ?? [],
       pendingApprovals: p.kind === 'owner' ? (s.pendingApprovals ?? []).map((r) => ({ id: r.id, action: r.action, title: scrubAll(r.title), detail: scrubAll(r.detail) })) : [],
       requirements: (s.activeRequirements ?? []).map((r) => cleanTitle(scrubAll(r))),
       verified: s.state === 'completed' ? (s.completionClaim?.verifiedRequirements ?? []) : [],
@@ -735,6 +741,23 @@ export class VaraHost {
       for (const c of m.toolCalls ?? []) md.push(`> tool: \`${c.name}\` ${scrubAll(c.arguments).slice(0, 200)}`, '')
     }
     return { ok: true, value: { filename: `vara-${s.id}.md`, markdown: md.join('\n') } }
+  }
+
+  /** Owner: switch one skill or MCP server on/off for this session only (other sessions keep their own). */
+  async setToggle(p: Principal, id: string, kind: 'skill' | 'mcp', name: string, enabled: boolean): Promise<Result<true>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const live = await this.load(id)
+    if (!live) return fail(404, 'no such session')
+    const known = kind === 'mcp' ? Object.keys(this.opts.config().mcp.servers).includes(name) : (await discoverAllSkills(live.session.config.cwd, [])).some((s) => s.name === name)
+    if (!known) return fail(404, `no such ${kind === 'mcp' ? 'MCP server' : 'skill'}`)
+    const key = kind === 'mcp' ? 'disabledMcp' : 'disabledSkills'
+    const off = new Set(live.session.config[key] ?? [])
+    if (enabled) off.delete(name)
+    else off.add(name)
+    live.session.config[key] = [...off]
+    await saveSession(live.session)
+    return { ok: true, value: true }
   }
 
   /** Owner: answer a change the agent asked to make to itself. */

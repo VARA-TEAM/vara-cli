@@ -70,7 +70,7 @@ export const skillToggleTool: Tool<{ name: string; enabled: boolean; scope?: 'se
   },
 }
 
-export const mcpManageTool: Tool<{ action: 'add' | 'remove' | 'enable' | 'disable'; name: string; command?: string }> = {
+export const mcpManageTool: Tool<{ action: 'add' | 'remove' | 'enable' | 'disable'; name: string; command?: string; scope?: 'session' | 'global' }> = {
   name: 'mcp_manage',
   description:
     'Add, remove, enable or disable an MCP server (external tools). Adding RUNS a program on this machine, so the user is shown the exact command line and must approve. ' +
@@ -81,14 +81,16 @@ export const mcpManageTool: Tool<{ action: 'add' | 'remove' | 'enable' | 'disabl
       action: z.enum(['add', 'remove', 'enable', 'disable']),
       name: z.string().min(1).describe('server name: letters, digits, - or _'),
       command: z.string().optional().describe('only for add: the command line or URL'),
+      scope: z.enum(['session', 'global']).optional().describe('only for enable/disable: this session only (default) or saved for everyone'),
     })
     .describe('Manage MCP servers (needs approval)'),
   async execute(args, ctx) {
     if (args.action === 'add' && !args.command?.trim()) return { ok: false, output: '"add" needs a command line or a URL.' }
-    const title = `${args.action[0]!.toUpperCase()}${args.action.slice(1)} MCP server "${args.name}"`
+    const scope = args.action === 'enable' || args.action === 'disable' ? (args.scope ?? 'session') : undefined
+    const title = `${args.action[0]!.toUpperCase()}${args.action.slice(1)} MCP server "${args.name}"${scope ? (scope === 'session' ? ' (this session)' : ' (everywhere)') : ''}`
     const g = await gate(ctx, `mcp_${args.action}`, title, args.action === 'add' ? `This will run on your machine:\n${args.command}` : '')
     if (!g.ok) return g.result
-    return attempt(() => g.admin.mcp(args.action, args.name, args.command))
+    return attempt(() => g.admin.mcp(args.action, args.name, args.command, scope))
   },
 }
 

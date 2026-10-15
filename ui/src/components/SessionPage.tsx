@@ -4,7 +4,7 @@ import { useRegisterCommands, type Cmd } from '../commands'
 import { useLiveSession, useResource, useStickToBottom } from '../hooks'
 import { useT } from '../i18n'
 import { usePrefs } from '../prefs'
-import type { Insights, Me, ModelsInfo, ProvidersState, SessionView, SkillRow, ThinkLevel } from '../types'
+import type { Insights, McpState, Me, ModelsInfo, ProvidersState, SessionView, SkillRow, ThinkLevel } from '../types'
 import { Approvals } from './Approvals'
 import { Chat } from './Chat'
 import { Composer } from './Composer'
@@ -30,6 +30,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
   // Owner-only data for the composer: thinking levels of the model in use, and the skills on offer.
   const providers = useResource<ProvidersState>(isOwner ? '/api/manage/providers' : null)
   const skills = useResource<SkillRow[]>(isOwner ? '/api/manage/skills' : null)
+  const mcp = useResource<McpState>(isOwner ? '/api/manage/mcp' : null)
 
   // The proof and cost panel follows the session: refetched (debounced) when something changed.
   const stamp = `${view?.state}:${view?.updatedAt}:${view?.transcript.length}`
@@ -114,7 +115,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
     }
     if (view.can.manage) add({ id: 'share', slash: 'share', group: 'session', title: view.shared ? t('unshare') : t('share'), run: () => run(() => post('/share', { shared: !view.shared })) })
     if (view.can.manage && skills.data) {
-      const on = skills.data.filter((s) => s.enabled)
+      const on = skills.data.filter((s) => s.enabled && !view.disabledSkills.includes(s.name))
       add({
         id: 'skill',
         slash: 'skill',
@@ -281,7 +282,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             />
           </div>
         </div>
-        {panelOpen ? <Panel view={view} insights={insights} tab={tab} onTab={setTab} owner={isOwner} /> : null}
+        {panelOpen ? <Panel view={view} insights={insights} tab={tab} onTab={setTab} owner={isOwner} tools={isOwner && skills.data && mcp.data ? { skills: skills.data, servers: mcp.data.servers, onToggle: (kind, name, enabled) => void run(() => post('/toggle', { kind, name, enabled })) } : undefined} /> : null}
       </div>
     </main>
   )

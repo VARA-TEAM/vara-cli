@@ -35,6 +35,8 @@ export const COMMANDS: CommandDef[] = [
   { name: '/evidence', description: 'Recorded evidence' },
   { name: '/last', description: 'Full output of the last tool call' },
   { name: '/pause', description: 'Pause the running agent (state is saved)' },
+  { name: '/enable', args: '<skill|server>', description: 'Turn a skill or MCP server on for this session only', needsArgs: true },
+  { name: '/disable', args: '<skill|server>', description: 'Turn a skill or MCP server off for this session only', needsArgs: true },
   { name: '/approve', args: '[id]', description: 'Allow the change the agent asked to make to itself' },
   { name: '/deny', args: '[id]', description: 'Decline the change the agent asked for' },
   { name: '/stop', description: 'Stop the session permanently' },

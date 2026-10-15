@@ -114,10 +114,10 @@ export class McpHub {
   }
 
   /** Tools of every ready server, adapted to the agent's tool interface. */
-  tools(): Tool<never>[] {
+  tools(exclude?: ReadonlySet<string>): Tool<never>[] {
     const out: Tool<never>[] = []
     for (const client of this.clients.values()) {
-      if (client.status !== 'ready') continue
+      if (client.status !== 'ready' || exclude?.has(client.name)) continue
       for (const t of client.tools) {
         const tool: Tool<unknown> = {
           name: mcpToolName(client.name, t.name),
@@ -139,10 +139,10 @@ export class McpHub {
   }
 
   /** One line per ready server for the system prompt. */
-  summary(): string {
+  summary(exclude?: ReadonlySet<string>): string {
     const lines: string[] = []
     for (const c of this.clients.values()) {
-      if (c.status !== 'ready') continue
+      if (c.status !== 'ready' || exclude?.has(c.name)) continue
       const names = c.tools.slice(0, 8).map((t) => t.name).join(', ')
       lines.push(`- ${c.name}${c.serverName && c.serverName !== c.name ? ` (${c.serverName})` : ''}: ${c.tools.length} tools — ${names}${c.tools.length > 8 ? ', …' : ''}  → call as mcp__${sanitizeName(c.name)}__<tool>`)
     }

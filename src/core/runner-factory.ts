@@ -36,15 +36,15 @@ export function makeSessionRunner(opts: {
     opts.onEvent,
     () => contextSettingsFor(config(), model()),
     {
-      loadSkills: () => discoverSkills(s.config.cwd, config().skills.disabled),
+      loadSkills: () => discoverSkills(s.config.cwd, [...config().skills.disabled, ...(s.config.disabledSkills ?? [])]),
       budgetFor: (k) => budgetFor(k, config()),
       routeModel: () => config().agent.cheapModel || undefined,
       thinkingLevel: (m) => thinkingFor(config(), m).level,
       modePolicy: () => policyFor(config().modes, s.config.customMode),
       vision: (m) => visionFor(config(), m),
       ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
-      extraTools: () => [...hub.tools(), previewTool as unknown as Tool<never>],
-      mcpSummary: () => hub.summary(),
+      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>],
+      mcpSummary: () => hub.summary(new Set(s.config.disabledMcp ?? [])),
     },
   )
 }
