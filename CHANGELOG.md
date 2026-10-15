@@ -6,6 +6,12 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## 2026-10-15 · v0.5.1 — reaching a VPS
+
+- **`vara ui` / `vara serve` ask how to be reached** (this machine, your network, anywhere by the server's IP, or a temporary https link) when run at a terminal with nothing said. New `--public` (listen on all addresses, print `http://<public IP>:<port>/#token=…`) and `--local` (skip the question). A literal IP in the address bar is accepted when the host is open (it cannot be rebound); domain names still need `--public-host`. Not yet tried on a real VPS.
+
+---
+
 ## 2026-10-15 · v0.4.0 — browser use, desktop control, connectors, a smarter start
 
 - **Browser use:** the `browser` tool drives a real Chrome/Edge/Chromium/Brave in a throw-away profile over the DevTools Protocol (no new dependency). Origins need approval (localhost is free), private networks and metadata addresses are refused, every request the page makes is filtered, downloads refused, password/payment fields never typed, irreversible-looking clicks and submits need approval, page text is wrapped as untrusted. Screenshots reach vision models. Off by default (`agent.browser`). Verified against a real browser with `scripts/browser-smoke.ts`.
