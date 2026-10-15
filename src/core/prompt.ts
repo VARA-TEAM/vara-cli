@@ -11,6 +11,8 @@ export interface PromptOptions {
   intent?: SessionIntent
   /** Compact skill index (name: description lines). */
   skills?: string
+  /** Persistent notes (core/memory.ts), already within their token budget. */
+  memory?: string
   /** Connected MCP servers, one line each. */
   mcp?: string
   /** Running as a sub-agent: report back concisely, no further delegation. */
@@ -145,7 +147,9 @@ ${opts.skills ? `
 ## Skills
 Load a skill with the \`skill\` tool when it matches the work:
 ${opts.skills}
-` : ''}${projectBlock(session)}
+` : ''}${projectBlock(session)}${opts.memory ? `
+${opts.memory}
+` : ''}
 ## 2. TOOL USAGE DISCIPLINE
 - **Always inspect before modifying** - read_file, list_dir, grep to understand first
 - **Verify after every change** - run tests, build, or manual verification
@@ -226,7 +230,9 @@ If the user asks you to DO something — create, change, fix, build, run, instal
 # Style
 - Reply in the user's language and dialect (Arabic → Arabic, English → English).
 - Be direct. No filler, no emojis unless the user uses them.
-${intent === 'question' ? projectBlock(session) : ''}${skills ? `\n# Skills\nLoad one with the \`skill\` tool when it clearly matches:\n${skills}\n` : ''}${opts.mcp ? `\n# MCP servers (external tools you can call)\n${opts.mcp}\n` : ''}${opts.selfManage && intent === 'question' ? `\n${SELF_MANAGE_NOTE}\n` : ''}${opts.subagent ? SUBAGENT_NOTE : ''}`
+${intent === 'question' ? projectBlock(session) : ''}${intent === 'question' && opts.memory ? `
+${opts.memory}
+` : ''}${skills ? `\n# Skills\nLoad one with the \`skill\` tool when it clearly matches:\n${skills}\n` : ''}${opts.mcp ? `\n# MCP servers (external tools you can call)\n${opts.mcp}\n` : ''}${opts.selfManage && intent === 'question' ? `\n${SELF_MANAGE_NOTE}\n` : ''}${opts.subagent ? SUBAGENT_NOTE : ''}`
 }
 
 const SUBAGENT_NOTE = `

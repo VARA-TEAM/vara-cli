@@ -18,6 +18,9 @@ import { keySource } from '../runtime.js'
 import { listSecrets } from '../security/vault.js'
 import { VERSION } from '../version.js'
 import { costExtras } from './cost-wiring.js'
+import { makeMemoryTool } from '../tools/memory-tool.js'
+import { skillProposeTool } from '../tools/proposal-tool.js'
+import { memoryBlock } from './memory.js'
 
 /**
  * The ONE place that wires a session to everything it needs: provider, live
@@ -41,6 +44,7 @@ export function makeSessionRunner(opts: {
 }): SessionRunner {
   const { session: s, config, hub } = opts
   const model = () => s.config.model ?? config().provider.model
+  const memoryTool = makeMemoryTool(() => config().memory)
   return new SessionRunner(
     s,
     opts.provider(),
@@ -72,7 +76,8 @@ export function makeSessionRunner(opts: {
                 ...(opts.host ? { host: opts.host } : {}),
               },
             }) as AdminPort, interactive: true } : {}),
-      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.browser ? [browserTool as unknown as Tool<never>] : []), ...(config().agent.desktop && opts.applyConfig ? [desktopTool as unknown as Tool<never>] : [])],
+      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.browser ? [browserTool as unknown as Tool<never>] : []), ...(config().agent.desktop && opts.applyConfig ? [desktopTool as unknown as Tool<never>] : []), ...(config().memory.enabled ? [memoryTool as unknown as Tool<never>] : []), ...(config().skills.propose && opts.applyConfig ? [skillProposeTool as unknown as Tool<never>] : [])],
+      memoryBlock: () => (config().memory.enabled ? memoryBlock(s.config.cwd, config().memory.maxTokens) : ''),
       mcpSummary: () => hub.summary(new Set(s.config.disabledMcp ?? [])),
     },
   )

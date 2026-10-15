@@ -39,6 +39,8 @@ A **deep** document: how everything works and why it was designed that way. To j
 | Tools | `src/tools/*` | Real execution + permission enforcement |
 | MCP | `src/mcp/*` | Model Context Protocol client (stdio + HTTP) and server hub |
 | Skills | `src/core/skills.ts`, `builtin-skills.ts` | Discover and index `SKILL.md` playbooks |
+| Memory · proposals | `src/core/memory.ts`, `proposals.ts`, `tools/memory-tool.ts`, `tools/proposal-tool.ts` | Notes that persist between sessions (token-budgeted, secrets refused); skills the agent proposes (the owner approves) — [AUTOMATION.md](AUTOMATION.md) |
+| Schedule | `src/schedule/*` | `vara schedule`: interval / cron specs, job store, headless runs with a log (off by default, local owner only) |
 | Runner | `src/core/runner.ts`, `runner-factory.ts` | Engine lifecycle across pauses; the one place that wires a session to provider, skills, budgets, MCP |
 | Models | `src/llm/*` | HTTP/SSE, normalisation, pricing, model discovery |
 | Security | `src/security/*` | Secret encryption and output scrubbing |
@@ -383,7 +385,8 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 | `/attach` | Clip button, drag and drop, paste; /attach opens the file picker | same |
 | `/preview` | Bottom dock → Preview; /preview start <command>, stop, logs | same |
 | `/export` | Downloads the conversation as a markdown file (the browser picks the folder) | adapted |
-| `/skills` | Settings → Skills (list, create, edit, switch) | same |
+| `/skills` | Settings → Skills (list, create, edit, switch; skills the agent proposed wait at the top for your approval) | same |
+| `/memory` | Settings → Memory (edit both note files, switch memory on or off) | same |
 | `/skill` | Makes the agent apply a skill now; each skill is also its own /name | same |
 | `/status` | Side panel → Proof: turns, calls, time limit, context, evidence | same |
 | `/evidence` | Side panel → Proof: the evidence timeline | same |
@@ -452,6 +455,9 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 ├── vault/                  # encrypted secrets + the device-protected key bundle
 ├── host/                   # shared-session state: invites, guests, last server address
 ├── skills/<name>/SKILL.md  # your skills (projects add <cwd>/.vara/skills)
+├── memory/MEMORY.md        # your cross-session notes (projects add <cwd>/.vara/memory.md)
+├── proposals/<id>.json     # skills the agent proposed, waiting for you
+├── schedules.json          # scheduled jobs; schedules/<id>.log = their logs
 └── sessions/<id>/
     ├── state.json          # full state snapshot (Session)
     └── events.jsonl        # complete event log (append-only)

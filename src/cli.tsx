@@ -12,6 +12,8 @@ import { doctorCommand } from './doctor.js'
 import { updateCommand } from './update/command.js'
 import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
 import { evalCommand } from './eval/command.js'
+import { memoryCommand, skillsCommand } from './owner-commands.js'
+import { scheduleCommand } from './schedule/command.js'
 import { connectorsCommand } from './mcp/connectors-cli.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
@@ -44,6 +46,9 @@ Usage:
   vara eval --offline | --provider <name> [--model a,b] [--repeat N] [--yes]
                                        measure the cost engine ON vs OFF on small coding tasks: quality, tokens, cost (see docs/EVAL.md)
   vara connectors [list|add|remove|login|logout <id>]   ready-made MCP connectors (login = browser sign-in)
+  vara memory [list|add|edit|remove]   notes that persist between sessions (off until config.memory.enabled)
+  vara skills [proposals|show|approve|reject]   skills the agent proposed — nothing installs until you approve
+  vara schedule [add|list|run|logs|tick|daemon…]   recurring headless runs (off until you run: vara schedule enable; local owner only)
   vara doctor [--server]               check the install (interface, provider, git, ripgrep); --server also checks a service setup
   vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)
@@ -132,6 +137,18 @@ async function main(): Promise<void> {
   }
   if (cmd === 'connectors') {
     await connectorsCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'memory') {
+    await memoryCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'skills') {
+    await skillsCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'schedule') {
+    await scheduleCommand(args.slice(1))
     return
   }
   if (cmd === 'setup') {

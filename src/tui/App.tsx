@@ -24,6 +24,7 @@ import { PromptBox } from './prompt.js'
 import { applyTheme, findTheme, glyph, SPINNER, tailRows, theme, THEMES, wrappedRows } from './theme.js'
 import { HomeScreen, type DraftKind, type RecentSession } from './home.js'
 import { SettingsScreen, type SkillRow } from './settings.js'
+import { memoryReply, proposalReply } from './memory-commands.js'
 import { discoverAllSkills, discoverSkills, scaffoldSkill, type Skill } from '../core/skills.js'
 import { helpText } from './commands.js'
 import { ZodError } from 'zod'
@@ -1114,7 +1115,20 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         push({ kind: 'note', text: `theme → ${found.label}`, color: 'gray', group: 'theme' })
         return
       }
+      case 'memory': {
+        const r = memoryReply(rest, cur?.config.cwd ?? process.cwd(), configRef.current.memory)
+        if (r.enable !== undefined) onProvidersChange({ ...configRef.current, memory: { ...configRef.current.memory, enabled: r.enable } })
+        push({ kind: 'note', text: r.text, color: r.error ? 'red' : 'gray' })
+        return
+      }
       case 'skills': {
+        if (['proposals', 'show', 'approve', 'reject'].includes(rest[0] ?? '')) {
+          void proposalReply(rest).then((r) => {
+            push({ kind: 'note', text: r.text, color: r.error ? 'red' : 'gray' })
+            if (r.skillsChanged) void loadSkillRows()
+          })
+          return
+        }
         if (rest[0] === 'new') {
           const name = rest[1]
           if (!name) {

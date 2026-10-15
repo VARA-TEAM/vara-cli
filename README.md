@@ -92,7 +92,8 @@ Type your message. For commands press `Ctrl+K` or type `/`.
 | `/providers` · `/models` · `/model [id]` · `/provider <name> [model]` | Providers and models. In the provider screens: `t` test a model · `a` test all · `r` fetch the model list · `c` edit context · `h` thinking level · `k` set the key · `n` add a model · `x` remove a model · `d` remove a provider |
 | `/think [off\|low\|medium\|high]` | Thinking level for the current model, if it supports it |
 | `/mcp` | MCP servers: add from a built-in list (filesystem, fetch, memory, playwright, github, context7) or any command / URL |
-| `/skills` · `/skills new <name>` · `/skill <name> [about]` · `/<skill-name> [about]` | Skills |
+| `/skills` · `/skills new <name>` · `/skills proposals\|show\|approve\|reject` · `/skill <name> [about]` · `/<skill-name> [about]` | Skills (and the ones the agent proposed) |
+| `/memory [add\|edit\|remove\|on\|off]` | Notes that persist between sessions ([docs/AUTOMATION.md](docs/AUTOMATION.md)) |
 | `/enable <name>` · `/disable <name>` | Turn a skill or MCP server on/off for this session only |
 | `/approve` · `/deny` | Answer a change the agent asked to make to itself |
 | `/settings` (`Ctrl+O`) | Theme, side panel and its sections, intent routing, default mode, verify command, cheaper model, publishing, task/goal budgets, context, skills |
@@ -126,6 +127,8 @@ In any message, `@src/app.ts` attaches that file (inside the working folder only
 | `vara config init\|show` | Write the default config · print it (secrets never shown) |
 | `vara connectors [list\|add <id>\|remove <id>]` | Ready-made connectors (GitHub, Notion, Sentry, Supabase…); tokens go to the vault |
 | `vara eval --offline` · `vara eval --provider <name> --yes` | Measure the cost engine ON vs OFF on small coding tasks: pass rate, tokens, cost, time → JSON + Markdown report ([docs/EVAL.md](docs/EVAL.md)) |
+| `vara memory [list\|add\|edit\|remove]` · `vara skills [proposals\|show\|approve\|reject]` | Memory notes · skills the agent proposed (off until enabled; nothing installs until you approve) |
+| `vara schedule [enable\|add\|list\|run\|logs\|tick\|daemon…]` | Recurring headless runs on an interval or cron spec — off by default, read-only unless `--build`, local owner only |
 | `vara doctor [--server]` · `vara --version` | Check the install (`--server`: also a service setup) · print the version |
 
 `VARA_HOME` overrides the data folder (default `~/.vara`).

@@ -262,3 +262,30 @@ export interface Insights {
   budget: { turns: number; maxTurns: number; modelCalls: number; maxModelCalls: number; maxMinutes: number; evidence: number }
   evidence: Array<{ at: string; kind: string; ok: boolean; command?: string; exitCode?: number; output?: string; files?: string[] }>
 }
+
+/* ---------- memory and skill proposals ---------- */
+
+export interface MemoryFile {
+  file: string
+  notes: string[]
+}
+
+export interface MemoryState {
+  enabled: boolean
+  agentWrites: 'ask' | 'auto' | 'off'
+  maxTokens: number
+  user: MemoryFile
+  project: MemoryFile
+}
+
+export interface ProposalRow {
+  id: string
+  name: string
+  scope: 'user' | 'project'
+  description: string
+  reason: string
+  body: string
+  replaces: 'none' | 'builtin' | 'user' | 'project'
+  cwd: string
+  createdAt: string
+}

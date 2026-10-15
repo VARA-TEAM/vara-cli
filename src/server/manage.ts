@@ -27,6 +27,8 @@ import {
 import { PRESETS, findPreset } from '../llm/presets.js'
 import type { CheckResult, Endpoint } from '../llm/discovery.js'
 import type { FoundModel } from '../config/providers.js'
+import { memoryFile, readNotes, writeNotes, type MemoryScope } from '../core/memory.js'
+import { approveProposal, listProposals, rejectProposal } from '../core/proposals.js'
 import { discoverAllSkills, scaffoldSkill, validSkillName } from '../core/skills.js'
 import { validModeName, type ModeDef } from '../core/modes.js'
 import { THINK_ORDER, type ThinkLevel } from '../llm/capabilities.js'
@@ -645,6 +647,48 @@ export class Manager {
     return good({ revoked: out.revoked, wasSignedIn: out.was, connectors: await this.connectors() })
   }
 
+  /* ---------------- memory and skill proposals ---------------- */
+
+  memory(): unknown {
+    const m = this.d.config().memory
+    const view = (s: MemoryScope) => ({ file: memoryFile(s, this.d.cwd), notes: readNotes(s, this.d.cwd) })
+    return { enabled: m.enabled, agentWrites: m.agentWrites, maxTokens: m.maxTokens, user: view('user'), project: view('project') }
+  }
+
+  /** Replace one file's notes (the editor in Settings → Memory) and/or change the memory switches. */
+  async putMemory(body: Record<string, unknown>): Promise<MResult<unknown>> {
+    const scope = body['scope'] === 'user' ? 'user' : body['scope'] === 'project' ? 'project' : null
+    if (scope && Array.isArray(body['notes'])) {
+      try {
+        writeNotes(scope, this.d.cwd, (body['notes'] as unknown[]).map((n) => String(n)))
+      } catch (err) {
+        return bad(scrubAll((err as Error).message))
+      }
+    }
+    const patch: Partial<VaraConfig['memory']> = {}
+    if (typeof body['enabled'] === 'boolean') patch.enabled = body['enabled']
+    if (body['agentWrites'] === 'ask' || body['agentWrites'] === 'auto' || body['agentWrites'] === 'off') patch.agentWrites = body['agentWrites']
+    const tokens = int(body['maxTokens'], 50, 2000)
+    if (tokens !== undefined) patch.maxTokens = tokens
+    if (Object.keys(patch).length) {
+      const r = await this.guard(() => this.update((c) => ({ ...c, memory: { ...c.memory, ...patch } })))
+      if (!r.ok) return r
+    }
+    return good(this.memory())
+  }
+
+  async proposals(): Promise<unknown> {
+    return (await listProposals()).map((p) => ({ id: p.id, name: p.name, scope: p.scope, description: p.description, reason: p.reason, body: p.body, replaces: p.replaces, cwd: p.cwd, createdAt: p.createdAt }))
+  }
+
+  async decideProposal(id: string, approve: boolean): Promise<MResult<unknown>> {
+    if (approve) {
+      const r = await this.guard(() => approveProposal(id))
+      if (!r.ok) return r
+    } else if (!(await rejectProposal(id))) return bad('No such proposal.', 404)
+    return good(await this.proposals())
+  }
+
   /* ---------------- routing ---------------- */
 
   /** `parts` = path segments after /api/manage. */
@@ -685,6 +729,15 @@ export class Manager {
       if (!b && method === 'POST') return this.createSkill(body)
       if (b && c === 'source' && method === 'GET') return this.skillSource(dec(b))
       if (b && !c && method === 'PATCH') return this.patchSkill(dec(b), body)
+    }
+    if (a === 'memory') {
+      if (!b && method === 'GET') return good(this.memory())
+      if (!b && method === 'PUT') return this.putMemory(body)
+    }
+    if (a === 'skill-proposals') {
+      if (!b && method === 'GET') return good(await this.proposals())
+      if (b && c === 'approve' && method === 'POST') return this.decideProposal(dec(b), true)
+      if (b && !c && method === 'DELETE') return this.decideProposal(dec(b), false)
     }
     if (a === 'modes') {
       if (!b && method === 'GET') return good(this.modes())

@@ -21,7 +21,7 @@ export class SessionRunner {
     private readonly model: string | undefined,
     private readonly onEvent: (event: EngineEvent) => void,
     private readonly contextSettings?: () => ContextSettings,
-    private readonly extras: Pick<EngineOptions, 'loadSkills' | 'budgetFor' | 'routeModel' | 'thinkingLevel' | 'modePolicy' | 'swarm' | 'vision' | 'admin' | 'interactive' | 'extraTools' | 'mcpSummary' | 'router' | 'providerFor' | 'meter' | 'limits' | 'costSettings'> = {},
+    private readonly extras: Pick<EngineOptions, 'loadSkills' | 'budgetFor' | 'routeModel' | 'thinkingLevel' | 'modePolicy' | 'swarm' | 'vision' | 'admin' | 'interactive' | 'extraTools' | 'memoryBlock' | 'mcpSummary' | 'router' | 'providerFor' | 'meter' | 'limits' | 'costSettings'> = {},
   ) {}
 
   get isRunning(): boolean {

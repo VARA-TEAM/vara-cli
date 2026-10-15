@@ -30,7 +30,7 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 - **Idea:** detect `package.json` / `pyproject.toml` / `Cargo.toml` and suggest the verify command (`npm test` / `pytest` / `cargo test`) instead of leaving it empty.
 - **Proof:** a test per project type, and an explicit refusal when the type is unknown (no guessing).
 
-### R3 · Scheduled, recurring goal sessions
+### R3 · Scheduled, recurring goal sessions — **partly done** (R13: `vara schedule` runs a prompt on an interval or cron spec; a goal that is re-evaluated *inside one session* is still open)
 - **Idea:** a goal re-evaluated periodically ("review this branch every morning") instead of a session that runs once.
 - **Constraint:** the biggest architectural item — discuss the design with the team first (the shape of renewal, budget limits, what prevents repetition).
 
@@ -90,6 +90,16 @@ Written *before* touching `engine.ts`. `permissions.ts` and `vault.ts` are **not
 **Why it is safe:** the new fields are display data; no tool, mode or approval decision reads them. The approval flow, `authorize()`, the custom-mode policy and the "no approver means denied" rule are untouched. Existing swarm and engine tests stay and new ones are added first.
 
 **The system-aware agent** lives in new files (`src/core/systeminfo.ts`, `src/tools/system-tools.ts`) and extends `AdminPort`; every change still goes through `ctx.approve()`, and the read side never returns secrets (names and presence only, `scrubAll` on everything, sessions of other folders only through the owner's admin port).
+
+### R13 · Memory, skill proposals, scheduled runs — design note for the protected file (`engine.ts`)
+
+Written *before* touching `engine.ts`. `permissions.ts` and `vault.ts` are **not** touched. Full description and limits: [AUTOMATION.md](AUTOMATION.md).
+
+**`src/core/engine.ts` — what changes (one additive option, no permission logic):** `EngineOptions.memoryBlock` (a getter, read every turn). `runTurn` calls it for the owner's own non-chat turns (never chat, never sub-agents) and passes the result to `buildSystemPrompt` as `memory`. The block is built by `core/memory.ts` within `memory.maxTokens`. Why in the engine: only `runTurn` builds the system prompt.
+
+**Why it is safe:** the text is labelled as background data; no tool, mode or approval decision reads it. The `memory` and `skill_propose` tools are ordinary extra tools (`runner-factory.ts`): `authorize()`, the custom-mode policy and the "no approver means denied" rule apply to them like any other tool. `skill_propose` only writes a JSON file; installing a skill is the owner's separate action. Scheduled runs build a plain `Engine` with no admin port and no approver, so they can never approve anything.
+
+**Proof:** `tests/memory*.test.ts`, `tests/skill-proposals.test.ts`, `tests/schedule.test.ts`; the defence-line tests are unchanged and pass.
 
 ## 3. Under study (do not implement before agreeing)
 

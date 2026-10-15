@@ -92,7 +92,8 @@ vara
 | `/providers` · `/models` · `/model [id]` · `/provider <name> [model]` | المزوّدون والنماذج. داخل شاشاتها: `t` اختبار نموذج · `a` اختبار الكل · `r` سحب قائمة النماذج · `c` تعديل السياق · `h` مستوى التفكير · `k` تعيين المفتاح · `n` إضافة نموذج · `x` حذف نموذج · `d` حذف مزوّد |
 | `/think [off\|low\|medium\|high]` | مستوى التفكير للنموذج الحالي إن دعمه |
 | `/mcp` | خوادم MCP: إضافة من قائمة جاهزة (filesystem وfetch وmemory وplaywright وgithub وcontext7) أو أي أمر / رابط |
-| `/skills` · `/skills new <name>` · `/skill <name> [about]` · `/<skill-name> [about]` | المهارات |
+| `/skills` · `/skills new <name>` · `/skills proposals\|show\|approve\|reject` · `/skill <name> [about]` · `/<skill-name> [about]` | المهارات (وما اقترحه الوكيل) |
+| `/memory [add\|edit\|remove\|on\|off]` | ملاحظات تبقى بين الجلسات ([docs/ar/AUTOMATION.md](docs/ar/AUTOMATION.md)) |
 | `/enable <name>` · `/disable <name>` | تشغيل/إيقاف مهارة أو خادم MCP لهذه الجلسة فقط |
 | `/approve` · `/deny` | الجواب على تغيير طلب الوكيل إجراءه على نفسه |
 | `/settings` (`Ctrl+O`) | الثيم، اللوحة الجانبية وأقسامها، فهم النيّة، الوضع الافتراضي، أمر التحقق، النموذج الأرخص، النشر، ميزانيات المهمة والهدف، السياق، المهارات |
@@ -126,6 +127,8 @@ vara
 | `vara config init\|show` | كتابة الإعدادات الافتراضية · عرضها (الأسرار لا تُعرض أبداً) |
 | `vara connectors [list\|add <id>\|remove <id>]` | موصّلات جاهزة (GitHub وNotion وSentry وSupabase…)؛ والرموز تذهب إلى الخزنة |
 | `vara eval --offline` · `vara eval --provider <name> --yes` | قياس محرك التكلفة ON مقابل OFF على مهام برمجية صغيرة: نسبة النجاح والرموز والتكلفة والزمن ← تقرير JSON وMarkdown ([docs/ar/EVAL.md](docs/ar/EVAL.md)) |
+| `vara memory [list\|add\|edit\|remove]` · `vara skills [proposals\|show\|approve\|reject]` | ملاحظات الذاكرة · مهارات اقترحها الوكيل (معطَّلة حتى التفعيل؛ ولا يُثبَّت شيء قبل موافقتك) |
+| `vara schedule [enable\|add\|list\|run\|logs\|tick\|daemon…]` | تشغيل متكرر بلا واجهة بفاصل أو صيغة cron — معطَّل افتراضيًا، قراءة فقط ما لم تضف `--build`، للمالك المحلي فقط |
 | `vara doctor [--server]` · `vara --version` | فحص التثبيت (`--server`: وإعداد الخدمة أيضاً) · طباعة الإصدار |
 
 المتغيّر `VARA_HOME` يغيّر مجلد البيانات (الافتراضي `~/.vara`).

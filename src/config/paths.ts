@@ -23,3 +23,11 @@ export function sessionEventsFile(sessionId: string): string {
 export function sessionStateFile(sessionId: string): string {
   return join(sessionsDir, sessionId, 'state.json')
 }
+
+/** Your own cross-session memory file (core/memory.ts); each project adds <cwd>/.vara/memory.md. */
+export const userMemoryFile: string = join(VARA_HOME, 'memory', 'MEMORY.md')
+/** Skill proposals waiting for the owner's decision (core/proposals.ts). */
+export const proposalsDir: string = join(VARA_HOME, 'proposals')
+/** Scheduled jobs and their run logs (schedule/store.ts). */
+export const schedulesFile: string = join(VARA_HOME, 'schedules.json')
+export const scheduleLogsDir: string = join(VARA_HOME, 'schedules')

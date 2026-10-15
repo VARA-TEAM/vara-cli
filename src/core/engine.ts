@@ -166,6 +166,8 @@ export interface EngineOptions {
   interactive?: boolean
   /** Tools from connected MCP servers (read live each turn). */
   extraTools?: () => Tool<never>[]
+  /** The memory block for the system prompt (core/memory.ts); empty when memory is off or has no notes. Owner sessions only: sub-agents do not get it. */
+  memoryBlock?: () => string
   /** One line per connected MCP server, for the prompt. */
   mcpSummary?: () => string
   /** Do not persist this session or its events (sub-agents). */
@@ -771,10 +773,13 @@ export class Engine {
     let result: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }> } | null = null
     let usage: NormalizedUsage | undefined
 
+    // Persistent notes: the owner's own turns only (work and questions; chat and sub-agents stay lean).
+    const memoryText = this.depth === 0 && this.intent !== 'chat' ? this.options.memoryBlock?.() ?? '' : ''
     const systemPrompt = buildSystemPrompt(this.session, {
       intent: this.intent,
       skills: skillIndex(this.skills),
       mcp: this.mcpSummary?.() || undefined,
+      ...(memoryText ? { memory: memoryText } : {}),
       subagent: this.depth > 0,
       ...(this.options.admin?.system && this.depth === 0 ? { selfManage: true } : {}),
       ...(policy ? { modeNote: describePolicy(policy) } : {}),

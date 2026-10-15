@@ -223,6 +223,7 @@ function Shell({
       add({ id: 'g:providers', slash: 'providers', group: 'settings', title: t('t_models'), description: t('cmd_providersHelp'), run: () => setRoute({ page: 'settings', tab: 'models' }) })
       add({ id: 'g:agent', slash: 'agent', group: 'settings', title: t('t_agent'), description: t('cmd_agentHelp'), run: () => setRoute({ page: 'settings', tab: 'agent' }) })
       add({ id: 'g:skills', slash: 'skills', group: 'settings', title: t('t_skills'), description: t('cmd_skillsHelp'), run: () => setRoute({ page: 'settings', tab: 'skills' }) })
+      add({ id: 'g:memory', slash: 'memory', group: 'settings', title: t('t_memory'), description: t('cmd_memoryHelp'), run: () => setRoute({ page: 'settings', tab: 'memory' }) })
       add({ id: 'g:models', slash: 'models', group: 'settings', title: t('cmd_models'), description: t('cmd_modelsHelp'), run: () => setRoute({ page: 'settings', tab: 'models' }) })
       add({ id: 'g:connectors', slash: 'connectors', group: 'settings', title: t('t_connectors'), description: t('cmd_connectorsHelp'), run: () => setRoute({ page: 'settings', tab: 'connectors' }) })
       add({

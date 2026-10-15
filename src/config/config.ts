@@ -162,6 +162,27 @@ export const ModeSchema = z.object({
   denyCommands: z.array(z.string().min(1).max(200)).max(100).default([]),
 })
 
+/** Cross-session memory: two small editable files (yours, and one per project) injected into the prompt within a token budget. */
+export const MemorySchema = z.object({
+  enabled: z.boolean().default(false),
+  /** ask = every agent write needs your approval (no approver = refused); auto = the agent writes freely; off = the agent can only read. */
+  agentWrites: z.enum(['ask', 'auto', 'off']).default('ask'),
+  /** Most tokens (estimated, 4 characters each) of memory put into the prompt. Older notes stay on disk, out of the prompt. */
+  maxTokens: z.number().int().min(50).max(2000).default(400),
+})
+export type MemorySettings = z.infer<typeof MemorySchema>
+
+/** Scheduled tasks: a prompt run headlessly in a folder on an interval or a cron-like spec. */
+export const ScheduleSchema = z.object({
+  enabled: z.boolean().default(false),
+  maxJobs: z.number().int().min(1).max(50).default(10),
+  /** A run is stopped after this long. */
+  maxRunMinutes: z.number().int().min(1).max(240).default(20),
+  /** The shortest repeat interval accepted. */
+  minIntervalMinutes: z.number().int().min(1).max(1440).default(5),
+})
+export type ScheduleSettings = z.infer<typeof ScheduleSchema>
+
 const ConfigSchema = z.object({
   /** The ACTIVE provider/model. Written by `activate()`; everything else reads it. */
   provider: ProviderSchema,
@@ -223,8 +244,14 @@ const ConfigSchema = z.object({
     .object({
       /** Skill names the agent must not see. */
       disabled: z.array(z.string()).default([]),
+      /** Let the agent PROPOSE a new or improved skill after a multi-step task. A proposal is only a file: nothing is installed until the owner approves it. */
+      propose: z.boolean().default(false),
     })
     .default({}),
+  /** Small notes that survive between sessions (core/memory.ts). Off until you turn it on. */
+  memory: MemorySchema.default({}),
+  /** Recurring headless runs (schedule/). Off until you turn it on; only you (the local owner) can add or run jobs. */
+  schedule: ScheduleSchema.default({}),
 })
 
 export type VaraConfig = z.infer<typeof ConfigSchema>
