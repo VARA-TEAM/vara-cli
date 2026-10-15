@@ -17,7 +17,7 @@ vara setup      # add a provider, paste the key, fetch and test models
 | | |
 | --- | --- |
 | **Understands what you want** | Every message is classified: `chat` (answered without tools) · `question` (reads the project, answers) · `task` (does the work and proves it) · `goal` (keeps going). When unsure it picks the least powerful option, so a guess never changes your files. The model can still `escalate`. |
-| **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. |
+| **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. **v2:** a model router with a quality floor you set, long-output compression, repo map, summaries of old turns, a limit meter with pace ("lasts N hours") and a savings report — measured offline in [docs/COST.md](docs/COST.md). |
 | **Any provider** | OpenAI · Anthropic · OpenRouter · DeepSeek · Groq · Gemini · Mistral · xAI · Together · Ollama · LM Studio · any custom OpenAI-compatible or Anthropic endpoint. Every model has a tested status (works / failed / untested) and an editable context window. |
 | **Sub-agent swarm** | The `delegate` tool runs up to 4 sub-agents (3 at a time) with named roles (researcher, reviewer, implementer, tester), a shared task list and dependencies, a call/cost budget, live status in the browser — and returns one merged report. |
 | **Your own modes** | Beyond plan/build: named modes with tool and command allow/deny lists. A mode can only narrow plan or build, never widen it. |
@@ -98,6 +98,9 @@ Type your message. For commands press `Ctrl+K` or type `/`.
 | `/settings` (`Ctrl+O`) | Theme, side panel and its sections, intent routing, default mode, verify command, cheaper model, publishing, task/goal budgets, context, skills |
 | `/theme <name>` | 9 themes, applied instantly |
 | `/cost` | Spend and savings: cache, compaction, repeated reads, cheaper model, sub-agents |
+| `/limit` | Your limit: `5000000 tokens per 5h`, `$20 per month`, `percent 37`, `eco on`; shows how long it lasts |
+| `/savings` | What VARA saved (this session, 7 days, all time) with the method stated |
+| `/route` | Which model handles which turn, and your quality floor |
 | `/context` · `/status` · `/evidence` · `/last` | Context window · budget and progress · recorded evidence · full output of the last tool call |
 | `/export [file]` | Save the conversation as markdown |
 | `/new` (`Ctrl+N`) · `/sessions [--all]` · `/resume <id>` | Sessions — tabs; the start screen asks for nothing |

@@ -18,6 +18,10 @@ export interface ToolContext {
   admin?: AdminPort
   /** Ask the user to approve a change. Absent or refusing = denied: nothing is ever silent. */
   approve?: (req: { action: string; title: string; detail: string }) => Promise<{ approved: boolean; note?: string }>
+  /** Long files read without a range come back as an outline (default on). */
+  smartRead?: boolean
+  /** Full text of tool outputs that were shortened (for the `tool_output` tool). */
+  outputs?: { get(id: string): Promise<string | null> }
   /** Skills available to this session (for the `skill` tool). */
   skills?: Array<{ name: string; description: string; body: string }>
   /** Run sub-agents in parallel (absent inside a sub-agent: no recursion). */

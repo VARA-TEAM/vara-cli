@@ -73,6 +73,9 @@ export function openaiProvider(config: ProviderConfig): Provider {
         body['max_tokens'] = req.maxTokens ?? config.maxTokens ?? 8192
       }
 
+      // OpenAI's own endpoint: a stable key keeps one session on one prompt cache. Other OpenAI-compatible servers may reject unknown fields, so only api.openai.com gets it.
+      if (req.cacheKey && config.baseUrl.startsWith('https://api.openai.com')) body['prompt_cache_key'] = req.cacheKey
+
       // Thinking effort: only when the caller chose one AND this model is known to take it.
       if (req.thinking !== undefined) {
         Object.assign(body, openaiThinkingParams({ type: 'openai', baseUrl: config.baseUrl, model: modelId }, req.thinking))

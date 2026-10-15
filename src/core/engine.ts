@@ -23,10 +23,11 @@ import type { ModelCallRecord } from './types.js'
 import { buildStateNote, buildSystemPrompt } from './prompt.js'
 import { authorize } from '../tools/permissions.js'
 import { findTool, toolDefinitions, toolsFor } from '../tools/registry.js'
-import type { Tool } from '../tools/types.js'
+import type { Tool, ToolResult } from '../tools/types.js'
 import { createSession, CreateSessionInput } from './session.js'
 import { clampLimits, planSwarm, runSwarm, type SwarmLimits, type SwarmTask, type SwarmTaskInput, type TaskStatus as SwarmStatus } from './swarm.js'
 import { stat } from 'node:fs/promises'
+import { OUTLINE_MARK } from '../tools/fs-tools.js'
 import { resolve as resolvePath } from 'node:path'
 import type { ThinkLevel } from '../llm/capabilities.js'
 import { runVerificationCommand } from '../tools/shell-tool.js'
@@ -36,8 +37,21 @@ import { clearSecrets, registerSecret, scrubAll } from '../security/redact.js'
 import { appendEvent, saveSession } from './store.js'
 import { contextStatus, estimateTokens, type ContextSettings } from './context.js'
 import { DEFAULT_CONFIG } from '../config/config.js'
+import { decideRoute, DEFAULT_ROUTER, tierRank, type RouteDecision, type RouterSettings, type Tier } from './router.js'
+import { compressToolOutput, contentHash, OutputStore, shrinkForCompaction } from './outputs.js'
+import { planSummary, renderForSummary, SUMMARY_SYSTEM, summaryMessage } from './summarize.js'
+import { naiveInputTokens, recordFromCall, type LimitsConfig, type UsageMeter, DEFAULT_LIMITS } from './usage-meter.js'
+import { invalidateRepoMap } from './repomap.js'
+import { sessionDir } from '../config/paths.js'
+import { join as joinPath } from 'node:path'
 
 const MAX_TOOL_OUTPUT_CHARS = 12_000
+/** Identical consecutive calls tolerated before the run is paused (the 3rd already warns the model). */
+const LOOP_HARD_STOP = 5
+/** Control tools that cannot change files, so they do not invalidate a verification result. */
+const NON_MUTATING = new Set(['complete', 'ask_user', 'escalate', 'skill', 'todo'])
+/** Read-only tools whose calls in one turn may run side by side (R4). */
+const PARALLEL_SAFE = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_status', 'git_diff', 'git_log', 'repo_map', 'read_symbol', 'tool_output'])
 
 /**
  * Some models emit tool arguments whose JSON is truncated mid-stream (a common
@@ -160,6 +174,16 @@ export interface EngineOptions {
   depth?: number
   /** Run exactly this intent (sub-agents). */
   forceIntent?: SessionIntent
+  /** Model router settings, read live every turn (see core/router.ts). Absent = v0.4.0 behaviour. */
+  router?: () => RouterSettings
+  /** A provider other than the session's, by name (tiers may live on another provider). */
+  providerFor?: (name: string) => Provider | undefined
+  /** Usage meter: every call is recorded; limits and eco mode read from it. */
+  meter?: UsageMeter
+  /** The user's limit (read live). */
+  limits?: () => LimitsConfig
+  /** Cost-engine switches (read live). */
+  costSettings?: () => { summarize: boolean; toolOutputChars: number; smartRead: boolean; /** false = keep the v0.4.0 cut (benchmarks/ablation) */ compress?: boolean }
   onEvent?: (event: EngineEvent) => void
 }
 
@@ -211,6 +235,24 @@ export class Engine {
   private identicalToolStreak = 0
   /** Highest budget warning percent already fired (70/80/90). */
   private lastBudgetWarning = 0
+  /** Full text of shortened tool outputs, retrievable with the tool_output tool. */
+  private readonly outputStore: OutputStore
+  private readonly outputHashes = new Map<string, string>()
+  /** Router memory. */
+  private previousTier?: Tier
+  private recentDesired: Tier[] = []
+  private lastTurnTools: { tools: string[]; allOk: boolean } | null = null
+  private verificationFailedNext = false
+  private freshObjective = true
+  private currentProvider: Provider
+  private lastRoute?: { tier: Tier; phase: string }
+  private lastReasoningModel?: string
+  private lastOverheadChars = 0
+  /** Bumped when a tool that can change things succeeds; verification is skipped while it is unchanged. */
+  private mutationEpoch = 0
+  private lastVerify?: { epoch: number; command: string; run: { exitCode: number | null; output: string } }
+  private lastLimitLevel = 0
+  private ecoActive = false
 
   constructor(options: EngineOptions) {
     this.session = options.session
@@ -228,6 +270,8 @@ export class Engine {
     this.depth = options.depth ?? 0
     this.forceIntent = options.forceIntent
     this.options = options
+    this.currentProvider = options.provider
+    this.outputStore = new OutputStore(options.ephemeral ? null : joinPath(sessionDir(options.session.id), 'outputs'))
     // Wrap the frontend callback so every meaningful event also lands in the
     // append-only audit log (events.jsonl). High-frequency text deltas are
     // excluded — the full text lives in the session transcript — and log
@@ -327,6 +371,8 @@ export class Engine {
       ...(this.options.modePolicy?.() ? { modePolicy: this.options.modePolicy() } : {}),
       ...(this.options.admin && this.depth === 0 ? { admin: this.options.admin, approve: (r: { action: string; title: string; detail: string }) => this.requestApproval(r) } : {}),
       skills: this.skills,
+      outputs: this.outputStore,
+      smartRead: this.options.costSettings?.().smartRead ?? false,
       ...(this.depth === 0 ? { spawn: (tasks) => this.spawnSubagents(tasks) } : {}),
     }
   }
@@ -378,9 +424,13 @@ export class Engine {
     // output is dropped first (it is the least reusable); the most recent
     // messages always survive so the model keeps its working state.
     const kept: ModelMessage[] = []
-    let used = 0
+    const summary = this.session.summary
+    let used = summary ? estimateTokens(summaryMessage(summary.text)) : 0
+    let firstKept = false
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!
+      // Folded into the summary: the model no longer carries it (the history still does).
+      if (m.summarized) continue
       const sees = m.role === 'user' ? resolveImages(this.session.id, m.content, this.vision?.(model) ?? false) : null
       const msg: ModelMessage = {
         role: m.role === 'system' ? 'user' : m.role,
@@ -408,8 +458,10 @@ export class Engine {
       }
       used += cost
       kept.push(msg)
+      if (i === 0) firstKept = true
     }
     const out = kept.reverse()
+    if (summary) out.splice(firstKept ? 1 : 0, 0, { role: 'user', content: summaryMessage(summary.text) })
     // The volatile situation (turn counter, recent evidence) rides at the END so
     // the system prompt and the conversation before it stay cache-identical.
     if (isWorkIntent(this.intent) && this.depth === 0) out.push({ role: 'user', content: buildStateNote(this.session) })
@@ -429,18 +481,18 @@ export class Engine {
       this.session,
       this.contextSettings?.() ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens },
     ).requestBudgetTokens
-    const soft = Math.min(Math.max(Math.floor(budget * 0.25), 8_000), 30_000)
+    // Eco mode (opt-in, near the user's limit) compacts earlier.
+    const soft = Math.floor(Math.min(Math.max(Math.floor(budget * 0.25), 8_000), 30_000) * (this.ecoActive ? 0.6 : 1))
     let total = 0
-    for (const m of msgs) total += estimateTokens(m.content)
+    for (const m of msgs) if (!m.summarized) total += estimateTokens(m.content)
     if (total < soft) return
     const keepFrom = Math.max(0, msgs.length - KEEP_RECENT_MESSAGES)
     let saved = 0
     for (let i = 0; i < keepFrom; i++) {
       const m = msgs[i]!
-      if (m.role !== 'tool' || m.compacted || m.content.length <= COMPACT_THRESHOLD_CHARS) continue
-      const head = m.content.slice(0, 500)
-      const tail = m.content.slice(-250)
-      const next = `${head}\n…[${m.content.length - 750} chars removed to save cost — the full output is in the audit log]…\n${tail}`
+      if (m.role !== 'tool' || m.compacted || m.summarized || m.content.length <= COMPACT_THRESHOLD_CHARS) continue
+      const next = shrinkForCompaction(m.content, m.content.length)
+      if (next.length >= m.content.length) continue
       saved += m.content.length - next.length
       m.fullLength = m.fullLength ?? m.content.length
       m.content = next
@@ -519,6 +571,8 @@ export class Engine {
       }
 
       this.injectFollowUps()
+      this.checkLimits()
+      await this.maybeSummarise()
       this.compactIfNeeded()
       const outcome = await this.runTurn()
       this.session.usage.turns += 1
@@ -570,6 +624,7 @@ export class Engine {
     }
 
     const startsNewWork = isWorkIntent(next) && (!prev || !isWorkIntent(prev) || s.state === 'completed' || s.state === 'ready')
+    if (startsNewWork) this.freshObjective = true
     if (startsNewWork && s.config.auto) {
       if (!fresh && pending.length) {
         s.config.objective = pending.join('\n')
@@ -616,6 +671,7 @@ export class Engine {
     this.failedClaims = 0
     this.turnsWithoutProgress = 0
     this.applyKind(to)
+    this.freshObjective = true
     this.setIntent(to, 'the agent recognised a request for work')
   }
 
@@ -694,33 +750,45 @@ export class Engine {
     const toolSet = { hasSkills, extra, canDelegate: this.depth === 0, canManage: !!this.options.admin && this.depth === 0, ...(policy ? { policy } : {}) }
     const allowed = new Set(toolsFor(this.intent, this.session.config.mode, toolSet).map((t) => t.name))
 
-    // Cost routing: conversation and research turns do not need the big model.
+    // Cost routing (core/router.ts): the model for THIS turn, with a visible reason.
     const sessionModel = this.model ?? this.session.config.model ?? ''
-    const routed = this.intent === 'chat' || this.intent === 'question' ? this.routeModel?.(this.intent) : undefined
-    const model = routed || sessionModel
-    if (routed && routed !== sessionModel) this.savings().cheapCalls += 1
-    // Thinking is for work: conversation stays fast and cheap.
-    const thinking = isWorkIntent(this.intent) ? this.thinkingLevel?.(model) : undefined
+    const decision = this.routeTurn(sessionModel)
+    const model = decision.model
+    const provider = this.providerForDecision(decision)
+    if (decision.tier === 'cheap' && model !== sessionModel) this.savings().cheapCalls += 1
+    // Thinking is for work: conversation stays fast and cheap. Eco mode keeps it for planning and recovery only.
+    // Signed reasoning blocks belong to the model that wrote them: after a model switch they are not replayed.
+    const wantThinking = isWorkIntent(this.intent) && !(this.ecoActive && (decision.phase === 'edit' || decision.phase === 'search'))
+    const thinking = wantThinking && (!this.lastReasoningModel || this.lastReasoningModel === model) ? this.thinkingLevel?.(model) : undefined
     this.lastModelUsed = model
+    this.currentProvider = provider
+    this.lastRoute = { tier: decision.tier, phase: decision.phase }
+    this.freshObjective = false
+    this.verificationFailedNext = false
 
     this.abort = new AbortController()
     let assistantText = ''
     let result: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }> } | null = null
     let usage: NormalizedUsage | undefined
 
+    const systemPrompt = buildSystemPrompt(this.session, {
+      intent: this.intent,
+      skills: skillIndex(this.skills),
+      mcp: this.mcpSummary?.() || undefined,
+      subagent: this.depth > 0,
+      ...(this.options.admin?.system && this.depth === 0 ? { selfManage: true } : {}),
+      ...(policy ? { modeNote: describePolicy(policy) } : {}),
+    })
+    const toolDefs = toolDefinitions(this.session.config.mode, this.intent, toolSet)
+    this.lastOverheadChars = systemPrompt.length + JSON.stringify(toolDefs).length
+
     try {
-      for await (const event of this.provider.chat({
-        system: buildSystemPrompt(this.session, {
-          intent: this.intent,
-          skills: skillIndex(this.skills),
-          mcp: this.mcpSummary?.() || undefined,
-          subagent: this.depth > 0,
-          ...(this.options.admin?.system && this.depth === 0 ? { selfManage: true } : {}),
-          ...(policy ? { modeNote: describePolicy(policy) } : {}),
-        }),
+      for await (const event of provider.chat({
+        system: systemPrompt,
         messages: this.toModelMessages(model),
-        tools: toolDefinitions(this.session.config.mode, this.intent, toolSet),
+        tools: toolDefs,
         model,
+        cacheKey: this.session.id,
         ...(thinking !== undefined ? { thinking } : {}),
         signal: this.abort.signal,
       })) {
@@ -769,9 +837,10 @@ export class Engine {
     this.session.usage.modelCalls += 1
     // Every completed call is one ledger entry — successes and failures alike,
     // so retries are counted exactly once each and never silently dropped.
-    this.recordModelCall(usage)
+    this.recordModelCall(usage, undefined, { tier: decision.tier, phase: decision.phase })
     const turn = result ?? { content: assistantText, toolCalls: [] }
     const reasoning = (result as { reasoning?: unknown[] } | null)?.reasoning
+    this.lastReasoningModel = reasoning?.length ? model : undefined
     this.addMessage({
       role: 'assistant',
       content: turn.content,
@@ -809,8 +878,15 @@ export class Engine {
     // distinction a loop of failing calls looks like forward motion and never
     // trips the stall detector (observed: 247 turns, zero evidence).
     let anyToolSucceeded = false
+    let loopStop = ''
     // Images produced by tools this turn (browser screenshots): shown to the model once ALL results are in.
     const shots: string[] = []
+    const turnTools: string[] = []
+    let turnAllOk = true
+    // R4: read-only calls of one turn run side by side. Only calls that passed
+    // the SAME checks as below (allowed set, valid JSON, authorize) are started
+    // early; results are still appended in call order.
+    const prefetched = this.options.costSettings ? await this.prefetchReads(turn.toolCalls, extra, allowed, ctx) : new Map<string, Promise<ToolResult>>()
 
     for (const rawCall of turn.toolCalls) {
       const call = {
@@ -877,14 +953,14 @@ export class Engine {
         output = dedupe
       } else {
         try {
-          const result2 = await (tool.execute as (a: unknown, c: ToolContext) => Promise<{
+          const result2 = await (prefetched.get(call.id) ?? (tool.execute as (a: unknown, c: ToolContext) => Promise<{
             ok: boolean
             output: string
             pauseForUser?: string
             completeClaim?: { summary: string; verificationPlan: string; verifiedRequirements?: string[] }
             escalate?: { to: 'task' | 'goal'; objective: string }
             images?: string[]
-          }>)(parsed, ctx)
+          }>)(parsed, ctx))
           ok = result2.ok
           output = scrubAll(result2.output)
           if (result2.images?.length) shots.push(...result2.images)
@@ -896,7 +972,13 @@ export class Engine {
           output = `Tool crashed: ${(err as Error).message}`
         }
       }
-      if (ok && !dedupe && call.name === 'read_file') await this.rememberRead(parsed, call.id)
+      if (ok && !dedupe && call.name === 'read_file' && !output.includes(OUTLINE_MARK)) await this.rememberRead(parsed, call.id)
+      if (ok && !tool.readonly && !NON_MUTATING.has(call.name)) {
+        this.mutationEpoch += 1
+        invalidateRepoMap(this.session.config.cwd)
+      }
+      turnTools.push(call.name)
+      if (!ok) turnAllOk = false
 
       // Loop detection: identical tool call repeated consecutively
       const callSignature = `${call.name}:${call.arguments}`
@@ -906,6 +988,7 @@ export class Engine {
         this.lastToolSignature = callSignature
         this.identicalToolStreak = 1
       }
+      if (this.options.costSettings && this.identicalToolStreak >= LOOP_HARD_STOP && isWorkIntent(this.intent)) loopStop = call.name
       if (this.identicalToolStreak >= 3) {
         output += `\n[engine] Loop detected: "${call.name}" was called with identical arguments ${this.identicalToolStreak} times in a row. Stop repeating this action. Inspect the result or change strategy.`
       }
@@ -926,13 +1009,14 @@ export class Engine {
         }
       }
 
-      if (output.length > MAX_TOOL_OUTPUT_CHARS) {
-        output = output.slice(0, MAX_TOOL_OUTPUT_CHARS) + '\n…[output truncated]'
-      }
-      this.appendToolResult(call.id, call.name, ok, output)
+      const shaped = this.shapeOutput(call.id, call.name, output)
+      output = shaped.text
+      this.appendToolResult(call.id, call.name, ok, output, shaped.fullLength)
       this.emit({ type: 'tool_end', id: call.id, name: call.name, ok, output })
       if (ok) anyToolSucceeded = true
     }
+
+    this.lastTurnTools = { tools: turnTools, allOk: turnAllOk }
 
     // Tool-made images ride in one hidden engine message after the tool results (providers need the results first).
     if (shots.length) this.addMessage({ role: 'user', content: ['[ENGINE] Image(s) from your last tool call:', ...shots.slice(0, 4)].join(String.fromCharCode(10)) })
@@ -943,6 +1027,16 @@ export class Engine {
       this.escalate(escalation.to, escalation.objective)
       await this.save()
       return 'continue'
+    }
+
+    if (loopStop) {
+      // Every result is already in the transcript, so the conversation stays valid; the user decides what next.
+      this.savings().loopStops = (this.savings().loopStops ?? 0) + 1
+      const why = `The agent called "${loopStop}" with identical arguments ${this.identicalToolStreak} times in a row and is not making progress. Paused so no more of your limit is spent on the loop — tell it what to do differently, or stop.`
+      this.setState('waiting_user', why)
+      this.emit({ type: 'waiting', reason: why })
+      await this.save()
+      return 'stop'
     }
 
     if (anyToolSucceeded || completionClaim) {
@@ -963,6 +1057,7 @@ export class Engine {
         return 'stop'
       }
       this.failedClaims += 1
+      this.verificationFailedNext = true
       this.emit({ type: 'verification', ok: false, detail: verified.detail })
       this.addMessage({
         role: 'user',
@@ -1060,7 +1155,8 @@ export class Engine {
         const deps = Object.entries(ctx.deps).map(([id, r]) => `## Report of ${id}\n${r.slice(0, 3000)}`).join('\n\n')
         child.config.objective = [task.roleNote, `Team plan (you are ${task.id}):\n${ctx.peers}`, deps, `Your task: ${task.prompt}`].filter(Boolean).join('\n\n')
         child.config.budget = { maxTurns: task.kind === 'work' ? 25 : 12, maxDurationMs: 10 * 60_000, maxModelCalls: Math.min(60, ctx.callsLeft) }
-        const childModel = this.routeModel?.('subagent') || this.model || this.session.config.model
+        // The child routes itself (depth 1: research stays cheap, editing sub-agents follow the floor).
+        const childModel = this.model || this.session.config.model
         child.config.model = childModel
         let lastTool = ''
         let steps = 0
@@ -1071,7 +1167,6 @@ export class Engine {
           ephemeral: true,
           depth: this.depth + 1,
           forceIntent: task.kind === 'explore' ? 'question' : 'task',
-          routeModel: undefined,
           onEvent: (e) => {
             if (e.type === 'tool_start') {
               steps++
@@ -1134,8 +1229,204 @@ export class Engine {
     return true
   }
 
-  private appendToolResult(callId: string, name: string, ok: boolean, output: string): void {
-    this.addMessage({ role: 'tool', content: `[${ok ? 'OK' : 'FAIL'}] ${output}`, toolCallId: callId, toolName: name })
+  /* ---------- cost engine v2 (see docs/COST.md) ---------- */
+
+  private routerSettings(): RouterSettings {
+    return { ...(this.options.router?.() ?? DEFAULT_ROUTER), eco: this.ecoActive }
+  }
+
+  /** The model for one turn, with the reason the user can read. */
+  private routeTurn(sessionModel: string): RouteDecision {
+    const settings = this.routerSettings()
+    const failureStreak = Math.max(0, ...this.toolFailureStreak.values())
+    let d = decideRoute({
+      settings,
+      intent: this.intent,
+      depth: this.depth,
+      sessionModel,
+      legacyCheap: this.routeModel?.('chat') || undefined,
+      planMode: this.session.config.mode === 'plan',
+      objective: this.session.config.objective,
+      freshObjective: this.freshObjective,
+      lastTurn: this.lastTurnTools,
+      verificationFailed: this.verificationFailedNext,
+      failureStreak,
+      ...(this.previousTier ? { previousTier: this.previousTier } : {}),
+      recentDesired: this.recentDesired,
+      subagentKind: this.forceIntent === 'question' ? 'explore' : 'work',
+      contextTokens: this.liveContextTokens(),
+    })
+    // A tier on a provider we cannot reach falls back to the session model, and says so.
+    if (d.provider && !this.options.providerFor?.(d.provider)) {
+      d = { ...d, model: sessionModel, provider: undefined, reason: `${d.reason} · provider "${d.provider}" is not available — using the session model` } as RouteDecision
+    }
+    this.previousTier = d.tier
+    this.recentDesired = [...this.recentDesired, d.desired].slice(-4)
+    const stats = (this.session.routing ??= { calls: { strong: 0, standard: 0, cheap: 0 }, escalations: 0 })
+    stats.calls[d.tier] += 1
+    if (d.escalated) stats.escalations += 1
+    stats.last = { tier: d.tier, model: d.model, phase: d.phase, reason: d.reason }
+    this.emit({ type: 'route', tier: d.tier, model: d.model, phase: d.phase, reason: d.reason })
+    return d
+  }
+
+  /** Tokens the model would have to read fresh: what is not folded into a summary. */
+  private liveContextTokens(): number {
+    let n = this.session.summary ? estimateTokens(this.session.summary.text) : 0
+    for (const m of this.session.transcript) if (!m.summarized) n += estimateTokens(m.content)
+    return n
+  }
+
+  private providerForDecision(d: RouteDecision): Provider {
+    return (d.provider ? this.options.providerFor?.(d.provider) : undefined) ?? this.provider
+  }
+
+  /** Soft warnings and the opt-in eco mode, from the shared usage meter. */
+  private checkLimits(): void {
+    const meter = this.options.meter
+    const limits = this.options.limits?.()
+    if (!meter || !limits || limits.unit === 'none' || this.depth > 0) {
+      this.ecoActive = false
+      return
+    }
+    const st = meter.status(limits)
+    const wasEco = this.ecoActive
+    this.ecoActive = limits.autoEco && st.percent !== null && st.percent >= limits.ecoAt
+    const rank = st.level === 'critical' ? 3 : st.level === 'high' ? 2 : st.level === 'warn' ? 1 : 0
+    if ((rank > this.lastLimitLevel || (this.ecoActive && !wasEco)) && st.percent !== null && rank > 0) {
+      this.lastLimitLevel = Math.max(rank, this.lastLimitLevel)
+      const tail = this.ecoActive
+        ? ' Eco mode is on (you opted in): routine turns use a lighter tier, never below your quality floor.'
+        : limits.autoEco
+          ? ''
+          : ' You can turn on auto-eco in Settings to stretch what is left.'
+      this.emit({ type: 'usage_limit', percent: Math.round(st.percent), level: st.level === 'ok' || st.level === 'unknown' ? 'warn' : st.level, message: st.message + tail, eco: this.ecoActive })
+    }
+  }
+
+  /**
+   * Keep what a reader needs of a tool result, store the rest where the model
+   * can ask for it, and point at an identical earlier result instead of
+   * repeating it. Without cost settings (older callers) the v0.4.0 cut applies.
+   */
+  private shapeOutput(callId: string, name: string, output: string): { text: string; fullLength: number } {
+    const fullLength = Math.min(output.length, MAX_TOOL_OUTPUT_CHARS)
+    const cs = this.options.costSettings?.()
+    if (!cs || cs.compress === false || name === 'read_file') {
+      const text = output.length > MAX_TOOL_OUTPUT_CHARS ? output.slice(0, MAX_TOOL_OUTPUT_CHARS) + '\n…[output truncated]' : output
+      return { text, fullLength }
+    }
+    const cap = Math.floor(cs.toolOutputChars * (this.ecoActive ? 0.6 : 1))
+    const c = compressToolOutput(output, cap, callId)
+    let text = c.text
+    if (c.compressed) {
+      this.outputStore.put(callId, output)
+      this.savings().compressedChars = (this.savings().compressedChars ?? 0) + c.omittedChars
+    } else if (text.length >= 400 && name !== 'tool_output') {
+      const key = `${name}:${contentHash(text)}`
+      const prev = this.outputHashes.get(key)
+      const alive = prev ? this.session.transcript.find((m) => m.toolCallId === prev && !m.compacted && !m.summarized) : undefined
+      if (prev && alive) {
+        text = `[identical to the output of tool call ${prev.slice(0, 8)} earlier in this conversation — nothing changed]`
+        this.savings().dedupedOutputs = (this.savings().dedupedOutputs ?? 0) + 1
+      } else this.outputHashes.set(key, callId)
+    }
+    return { text, fullLength }
+  }
+
+  /** R4: start the independent read-only calls of one turn together. Same checks as the sequential path. */
+  private async prefetchReads(
+    calls: Array<{ id: string; name: string; arguments: string }>,
+    extra: Tool<never>[],
+    allowed: Set<string>,
+    ctx: ToolContext,
+  ): Promise<Map<string, Promise<ToolResult>>> {
+    const out = new Map<string, Promise<ToolResult>>()
+    const todo: Array<{ id: string; tool: Tool<never>; args: unknown }> = []
+    for (const c of calls) {
+      if (!c.id || !PARALLEL_SAFE.has(c.name)) continue
+      const tool = findTool(c.name, extra)
+      if (!tool || !tool.readonly) continue
+      if (!allowed.has(c.name) && !isWorkIntent(this.intent)) continue
+      let args: unknown
+      try {
+        args = JSON.parse(c.arguments || '{}')
+      } catch {
+        continue
+      }
+      if (!authorize(tool, args, ctx).allowed) continue
+      if (await this.tryDedupeRead(c.name, args, c.id)) continue
+      todo.push({ id: c.id, tool, args })
+    }
+    if (todo.length < 2) return out
+    for (const t of todo) {
+      out.set(
+        t.id,
+        (t.tool.execute as (a: unknown, c: ToolContext) => Promise<ToolResult>)(t.args, ctx).catch((err: unknown) => ({ ok: false, output: `Tool crashed: ${(err as Error).message}` })),
+      )
+    }
+    return out
+  }
+
+  /** R5: fold old turns into one cheap-model summary (only when a cheaper model exists). */
+  private async maybeSummarise(): Promise<void> {
+    const cs = this.options.costSettings?.()
+    if (!cs?.summarize || this.depth > 0 || this.ephemeral) return
+    const sessionModel = this.model ?? this.session.config.model ?? ''
+    const d = decideRoute({
+      settings: this.routerSettings(),
+      intent: this.intent,
+      depth: 0,
+      sessionModel,
+      legacyCheap: this.routeModel?.('chat') || undefined,
+      planMode: false,
+      objective: '',
+      freshObjective: false,
+      lastTurn: null,
+      verificationFailed: false,
+      failureStreak: 0,
+      purpose: 'summary',
+    })
+    const provider = d.provider ? this.options.providerFor?.(d.provider) : this.provider
+    if (!provider || (d.model === sessionModel && !d.provider)) return // no cheaper model: compaction does the job
+    const budget = contextStatus(this.session, this.contextSettings?.() ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens }).requestBudgetTokens
+    const msgs = this.session.transcript
+    const plan = planSummary(msgs, { keepRecent: 10, minTokens: Math.min(Math.max(12_000, Math.floor(budget * 0.15)), 30_000) })
+    if (!plan) return
+    const previous = this.session.summary?.text
+    let text = ''
+    let usage: NormalizedUsage | undefined
+    this.abort = new AbortController()
+    try {
+      for await (const ev of provider.chat({
+        system: SUMMARY_SYSTEM,
+        messages: [{ role: 'user', content: renderForSummary(msgs, plan, previous) }],
+        tools: [],
+        model: d.model,
+        maxTokens: 900,
+        signal: this.abort.signal,
+      })) {
+        if (ev.type === 'text') text += ev.delta
+        else if (ev.type === 'done') usage = ev.usage
+        else if (ev.type === 'error') return // keep compaction as the fallback
+      }
+    } catch {
+      return
+    }
+    this.session.usage.modelCalls += 1
+    this.lastModelUsed = d.model
+    this.currentProvider = provider
+    this.recordModelCall(usage, 'summary of older turns', { tier: d.tier, phase: 'summarise', overhead: true })
+    const summary = scrubAll(text).trim()
+    if (!summary) return
+    for (let i = plan.from; i < plan.to; i++) msgs[i]!.summarized = true
+    this.session.summary = { text: summary.slice(0, 4_000), upTo: plan.to, at: new Date().toISOString(), foldedMessages: plan.to - plan.from, foldedTokens: plan.tokens }
+    this.savings().summarizedTokens = (this.savings().summarizedTokens ?? 0) + Math.max(0, plan.tokens - estimateTokens(summary))
+    this.emit({ type: 'route', tier: d.tier, model: d.model, phase: 'summarise', reason: d.reason })
+  }
+
+  private appendToolResult(callId: string, name: string, ok: boolean, output: string, fullLength?: number): void {
+    this.addMessage({ role: 'tool', content: `[${ok ? 'OK' : 'FAIL'}] ${output}`, toolCallId: callId, toolName: name, ...(fullLength !== undefined ? { fullLength: fullLength + 5 } : {}) })
   }
 
   /**
@@ -1201,14 +1492,18 @@ export class Engine {
 
     const verifyCommand = this.session.config.verifyCommand
     if (verifyCommand) {
-      const run2 = await runVerificationCommand(verifyCommand, ctx.cwd, this.env)
+      // Nothing that can change files succeeded since the last run of this very command: its result still holds.
+      const reuse = this.options.costSettings && this.lastVerify && this.lastVerify.epoch === this.mutationEpoch && this.lastVerify.command === verifyCommand
+      const run2 = reuse ? this.lastVerify!.run : await runVerificationCommand(verifyCommand, ctx.cwd, this.env)
+      if (reuse) this.savings().skippedVerifications = (this.savings().skippedVerifications ?? 0) + 1
+      else this.lastVerify = { epoch: this.mutationEpoch, command: verifyCommand, run: { exitCode: run2.exitCode, output: run2.output } }
       this.recordEvidence({
         at: new Date().toISOString(),
         kind: 'command',
         command: verifyCommand,
         exitCode: run2.exitCode ?? -1,
         ok: run2.exitCode === 0,
-        output: run2.output.slice(-6000),
+        output: (reuse ? '(unchanged since the previous run — result reused, command not re-run) ' : '') + run2.output.slice(-6000),
       })
       if (run2.exitCode !== 0) {
         ok = false
@@ -1254,10 +1549,10 @@ export class Engine {
    * computed only from the model registry's explicit pricing; otherwise it is
    * null with a note explaining why.
    */
-  private recordModelCall(usage: NormalizedUsage | undefined, note?: string): void {
+  private recordModelCall(usage: NormalizedUsage | undefined, note?: string, meta?: { tier?: Tier; phase?: string; overhead?: boolean }): void {
     const normalized = usage ?? emptyUsage('provider')
     const model = this.lastModelUsed || (this.model ?? this.session.config.model ?? 'unknown')
-    const cost = computeCost(normalized, null, model, this.provider.id)
+    const cost = computeCost(normalized, null, model, this.currentProvider.id)
     const notes = [note, cost.reason].filter((n): n is string => Boolean(n))
     this.session.modelCalls ??= []
     // Defense in depth: cost notes can carry provider error text — scrub them
@@ -1265,7 +1560,7 @@ export class Engine {
     const record: ModelCallRecord = {
       at: new Date().toISOString(),
       model,
-      providerId: this.provider.id,
+      providerId: this.currentProvider.id,
       turn: this.session.usage.turns + 1,
       inputTokens: normalized.inputTokens,
       outputTokens: normalized.outputTokens,
@@ -1275,8 +1570,22 @@ export class Engine {
       costUsd: cost.totalUsd,
       costPartial: cost.partial,
       costNote: notes.length ? scrubAll(notes.join(' — ')).slice(0, 500) : undefined,
+      ...(meta?.tier ? { tier: meta.tier } : {}),
+      ...(meta?.phase ? { phase: meta.phase } : {}),
     }
+    // The savings baseline: what a plain loop would have sent for the same conversation.
+    const baseIn = meta?.overhead ? 0 : naiveInputTokens(this.session, this.lastOverheadChars)
+    record.baselineInputTokens = baseIn
     this.session.modelCalls.push(record)
+    if (this.options.meter) {
+      const baseModel = this.model ?? this.session.config.model ?? model
+      const rec = recordFromCall(this.session.id, record, baseModel, baseIn)
+      if (meta?.overhead) {
+        rec.baseUsd = 0
+        rec.ovh = true
+      }
+      this.options.meter.add(rec)
+    }
     this.applyUsageTotals(aggregateModelCalls(this.session.modelCalls))
     this.emit({ type: 'model_usage', record })
   }

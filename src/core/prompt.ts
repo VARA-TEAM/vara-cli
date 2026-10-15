@@ -150,6 +150,8 @@ ${opts.skills}
 - **Always inspect before modifying** - read_file, list_dir, grep to understand first
 - **Verify after every change** - run tests, build, or manual verification
 - **One logical action per turn** - don't chain 10 tool calls; work incrementally
+- **Batch independent reads** - when you need several files or searches that do not depend on each other, request them together in ONE turn (they run side by side); every extra turn re-sends the whole conversation
+- **Find before you read** - use repo_map (ranked outline) and read_symbol (one function) or read_file with offset/limit instead of reading whole files; if a result says it was compressed, ask tool_output for the part you need instead of re-running the command
 
 ## 3. GOAL MODE BEHAVIOR (Only if kind=goal)
 - You run in an **infinite loop** until explicitly stopped

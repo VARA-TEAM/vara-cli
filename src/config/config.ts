@@ -113,6 +113,31 @@ export const McpServerSchema = z.object({
 })
 export type McpServerConfigEntry = z.infer<typeof McpServerSchema>
 
+const TierTargetSchema = z.union([z.string().min(1).max(200), z.object({ model: z.string().min(1).max(200), provider: z.string().min(1).max(32).optional() })])
+
+/** The model router (core/router.ts): per-turn choice of strong / standard / cheap. */
+export const RoutingSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** A model (or { provider, model } on another configured provider) per tier. Unset: strong and standard = the session model; cheap = agent.cheapModel. */
+  tiers: z.object({ strong: TierTargetSchema.optional(), standard: TierTargetSchema.optional(), cheap: TierTargetSchema.optional() }).default({}),
+  /** The lowest tier work turns may use. Default standard: cheap models never touch work unless you lower this. */
+  floor: z.enum(['cheap', 'standard', 'strong']).default('standard'),
+  escalateOnFailure: z.boolean().default(true),
+})
+
+/** Your limit: what the meter counts against (core/usage-meter.ts). */
+export const LimitsSchema = z.object({
+  unit: z.enum(['none', 'tokens', 'usd', 'percent']).default('none'),
+  amount: z.number().min(0).default(0),
+  window: z.object({ kind: z.enum(['rolling', 'day', 'week', 'month']).default('rolling'), hours: z.number().min(0.25).max(24 * 31).default(5) }).default({}),
+  warnAt: z.array(z.number().min(1).max(100)).length(3).default([70, 85, 95]),
+  /** Opt-in: near ecoAt percent, routing tightens (one tier lower on mechanical turns, never below your floor). */
+  autoEco: z.boolean().default(false),
+  ecoAt: z.number().min(1).max(100).default(85),
+  cachedWeight: z.number().min(0).max(1).default(0.1),
+  readings: z.array(z.object({ at: z.string(), percent: z.number().min(0).max(100) })).max(200).default([]),
+})
+
 export const AgentSchema = z.object({
   /** Cheaper model for chat, questions and sub-agents ("provider's own id"). Empty = use the session model. */
   cheapModel: z.string().default(''),
@@ -146,6 +171,12 @@ const ConfigSchema = z.object({
       windowTokens: z.number().int().positive().optional(),
       /** Reserve for the model's answer. */
       maxOutputTokens: z.number().int().positive().default(4096),
+      /** Fold old turns into a cheap-model summary once they are large (needs a cheap model; see docs/COST.md). */
+      summarize: z.boolean().default(true),
+      /** Characters of one command's output kept in the conversation; the rest stays retrievable with tool_output. */
+      toolOutputChars: z.number().int().min(1000).max(12000).default(6000),
+      /** Long files read without a range come back as an outline + first lines. */
+      smartRead: z.boolean().default(true),
     })
     .default({ maxOutputTokens: 4096 }),
   budgets: z
@@ -163,6 +194,10 @@ const ConfigSchema = z.object({
   ui: UiSchema.default({}),
   /** How the agent decides what to do. */
   agent: AgentSchema.default({}),
+  /** Which model handles which turn (strong / standard / cheap) and the quality floor. */
+  routing: RoutingSchema.default({}),
+  /** The limit you want VARA to watch and stretch. */
+  limits: LimitsSchema.default({}),
   /** MCP servers (Model Context Protocol): extra tools from local or remote servers. */
   mcp: z.object({ servers: z.record(McpServerSchema).default({}) }).default({}),
   /** Limits for `delegate` swarms. They can only lower the built-in ceilings (4 tasks, 3 parallel). */

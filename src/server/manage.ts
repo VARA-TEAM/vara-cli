@@ -30,6 +30,8 @@ import { discoverAllSkills, scaffoldSkill, validSkillName } from '../core/skills
 import { validModeName, type ModeDef } from '../core/modes.js'
 import { THINK_ORDER, type ThinkLevel } from '../llm/capabilities.js'
 import { scrubAll } from '../security/redact.js'
+import { applyCostPatch, costBoard } from './cost-api.js'
+import { sharedMeter } from '../core/usage-meter.js'
 
 export type MResult<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409 | 502; error: string }
 const bad = (error: string, status: 400 | 404 | 409 | 502 = 400): { ok: false; status: 400 | 404 | 409 | 502; error: string } => ({ ok: false, status, error })
@@ -554,6 +556,13 @@ export class Manager {
     if (a === 'settings') {
       if (method === 'GET') return good(this.settings())
       if (method === 'PATCH') return this.patchSettings(body)
+    }
+    if (a === 'cost') {
+      if (!b && method === 'GET') return good(costBoard(this.d.config(), sharedMeter()))
+      if (!b && method === 'PATCH') {
+        const r = await this.guard(() => this.update((c) => applyCostPatch(c, body)))
+        return r.ok ? good(costBoard(this.d.config(), sharedMeter())) : r
+      }
     }
     if (a === 'skills') {
       if (!b && method === 'GET') return good(await this.skills())

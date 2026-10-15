@@ -184,6 +184,20 @@ Interfaces show `unknown` honestly (with a `+` when part of the cost is unpriced
 | **Model routing** | `agent.cheapModel` for chat, questions and sub-agents. |
 | **Sub-agents** | A small clean context instead of inflating the main conversation. |
 
+**Cost engine v2** (full detail, research and measured numbers: [COST.md](COST.md)) adds, all in new files except a few small hooks in `engine.ts`:
+
+| Mechanism | File | Effect |
+| --- | --- | --- |
+| **Model router** (strong / standard / cheap, quality floor, escalation, hysteresis, eco, visible reason) | `core/router.ts`, `core/cost-wiring.ts` | the engine asks `decideRoute()` every turn and emits a `route` event; tiers may live on another configured provider (`EngineOptions.providerFor`) |
+| **Output compression** + `tool_output` + identical-output pointers | `core/outputs.ts`, `tools/repo-tools.ts` | long command output keeps head, tail and error lines; the full text is stored per session and one tool call away |
+| **Repo map**, `read_symbol`, outline for long files | `core/repomap.ts`, `tools/repo-tools.ts`, `tools/fs-tools.ts` | find code without reading files |
+| **Summaries** of old turns (R5) | `core/summarize.ts` | one cheap-model call; messages are marked `summarized`, never deleted |
+| **Four Anthropic breakpoints**, `prompt_cache_key` | `llm/cache.ts`, `llm/openai.ts` | cache survives unusual turns |
+| **Waste control**: loop stop, skipped re-verification, parallel read-only tools (R4) | `engine.ts` | active when `EngineOptions.costSettings` is present |
+| **Usage meter**: limit, pace, plan-percentage calibration, savings report, eco | `core/usage-meter.ts`, `core/cost-report.ts`, `server/cost-api.ts` | ledger `~/.vara/usage.jsonl`; `/limit`, `/savings`, `/route`; web `CostMeter`/`CostBoard` |
+
+Every mechanism that changes what the model sees (compression, summaries, outline, loop stop, parallel reads, verification reuse) is off unless `EngineOptions.costSettings` is present, and the router with no tiers configured reproduces v0.4.0's model choice; `makeSessionRunner` passes everything through `costExtras()`. Always on: compaction keeps error lines, the four Anthropic breakpoints, two guidance lines in the work prompt, and the `route` event.
+
 Counters live in `session.savings`, shown by `/cost`, the terminal side panel and the web *Cost* tab (which also estimates dollar savings from cache and compaction when pricing is known). Sub-agent cost is added to the parent's ledger so the numbers stay honest.
 
 ## 7.3 Sub-agents and the swarm (`delegate`)

@@ -58,6 +58,8 @@ export interface TranscriptMessage {
   reasoning?: unknown[]
   /** True once a tool result was shrunk by compaction (the full output stays in the audit log). */
   compacted?: boolean
+  /** True once the message was folded into the session summary (the model no longer sees it; the history keeps it). */
+  summarized?: boolean
 }
 
 export interface FollowUp {
@@ -121,6 +123,12 @@ export interface ModelCallRecord {
   costPartial: boolean
   /** Why the cost is unknown/partial, when applicable. */
   costNote?: string
+  /** Router tier used for this call (strong / standard / cheap). Absent on old records. */
+  tier?: 'strong' | 'standard' | 'cheap'
+  /** Router phase (plan, edit, search, recover, verify, chat, summarise…). */
+  phase?: string
+  /** Estimated input tokens of the same request in a plain agent loop (no cache, no trimming): the savings baseline. */
+  baselineInputTokens?: number
 }
 
 /** Independent, machine-recorded proof of work. The model never writes these. */
@@ -203,6 +211,10 @@ export interface Session {
   intent?: SessionIntent
   /** What the cost engine avoided — shown by /cost. */
   savings?: Savings
+  /** Router counters (see core/router.ts). */
+  routing?: RoutingStats
+  /** The folded history of older turns (see core/summarize.ts). */
+  summary?: { text: string; upTo: number; at: string; foldedMessages: number; foldedTokens: number }
   /** Who runs this session when it is not the host owner (shared sessions). */
   participant?: { id: string; name: string }
   /** The owner opened this session to guests with watch / send permission. */
@@ -222,6 +234,13 @@ export interface ApprovalRequest {
   at: string
 }
 
+/** What the router did in this session. */
+export interface RoutingStats {
+  calls: { strong: number; standard: number; cheap: number }
+  escalations: number
+  last?: { tier: 'strong' | 'standard' | 'cheap'; model: string; phase: string; reason: string }
+}
+
 /** Counters for work the cost engine did NOT send to the model. */
 export interface Savings {
   /** Tool-output characters removed by compaction. */
@@ -232,6 +251,16 @@ export interface Savings {
   cheapCalls: number
   /** Sub-agent runs. */
   subagents: number
+  /** Tool-output characters kept out of the conversation by relevance compression (full text stays retrievable). */
+  compressedChars?: number
+  /** Tool results replaced by a pointer because they were identical to an earlier one. */
+  dedupedOutputs?: number
+  /** Re-verifications skipped because nothing had changed. */
+  skippedVerifications?: number
+  /** Old turns folded into a summary (tokens removed from every later request, estimated). */
+  summarizedTokens?: number
+  /** Runs stopped early by the runaway-loop guard. */
+  loopStops?: number
 }
 
 /** Emitted by the engine so any frontend (TUI today, GUI later) can render. */
@@ -284,5 +313,7 @@ export type EngineEvent =
   | { type: 'waiting'; reason: string }
   | { type: 'budget_exhausted'; reason: string }
   | { type: 'budget_warning'; percent: number; message: string }
+  | { type: 'route'; tier: 'strong' | 'standard' | 'cheap'; model: string; phase: string; reason: string }
+  | { type: 'usage_limit'; percent: number; level: 'warn' | 'high' | 'critical'; message: string; eco: boolean }
   | { type: 'approval_request'; request: ApprovalRequest }
   | { type: 'approval_resolved'; id: string; approved: boolean }

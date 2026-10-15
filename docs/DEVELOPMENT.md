@@ -140,6 +140,10 @@ Isolated tests alone are enough for the gate — **never run a real test against
 - **vitest module isolation:** a static import and a dynamic `await import(...)` can land on **two separate module instances** in one file. If you test `registerSecret` from the file while the engine imports `scrubAll`, the engine may not see your registration. Import dynamically everything that depends on shared state, or test what `scrubAll` catches by pattern (`sk-…`). See `tests/engine.test.ts` and `tests/runtime-refs.test.ts`.
 - **Server tests** start a real `startServer` on port 0 with an echo provider and a temporary access store (`tests/server.test.ts`, `tests/manage.test.ts`); the `Manager` takes injected dependencies, so no test touches the network or the vault.
 
+### The cost benchmark
+
+`npx tsx scripts/cost-bench.ts` runs scripted scenarios through the real engine with a measuring fake provider (`tests/bench/scenarios.ts`) and prints the tables in `docs/COST.md` §7. `tests/cost-bench.test.ts` keeps their direction as regression tests (`VARA_BENCH_LONG=1` adds the 90-call session). When you change anything that affects what the model is sent (prompt text, tool output shaping, compaction, routing), re-run it and update the numbers in `docs/COST.md` and `docs/ar/COST.md` — a claim in the docs must be a number the script printed. The provider cache in the benchmark is simulated; do not present its numbers as live measurements.
+
 ### Defence-line files — never weaken
 
 | File | What it guards |

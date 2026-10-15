@@ -721,7 +721,8 @@ export class VaraHost {
           outputTokens: u.outputTokens,
           cacheHitPercent: cached !== null && total > 0 ? Math.round(((cached ?? 0) / total) * 100) : null,
         },
-        savings: { cacheUsd, compactedTokens: compactTokens, compactUsd, dedupedReads: sv.dedupedReads, cheapCalls: sv.cheapCalls, subagents: sv.subagents },
+        savings: { cacheUsd, compactedTokens: compactTokens, compactUsd, dedupedReads: sv.dedupedReads, cheapCalls: sv.cheapCalls, subagents: sv.subagents, compressedTokens: Math.round((sv.compressedChars ?? 0) / 4), dedupedOutputs: sv.dedupedOutputs ?? 0, summarizedTokens: sv.summarizedTokens ?? 0, skippedVerifications: sv.skippedVerifications ?? 0, loopStops: sv.loopStops ?? 0 },
+        routing: s.routing ?? null,
         context: {
           windowTokens: ctx.windowTokens,
           source: ctx.source,

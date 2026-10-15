@@ -10,6 +10,7 @@ import { mcpManageTool, skillToggleTool, skillWriteTool, switchModeTool, SELF_TO
 import { connectorManageTool, modeManageTool, settingChangeTool, skillDeleteTool, varaSystemTool, SYSTEM_READ_TOOL_NAME, SYSTEM_WRITE_TOOL_NAMES } from './system-tools.js'
 import { checkCommandAllowed } from './permissions.js'
 import { todoTool } from './todo-tool.js'
+import { readSymbolTool, repoMapTool, toolOutputTool } from './repo-tools.js'
 import { scrubAll } from '../security/redact.js'
 import { filterByPolicy, type ModePolicy } from '../core/modes.js'
 
@@ -18,6 +19,9 @@ const ALL_TOOLS: Tool<never>[] = [
   listDirTool,
   globTool,
   grepTool,
+  repoMapTool,
+  readSymbolTool,
+  toolOutputTool,
   writeFileTool,
   editFileTool,
   deleteFileTool,
@@ -56,6 +60,9 @@ const PLAN_ALLOWED = new Set([
   'list_dir',
   'glob',
   'grep',
+  'repo_map',
+  'read_symbol',
+  'tool_output',
   'git_status',
   'git_diff',
   'git_log',

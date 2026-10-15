@@ -34,11 +34,11 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 - **Idea:** a goal re-evaluated periodically ("review this branch every morning") instead of a session that runs once.
 - **Constraint:** the biggest architectural item — discuss the design with the team first (the shape of renewal, budget limits, what prevents repetition).
 
-### R4 · Run read tools in parallel within one turn
+### ~~R4 · Run read tools in parallel within one turn~~ — done (R11: `prefetchReads` in `engine.ts`, active with `costSettings`)
 - **Idea:** several `read_file`/`grep`/`glob` calls in one turn run together (writing tools stay sequential).
 - **Effect:** speed, not cost saving. Sub-agents cover the big need today.
 
-### R5 · Summarise the conversation with a cheap model
+### ~~R5 · Summarise the conversation with a cheap model~~ — done (R11: `core/summarize.ts`; needs a cheaper model, otherwise compaction stays)
 - **Idea:** near the window limit, summarise the old part instead of trimming/compacting it. Today's compaction (`compactIfNeeded`) uses no model and costs nothing; this would add quality for one extra cheap call.
 
 ### R6 · Provider per session
@@ -74,7 +74,8 @@ Proof: tests are written first; `npm run check` green before every push.
 - **Connectors that need OAuth** (Linear, Google Drive/Gmail/Calendar, Slack remote…) — needs an OAuth/device-flow in the MCP client; until then they are not listed.
 - **Prompt-injection residual risk in the browser** — origin/approval/secret controls limit the damage but no model-side defence is perfect; an engine-level "taint" (writes after reading untrusted pages need approval) is the next step.
 - **Agent evals** — an offline harness of scripted scenarios (refuses false completion, recovers after a failing tool, does not write in plan mode) beyond the unit tests that exist.
-- **R4 (parallel read tools), R5 (cheap-model summaries), R6 (provider per session)** remain open above.
+- **R6 (provider per session)** remains open above. R4 and R5 are done (R11).
+- **Cost engine v2 still open** (see `docs/COST.md` §8): quality is not measured offline — a live evaluation on real tasks comparing compressed/outlined/summarised context with the plain one; cross-provider tiers have never run against two live providers; the registry lacks current model prices (only confirmed ones are stored); the repo map uses regex extractors (a tree-sitter option would be more exact); Cline/Cursor were not researched.
 
 ### R12 · System-aware agent, visible sub-agents, run anywhere — design note for the protected file (`engine.ts`)
 
@@ -114,16 +115,16 @@ A new feature before what exists is stable. If you see a real need, raise an **i
 
 ---
 
-## 6. R11 · Cost engine v2 — design note for the protected file (`engine.ts`)
+## 6. R11 · Cost engine v2 — DONE; design note for the protected file (`engine.ts`), kept as the record
 
 Goal: the same work in far fewer limit-units, with no change in what the user types and no lowering of quality. Written **before** touching `engine.ts` (the rule). `permissions.ts` and `vault.ts` are **not** touched; no defence-line test is edited.
 
-**What changes in `src/core/engine.ts` (all additive, each behind an option that is absent by default, so behaviour without the new options is byte-identical to v0.4.0):**
+**What changes in `src/core/engine.ts` (all additive; everything that changes what the model sees is behind `EngineOptions.costSettings`, absent by default, and the router with no tiers configured reproduces v0.4.0's model choice; always on: compaction keeps error lines, four cache breakpoints, two prompt guidance lines, the `route` event):**
 - `EngineOptions.router` (a getter): the per-turn model choice moves out of the engine into the pure `src/core/router.ts`. The engine only calls `decideRoute()` and emits a `route` event with the visible reason. A user-set quality floor is enforced inside `decideRoute()`, never in prompts.
 - `EngineOptions.meter`: every model call is also appended to the usage meter (`src/core/usage-meter.ts`) together with an estimate of what the same call would have cost with no technique ("naive baseline"). The engine reads `meter.status()` for soft warnings and the opt-in eco mode.
 - Tool-output handling: one call to `compressToolOutput()` (new file) replaces the blind 12 000-character cut; the full output is stored on disk and the model can ask for more with the new read-only `tool_output` tool. Identical repeated outputs are replaced by a pointer.
 - Summaries of old turns (ROADMAP R5) through `src/core/summarize.ts`: old messages are *marked* (`summarized`), never deleted from the transcript, so the interfaces keep the full history; the summary message is created once, in one batch, so the cached prefix stays stable.
-- Runaway loops: a hard stop after 5 identical calls in a row (the 3rd already warns).
+- Runaway loops: a hard stop after 5 identical calls in a row (the 3rd already warns) — only when `costSettings` is present.
 - Re-verification is skipped only when no mutating tool succeeded since the last verification (shell counts as mutating).
 - Read-only tools of one turn run in parallel (R4); results are appended in call order.
 

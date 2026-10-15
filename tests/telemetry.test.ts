@@ -270,6 +270,8 @@ describe('telemetry hygiene', () => {
       'at', 'model', 'providerId', 'turn', 'inputTokens', 'outputTokens',
       'cachedInputTokens', 'cacheWriteTokens', 'usageSource', 'costUsd',
       'costPartial', 'costNote',
+      // cost engine v2: router tier/phase and the savings baseline (plain numbers and enum words)
+      'tier', 'phase', 'baselineInputTokens',
     ])
     for (const record of session.modelCalls!) {
       for (const key of Object.keys(record)) expect(allowed.has(key)).toBe(true)

@@ -17,6 +17,7 @@ import { namesOnly, type HostStatus } from './systeminfo.js'
 import { keySource } from '../runtime.js'
 import { listSecrets } from '../security/vault.js'
 import { VERSION } from '../version.js'
+import { costExtras } from './cost-wiring.js'
 
 /**
  * The ONE place that wires a session to everything it needs: provider, live
@@ -50,6 +51,7 @@ export function makeSessionRunner(opts: {
       loadSkills: () => discoverSkills(s.config.cwd, [...config().skills.disabled, ...(s.config.disabledSkills ?? [])]),
       budgetFor: (k) => budgetFor(k, config()),
       routeModel: () => config().agent.cheapModel || undefined,
+      ...costExtras(config),
       thinkingLevel: (m) => thinkingFor(config(), m).level,
       modePolicy: () => policyFor(config().modes, s.config.customMode),
       swarm: () => config().swarm,

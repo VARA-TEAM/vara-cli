@@ -2,8 +2,12 @@ import { z } from 'zod'
 import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep, extname } from 'node:path'
 import type { Tool, ToolResult } from './types.js'
+import { outlineOf } from '../core/repomap.js'
 
 const MAX_READ_BYTES = 200_000
+/** A file longer than this, read without a range, comes back as an outline + its first lines (the model asks for slices). */
+export const OUTLINE_OVER_LINES = 1_000
+export const OUTLINE_MARK = '[outline mode:'
 
 /** Resolves a path and refuses anything outside the session working directory. */
 function resolveInside(cwd: string, p: string): { path: string } | { error: string } {
@@ -37,6 +41,22 @@ export const readFileTool: Tool<{ path: string; offset?: number; limit?: number 
       }
       const content = await readFile(target.path, 'utf8')
       const lines = content.split(/\r?\n/)
+      if (!args.offset && !args.limit && lines.length > OUTLINE_OVER_LINES && ctx.smartRead !== false) {
+        const outline = outlineOf(args.path, content)
+        if (outline) {
+          const first = lines
+            .slice(0, 60)
+            .map((l, i) => `${String(i + 1).padStart(6)}\t${l}`)
+            .join('\n')
+          return {
+            ok: true,
+            output:
+              `[File: ${args.path} — ${lines.length} lines total] ${OUTLINE_MARK} the file is long, so you got its structure and first 60 lines. ` +
+              `Read a part with offset/limit, or one symbol with read_symbol. Pass limit=2000 to force the whole file.]\n` +
+              `Outline (start-end signature):\n${outline}\n\nFirst 60 lines:\n${first}`,
+          }
+        }
+      }
       const start = (args.offset ?? 1) - 1
       const end = args.limit ? start + args.limit : lines.length
       const slice = lines.slice(start, end)

@@ -3,6 +3,7 @@ import { readSSE } from './sse.js'
 import { anthropicThinking } from './capabilities.js'
 import { normalizeUsage, emptyUsage } from './usage.js'
 import { isRetryable, retryDelay, parseRetryAfter, sleep } from './retry.js'
+import { placeMessageBreakpoints } from './cache.js'
 
 const MAX_RETRIES = 3
 const BASE_DELAY_MS = 1000
@@ -146,13 +147,8 @@ export function anthropicProvider(config: ProviderConfig): Provider {
       // cost ~10% of the normal input price.
       const cache = { type: 'ephemeral' as const }
       if (tools.length) (tools[tools.length - 1] as Record<string, unknown>)['cache_control'] = cache
-      const lastMsg = anthropicMessages[anthropicMessages.length - 1]
-      if (lastMsg) {
-        if (typeof lastMsg.content === 'string') lastMsg.content = [{ type: 'text', text: lastMsg.content, cache_control: cache }]
-        else if (Array.isArray(lastMsg.content) && lastMsg.content.length) {
-          ;(lastMsg.content[lastMsg.content.length - 1] as Record<string, unknown>)['cache_control'] = cache
-        }
-      }
+      // Two message breakpoints (last + previous user message): see llm/cache.ts.
+      placeMessageBreakpoints(anthropicMessages)
       const maxTokens = req.maxTokens ?? config.maxTokens ?? 8192
       const body: Record<string, unknown> = {
         model: req.model || config.model,

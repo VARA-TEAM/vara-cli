@@ -48,6 +48,7 @@ import { listSecrets } from '../security/vault.js'
 import { resolveKey, type Overlay } from './keymap.js'
 import { agentLine, agentsText, applyAgentEvent, isBusy, swarmSummaryLine, type SwarmView } from './agents.js'
 import { AgentsScreen } from './agents-view.js'
+import { costCommand, sessionEngineLines } from '../core/cost-report.js'
 
 interface Props {
   /** null → welcome flow: the first message becomes a new session's objective. */
@@ -333,6 +334,13 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           break
         case 'budget_warning':
           push({ kind: 'note', text: event.message, color: 'yellow' })
+          break
+        case 'usage_limit':
+          push({ kind: 'note', text: event.message, color: event.level === 'warn' ? 'yellow' : 'red', group: 'limit' })
+          break
+        case 'route':
+          // Every decision is in the audit log; the screen shows the ones worth reading: a tier change or an escalation.
+          if (event.reason.includes('escalat') || event.reason.includes('eco')) push({ kind: 'note', text: `model: ${event.reason}`, color: 'gray', group: 'route' })
           break
         case 'budget_exhausted':
           push({ kind: 'note', text: event.reason, color: 'yellow' })
@@ -1045,7 +1053,15 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           push({ kind: 'note', text: 'no session yet', color: 'gray' })
           return
         }
-        push({ kind: 'note', text: costReport(cur), color: 'gray' })
+        push({ kind: 'note', text: [costReport(cur), ...sessionEngineLines(cur)].join('\n'), color: 'gray' })
+        return
+      }
+      case 'limit':
+      case 'savings':
+      case 'route': {
+        const out = costCommand(cmd, rest, configRef.current, cur ?? undefined)
+        if (out.config) void useConfigRef.current(out.config)
+        push({ kind: 'note', text: out.text, color: out.error ? 'red' : 'gray' })
         return
       }
       case 'models':

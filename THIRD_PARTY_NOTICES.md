@@ -45,6 +45,18 @@ No file from an outside project is copied into VARA **as is**. What is taken is 
 
 ---
 
+## Aider
+
+| Field | Value |
+| --- | --- |
+| Project | [Aider](https://github.com/Aider-AI/aider) |
+| Licence | Apache-2.0 |
+| What was taken | **The idea only** of a *repository map*: a ranked outline of a codebase's symbols that fits a token budget, so the model finds code without reading whole files (see [aider.chat/docs/repomap.html](https://aider.chat/docs/repomap.html)). No Aider code, query files or prompts were copied. |
+| In VARA | `src/core/repomap.ts`, `src/tools/repo-tools.ts` — a small per-language regular-expression extractor and a ranking by how many other files mention each symbol, written from scratch. No tree-sitter and no graph library. |
+| Changes | Not a graph ranking and not a parser: the index can miss unusual syntax and says it is an index. Exposed as two tools (`repo_map`, `read_symbol`) rather than injected into every prompt. |
+
+---
+
 ## Licence commitment (MIT)
 
 Because what was taken is ideas and design rather than "substantial portions of the source code", the MIT licence does not oblige VARA to redistribute their source. Even so, this file records the source of the idea, its version and licence out of good faith toward the original project, and keeps opencode's copyright notice on record should any material part be brought in later.

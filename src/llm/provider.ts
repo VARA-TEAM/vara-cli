@@ -23,6 +23,8 @@ export interface ProviderRequest {
   /** Reasoning effort for models that support it; undefined = provider default. */
   thinking?: 'off' | 'low' | 'medium' | 'high'
   signal?: AbortSignal
+  /** Stable per-session key: lets OpenAI route the session's requests to the same prompt cache. Ignored elsewhere. */
+  cacheKey?: string
 }
 
 export interface AssistantTurn {
