@@ -449,6 +449,7 @@ const en = {
   cn_cat_data: 'data',
   cn_cat_web: 'web',
   cn_cat_files: 'files',
+  plan_title: 'Plan',
 } as const
 
 export type Key = keyof typeof en
@@ -895,6 +896,7 @@ const ar: Record<Key, string> = {
   cn_cat_data: 'بيانات',
   cn_cat_web: 'ويب',
   cn_cat_files: 'ملفات',
+  plan_title: 'الخطة',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

@@ -220,3 +220,4 @@ input[aria-invalid="true"] { border-color: var(--err); }
 .folder-list button { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 6px 8px; border-radius: 6px; text-align: start; }
 .folder-list button:hover { background: var(--surface-2); }
 .folder-list .up { transform: rotate(180deg); }
+.reqs .doing .req-mark { border-color: var(--accent); }

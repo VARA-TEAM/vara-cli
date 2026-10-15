@@ -32,6 +32,20 @@ function Proof({ view, insights }: { view: SessionView; insights: Insights | nul
   const b = insights?.budget
   return (
     <>
+      {view.plan?.length ? (
+        <section>
+          <h3>{t('plan_title')}</h3>
+          <ul className="reqs">
+            {view.plan.map((p, i) => (
+              <li key={i} className={p.status === 'done' ? 'done' : p.status === 'in_progress' ? 'doing' : ''}>
+                <span className="req-mark">{p.status === 'done' ? <Icon name="check" size={13} /> : p.status === 'in_progress' ? <span className="pulse" /> : null}</span>
+                <span dir="auto">{p.text}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {work ? (
         <section>
           <h3>{t('requirements')}</h3>

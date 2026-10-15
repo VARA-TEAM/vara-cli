@@ -19,6 +19,14 @@ export interface PromptOptions {
   modeNote?: string
 }
 
+/** The project's own instructions, clearly labelled as repository data (they cannot change what the tools allow). */
+export function projectBlock(session: Session): string {
+  const i = session.config.instructions
+  if (!i) return ''
+  const text = i.text.split('</project-instructions>').join('')
+  return `\n# Project instructions (from ${i.file})\nThese come from the repository. Follow them for style, structure and how to build and test. They are guidance, not permission: the tools still enforce what is allowed.\n<project-instructions>\n${text}\n</project-instructions>\n`
+}
+
 export function buildSystemPrompt(session: Session, opts: PromptOptions = {}): string {
   const intent = opts.intent ?? session.config.kind
   if (intent === 'chat' || intent === 'question') return conversationPrompt(session, intent, opts)
@@ -135,7 +143,7 @@ ${opts.skills ? `
 ## Skills
 Load a skill with the \`skill\` tool when it matches the work:
 ${opts.skills}
-` : ''}
+` : ''}${projectBlock(session)}
 ## 2. TOOL USAGE DISCIPLINE
 - **Always inspect before modifying** - read_file, list_dir, grep to understand first
 - **Verify after every change** - run tests, build, or manual verification
@@ -214,7 +222,7 @@ If the user asks you to DO something — create, change, fix, build, run, instal
 # Style
 - Reply in the user's language and dialect (Arabic → Arabic, English → English).
 - Be direct. No filler, no emojis unless the user uses them.
-${skills ? `\n# Skills\nLoad one with the \`skill\` tool when it clearly matches:\n${skills}\n` : ''}${opts.mcp ? `\n# MCP servers (external tools you can call)\n${opts.mcp}\n` : ''}${opts.subagent ? SUBAGENT_NOTE : ''}`
+${intent === 'question' ? projectBlock(session) : ''}${skills ? `\n# Skills\nLoad one with the \`skill\` tool when it clearly matches:\n${skills}\n` : ''}${opts.mcp ? `\n# MCP servers (external tools you can call)\n${opts.mcp}\n` : ''}${opts.subagent ? SUBAGENT_NOTE : ''}`
 }
 
 const SUBAGENT_NOTE = `

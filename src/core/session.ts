@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Mode, Session, SessionKind } from './types.js'
 import { budgetFor, type VaraConfig } from '../config/config.js'
+import { detectVerifyCommand, readProjectInstructions } from './project.js'
 
 export const CreateSessionInput = z.object({
   kind: z.enum(['task', 'goal']).default('task'),
@@ -23,6 +24,7 @@ export function createSession(input: CreateSessionInput, config: VaraConfig): Se
   // A session must NEVER start with an empty requirement list: an empty list
   // would let `complete` pass with zero coverage (0/0 "verified"). If the user
   // gave no acceptance conditions, the objective itself becomes requirement #1.
+  const instructions = readProjectInstructions(input.cwd)
   const requirements = input.acceptance.length
     ? [...input.acceptance]
     : [`The stated objective is achieved and verified: ${input.objective}`]
@@ -37,7 +39,9 @@ export function createSession(input: CreateSessionInput, config: VaraConfig): Se
       objective: input.objective,
       acceptance: input.acceptance,
       budget: budgetFor(input.kind, config),
-      verifyCommand: input.verifyCommand || config.defaultVerifyCommand || undefined,
+      // An explicit command wins, then the configured default, then what the project itself says (npm test, cargo test…).
+      verifyCommand: input.verifyCommand || config.defaultVerifyCommand || detectVerifyCommand(input.cwd) || undefined,
+      ...(instructions ? { instructions } : {}),
       cwd: input.cwd,
       model: input.model || config.provider.model,
       allowPublish: input.allowPublish ?? config.allowPublish,

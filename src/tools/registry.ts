@@ -8,6 +8,7 @@ import { ghTool, gitCommitTool, gitDiffTool, gitLogTool, gitStatusTool } from '.
 import { askUserTool, completeTool, delegateTool, escalateTool, skillTool } from './control-tools.js'
 import { mcpManageTool, skillToggleTool, skillWriteTool, switchModeTool, SELF_TOOL_NAMES } from './self-tools.js'
 import { checkCommandAllowed } from './permissions.js'
+import { todoTool } from './todo-tool.js'
 import { scrubAll } from '../security/redact.js'
 import { filterByPolicy, type ModePolicy } from '../core/modes.js'
 
@@ -30,6 +31,7 @@ const ALL_TOOLS: Tool<never>[] = [
   skillTool,
   escalateTool,
   delegateTool,
+  todoTool,
   skillWriteTool,
   skillToggleTool,
   mcpManageTool,
@@ -54,6 +56,7 @@ const PLAN_ALLOWED = new Set([
   'ask_user',
   'skill',
   'delegate',
+  'todo',
   'switch_mode',
 ])
 

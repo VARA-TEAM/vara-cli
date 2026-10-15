@@ -151,6 +151,8 @@ export interface SessionConfig {
   budget: Budget
   /** Optional repo-level verification command (e.g. `npm test`). */
   verifyCommand?: string
+  /** The project's own agent instructions (VARA.md / AGENTS.md / CLAUDE.md), read when the session was created. */
+  instructions?: { file: string; text: string }
   cwd: string
   /** Model to use; falls back to config default. */
   model?: string

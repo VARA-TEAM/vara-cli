@@ -91,6 +91,7 @@ export interface SessionView {
   disabledSkills: string[]
   disabledMcp: string[]
   pendingApprovals: PendingApproval[]
+  plan?: Array<{ text: string; status: 'pending' | 'in_progress' | 'done' }>
   requirements: string[]
   verified: string[]
   can: { send: boolean; pause: boolean; setMode: boolean; setModel: boolean; manage: boolean }

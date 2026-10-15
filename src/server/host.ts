@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { createSession, CreateSessionInput } from '../core/session.js'
 import { contextStatus, estimateSessionTokens } from '../core/context.js'
 import { contextSettingsFor } from '../config/providers.js'
+import { latestPlan } from '../tools/todo-tool.js'
 import { closeAllBrowsers } from '../tools/browser-tool.js'
 import { findModel } from '../llm/registry.js'
 import { cleanTitle, expandMentions, withBlocks } from '../tui/mentions.js'
@@ -91,6 +92,7 @@ export interface SessionView {
   disabledMcp: string[]
   /** Changes the agent asked to make to itself, waiting for the owner's yes or no. */
   pendingApprovals: Array<{ id: string; action: string; title: string; detail: string }>
+  plan: Array<{ text: string; status: 'pending' | 'in_progress' | 'done' }>
   requirements: string[]
   /** Requirement numbers ("1", "2"…) the last accepted completion covered. */
   verified: string[]
@@ -319,6 +321,7 @@ export class VaraHost {
       disabledSkills: s.config.disabledSkills ?? [],
       disabledMcp: s.config.disabledMcp ?? [],
       pendingApprovals: p.kind === 'owner' ? (s.pendingApprovals ?? []).map((r) => ({ id: r.id, action: r.action, title: scrubAll(r.title), detail: scrubAll(r.detail) })) : [],
+      plan: latestPlan(s.transcript) ?? [],
       requirements: (s.activeRequirements ?? []).map((r) => cleanTitle(scrubAll(r))),
       verified: s.state === 'completed' ? (s.completionClaim?.verifiedRequirements ?? []) : [],
       can: {
