@@ -11,6 +11,7 @@ import { VERSION } from './version.js'
 import { doctorCommand } from './doctor.js'
 import { updateCommand } from './update/command.js'
 import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
+import { evalCommand } from './eval/command.js'
 import { connectorsCommand } from './mcp/connectors-cli.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
@@ -41,6 +42,8 @@ Usage:
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
   vara connectors [list|add <id>|remove <id>]   ready-made MCP connectors (GitHub, Notion, Sentry, Supabase…)
+  vara eval --offline | --provider <name> [--model a,b] [--repeat N] [--yes]
+                                       measure the cost engine ON vs OFF on small coding tasks: quality, tokens, cost (see docs/EVAL.md)
   vara doctor [--server]               check the install (interface, provider, git, ripgrep); --server also checks a service setup
   vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)
@@ -70,6 +73,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'doctor') {
     await doctorCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'eval') {
+    await evalCommand(args.slice(1))
     return
   }
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {

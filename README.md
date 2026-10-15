@@ -17,7 +17,7 @@ vara setup      # add a provider, paste the key, fetch and test models
 | | |
 | --- | --- |
 | **Understands what you want** | Every message is classified: `chat` (answered without tools) · `question` (reads the project, answers) · `task` (does the work and proves it) · `goal` (keeps going). When unsure it picks the least powerful option, so a guess never changes your files. The model can still `escalate`. |
-| **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. **v2:** a model router with a quality floor you set, long-output compression, repo map, summaries of old turns, a limit meter with pace ("lasts N hours") and a savings report — measured offline in [docs/COST.md](docs/COST.md). |
+| **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. **v2:** a model router with a quality floor you set, long-output compression, repo map, summaries of old turns, a limit meter with pace ("lasts N hours") and a savings report — measured offline in [docs/COST.md](docs/COST.md); `vara eval` checks ON vs OFF on 19 coding tasks for quality *and* cost ([docs/EVAL.md](docs/EVAL.md) — only the offline harness has run; no real-provider result is published yet). |
 | **Any provider** | OpenAI · Anthropic · OpenRouter · DeepSeek · Groq · Gemini · Mistral · xAI · Together · Ollama · LM Studio · any custom OpenAI-compatible or Anthropic endpoint. Every model has a tested status (works / failed / untested) and an editable context window. |
 | **Sub-agent swarm** | The `delegate` tool runs up to 4 sub-agents (3 at a time) with named roles (researcher, reviewer, implementer, tester), a shared task list and dependencies, a call/cost budget, live status in the browser — and returns one merged report. |
 | **Your own modes** | Beyond plan/build: named modes with tool and command allow/deny lists. A mode can only narrow plan or build, never widen it. |
@@ -125,6 +125,7 @@ In any message, `@src/app.ts` attaches that file (inside the working folder only
 | `vara secret set\|list\|delete <NAME>` | The encrypted vault |
 | `vara config init\|show` | Write the default config · print it (secrets never shown) |
 | `vara connectors [list\|add <id>\|remove <id>]` | Ready-made connectors (GitHub, Notion, Sentry, Supabase…); tokens go to the vault |
+| `vara eval --offline` · `vara eval --provider <name> --yes` | Measure the cost engine ON vs OFF on small coding tasks: pass rate, tokens, cost, time → JSON + Markdown report ([docs/EVAL.md](docs/EVAL.md)) |
 | `vara doctor [--server]` · `vara --version` | Check the install (`--server`: also a service setup) · print the version |
 
 `VARA_HOME` overrides the data folder (default `~/.vara`).
@@ -166,6 +167,7 @@ English is the default; Arabic versions are in `docs/ar/` and the `*.ar.md` file
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How everything works and why |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Running VARA on a PC, a VPS, Docker or a CI box (systemd, compose, TLS proxy) |
+| [docs/EVAL.md](docs/EVAL.md) | `vara eval`: does the cost engine save money without lowering quality — method, results, what is not measured |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Changing the code safely; known traps |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is open, what is deliberately not done |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Before your first commit |

@@ -39,3 +39,4 @@ release/
 
 # Generated embedded web UI
 src/server/ui-assets.ts
+vara-eval/

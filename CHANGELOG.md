@@ -6,6 +6,12 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## Unreleased
+
+- **`vara eval` — an evaluation harness for the cost engine** ([docs/EVAL.md](docs/EVAL.md)). 19 deterministic coding tasks (13 bug fixes, 3 features, a multi-file rename, 2 noisy-output cases), each with an automated check that the runner executes itself. Every task runs with the cost engine ON and OFF (optionally several models, `--repeat`) and the report records pass rate (95% interval), quality delta, tokens, limit units, cost (unknown stays null), turns and time, plus regressions, as JSON + Markdown. `vara eval --offline` uses a scripted model (no network; in the test suite); live runs need `--provider` and `--yes`. The measuring provider of the cost benchmark moved to `src/eval/measuring-provider.ts` and is shared. **Honest status:** only the offline mode has been run (19/19 vs 19/19, about 5% fewer limit units, almost all from one noisy-output task) — that proves the harness and that the engine does not corrupt results, **not** that quality holds with a real model. No real-provider result exists yet.
+
+---
+
 ## 2026-10-15 · v0.5.1 — reaching a VPS
 
 - **`vara ui` / `vara serve` ask how to be reached** (this machine, your network, anywhere by the server's IP, or a temporary https link) when run at a terminal with nothing said. New `--public` (listen on all addresses, print `http://<public IP>:<port>/#token=…`) and `--local` (skip the question). A literal IP in the address bar is accepted when the host is open (it cannot be rebound); domain names still need `--public-host`. Not yet tried on a real VPS.
