@@ -20,6 +20,8 @@ export interface McpServerConfig {
   url?: string
   /** Vault secret sent as `Authorization: Bearer …` to a remote server. */
   bearerSecret?: string
+  /** Signed in with OAuth (vara connectors login <name>): the token comes from the vault and is refreshed automatically. */
+  oauth?: boolean
   headers?: Record<string, string>
   enabled?: boolean
   /** Per-call timeout; default 120 s. */
@@ -48,6 +50,9 @@ interface Pending {
   reject: (e: Error) => void
   timer: ReturnType<typeof setTimeout>
 }
+
+/** Bearer token supplier for OAuth-signed-in servers. */
+export type TokenProvider = (force: boolean) => Promise<string | undefined>
 
 interface Transport {
   request(method: string, params: unknown, timeoutMs: number): Promise<unknown>
@@ -183,20 +188,39 @@ class HttpTransport implements Transport {
   private sessionId = ''
   private lastError = ''
 
-  constructor(private readonly url: string, private readonly headers: Record<string, string>) {}
+  constructor(
+    private readonly url: string,
+    private readonly headers: Record<string, string>,
+    /** OAuth: the current bearer token (`force` = refresh first, after a 401). */
+    private readonly tokens?: TokenProvider,
+  ) {}
 
-  private async post(body: unknown, timeoutMs: number): Promise<Response> {
+  private async send(body: unknown, timeoutMs: number, force: boolean): Promise<Response> {
+    const auth: Record<string, string> = {}
+    if (this.tokens) {
+      const t = await this.tokens(force)
+      if (!t) throw new Error('not signed in — run: vara connectors login <name>')
+      auth['authorization'] = `Bearer ${t}`
+    }
     return fetch(this.url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
         ...this.headers,
+        ...auth,
         ...(this.sessionId ? { 'mcp-session-id': this.sessionId } : {}),
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
+  }
+
+  private async post(body: unknown, timeoutMs: number): Promise<Response> {
+    const res = await this.send(body, timeoutMs, false)
+    // An expired or revoked token: refresh once and retry the same request.
+    if (res.status === 401 && this.tokens) return this.send(body, timeoutMs, true)
+    return res
   }
 
   async request(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
@@ -275,6 +299,8 @@ export class McpClient {
     private readonly cfg: McpServerConfig,
     /** Resolved secrets (name → value) for secretEnv / bearerSecret. */
     private readonly secrets: Record<string, string> = {},
+    /** For `oauth` servers. */
+    private readonly tokens?: TokenProvider,
   ) {}
 
   async connect(): Promise<void> {
@@ -307,7 +333,8 @@ export class McpClient {
       const token = this.cfg.bearerSecret ? this.secrets[this.cfg.bearerSecret] : undefined
       if (this.cfg.bearerSecret && !token) throw new Error(`secret ${this.cfg.bearerSecret} is not in the vault (vara secret set ${this.cfg.bearerSecret})`)
       if (token) headers['authorization'] = `Bearer ${token}`
-      return new HttpTransport(expand(this.cfg.url, this.secrets), headers)
+      if (this.cfg.oauth && !this.tokens) throw new Error('OAuth sign-in is not available here')
+      return new HttpTransport(expand(this.cfg.url, this.secrets), headers, this.cfg.oauth ? this.tokens : undefined)
     }
     if (!this.cfg.command) throw new Error('the server needs a "command" or a "url"')
     const env: Record<string, string> = { ...(process.env as Record<string, string>), ...(this.cfg.env ?? {}) }

@@ -71,7 +71,7 @@ Proof: tests are written first; `npm run check` green before every push.
 
 ### R10 · Still open after the browser/desktop/connector work
 - **Desktop control on macOS and Linux is written but unverified** — needs a hand test on real machines (checklist in `docs/DEVELOPMENT.md`).
-- **Connectors that need OAuth** (Linear, Google Drive/Gmail/Calendar, Slack remote…) — needs an OAuth/device-flow in the MCP client; until then they are not listed.
+- **OAuth connectors beyond the first four** (Linear, Google Drive/Gmail/Calendar, Slack remote…) — the OAuth flow exists now ([OAUTH.md](OAUTH.md)); each service still has to be read in its own documentation before it is listed. **The four that are listed (GitHub, Notion, Sentry, Supabase) were never signed in to against the real services.**
 - **Prompt-injection residual risk in the browser** — origin/approval/secret controls limit the damage but no model-side defence is perfect; an engine-level "taint" (writes after reading untrusted pages need approval) is the next step.
 - **Agent evals** — an offline harness of scripted scenarios (refuses false completion, recovers after a failing tool, does not write in plan mode) beyond the unit tests that exist.
 - **R6 (provider per session)** remains open above. R4 and R5 are done (R11).
@@ -96,7 +96,7 @@ Written *before* touching `engine.ts`. `permissions.ts` and `vault.ts` are **not
 | Item | Open question |
 | --- | --- |
 | Switching provider inside one session between turns | One shared context window or one per model? Per-model pricing in the registry? |
-| MCP: OAuth for remote servers | The flow needs a browser — how do we keep it safe from the terminal? |
+| MCP: OAuth for remote servers | Built (loopback + paste fallback, tokens in the vault only). Open: a device-code flow, scope step-up after a 403, sign-in for custom servers, and a real run against each service. |
 | Skills from external repositories | Trust in the source: are they run without review? |
 
 ## 4. Not on the table now

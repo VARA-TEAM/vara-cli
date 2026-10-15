@@ -168,6 +168,7 @@ vara guests                                     # من دخل وماذا يست�
 | [docs/ar/ARCHITECTURE.md](docs/ar/ARCHITECTURE.md) | كيف يعمل كل شيء ولماذا |
 | [docs/ar/DEPLOYMENT.md](docs/ar/DEPLOYMENT.md) | تشغيل VARA على حاسوب أو VPS أو Docker أو جهاز CI (systemd وcompose ووكيل TLS) |
 | [docs/ar/EVAL.md](docs/ar/EVAL.md) | `vara eval`: هل يوفّر محرك التكلفة المال دون خفض الجودة — المنهج والنتائج وما لم يُقَس |
+| [docs/ar/OAUTH.md](docs/ar/OAUTH.md) | تسجيل الدخول عبر المتصفح لموصّلات MCP البعيدة (GitHub وNotion وSentry وSupabase) — ما يفعله VARA وما عليك إعداده بنفسك |
 | [docs/ar/DEVELOPMENT.md](docs/ar/DEVELOPMENT.md) | تعديل الكود بأمان، وفخاخ معروفة |
 | [docs/ar/ROADMAP.md](docs/ar/ROADMAP.md) | ما هو مفتوح وما تُرك عمداً |
 | [CONTRIBUTING.ar.md](CONTRIBUTING.ar.md) | قبل أول commit |

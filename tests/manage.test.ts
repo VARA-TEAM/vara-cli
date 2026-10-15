@@ -366,7 +366,13 @@ describe('connectors', () => {
       expect(c.checked.length, c.id).toBeGreaterThan(10)
       for (const s of c.secrets) expect(s.name).toMatch(/^[A-Z][A-Z0-9_]+$/)
       // a remote connector names its bearer secret; a local one lists the env secrets it injects
-      if (c.config.url) expect(c.secrets.map((s) => s.name)).toContain(c.config.bearerSecret)
+      if (c.oauth) {
+        // a browser sign-in connector: a remote URL, OAuth on, no pasted secret
+        expect(c.config.url, c.id).toBeTruthy()
+        expect(c.config.oauth, c.id).toBe(true)
+        expect(c.secrets, c.id).toEqual([])
+        expect(c.checked, c.id).toMatch(/NOT run|not run/i)
+      } else if (c.config.url) expect(c.secrets.map((s) => s.name)).toContain(c.config.bearerSecret)
       else expect(c.config.secretEnv ?? []).toEqual(c.secrets.map((s) => s.name))
     }
   })

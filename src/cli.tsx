@@ -41,9 +41,9 @@ Usage:
                                        temporary PUBLIC link through a tunnel you already have (no VARA relay)
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
-  vara connectors [list|add <id>|remove <id>]   ready-made MCP connectors (GitHub, Notion, Sentry, Supabase…)
   vara eval --offline | --provider <name> [--model a,b] [--repeat N] [--yes]
                                        measure the cost engine ON vs OFF on small coding tasks: quality, tokens, cost (see docs/EVAL.md)
+  vara connectors [list|add|remove|login|logout <id>]   ready-made MCP connectors (login = browser sign-in)
   vara doctor [--server]               check the install (interface, provider, git, ripgrep); --server also checks a service setup
   vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)

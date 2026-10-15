@@ -107,6 +107,8 @@ export const McpServerSchema = z.object({
   cwd: z.string().optional(),
   url: z.string().optional(),
   bearerSecret: z.string().optional(),
+  /** Signed in with OAuth (tokens in the vault, never here). */
+  oauth: z.boolean().optional(),
   headers: z.record(z.string()).default({}),
   enabled: z.boolean().default(true),
   timeoutMs: z.number().int().positive().optional(),

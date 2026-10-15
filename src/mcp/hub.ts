@@ -2,6 +2,7 @@ import type { Tool, ToolResult } from '../tools/types.js'
 import { McpClient, type McpServerConfig, type McpStatus } from './client.js'
 import { getSecretsForScope } from '../security/vault.js'
 import { registerSecret, scrubAll } from '../security/redact.js'
+import { accessToken } from './oauth.js'
 
 /** A few well-known servers, one keystroke away in /mcp. */
 export interface McpPreset {
@@ -77,7 +78,7 @@ export class McpHub {
     const starts: Promise<void>[] = []
     for (const [name, cfg] of Object.entries(next)) {
       if (cfg.enabled === false || this.clients.has(name)) continue
-      const client = new McpClient(name, cfg, secrets)
+      const client = new McpClient(name, cfg, secrets, cfg.oauth ? (force) => accessToken(name, { force }) : undefined)
       this.clients.set(name, client)
       starts.push(
         client.connect().finally(() => this.changed()),

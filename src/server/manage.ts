@@ -3,7 +3,8 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { McpServerConfig } from '../mcp/client.js'
 import { MCP_PRESETS, type McpHub } from '../mcp/hub.js'
 import { serverFromInput } from '../mcp/input.js'
-import { CONNECTORS, connectorServer, findConnector } from '../mcp/connectors.js'
+import { CONNECTORS, connectorServer, findConnector, type Connector } from '../mcp/connectors.js'
+import { beginLogin, oauthLogout, oauthStatus, type LoginHandle } from '../mcp/oauth.js'
 import type { VaraConfig, ProviderEntry } from '../config/config.js'
 import {
   activate,
@@ -73,6 +74,8 @@ const text = (v: unknown, max = 500): string => (typeof v === 'string' ? v.trim(
  */
 export class Manager {
   private queue: Promise<unknown> = Promise.resolve()
+  /** OAuth sign-ins in progress (one per connector). Holds an address, never a token. */
+  private logins = new Map<string, { handle: LoginHandle; state: 'pending' | 'done' | 'error'; error: string; authUrl: string; redirectUri: string }>()
 
   constructor(private readonly d: ManagerDeps) {}
 
@@ -453,6 +456,7 @@ export class Manager {
         return { ...c, mcp: { ...c.mcp, servers: rest } }
       }),
     )
+    if (r.ok && findConnector(name)?.oauth) await oauthLogout(name).catch(() => {})
     return r.ok ? good(this.mcp()) : r
   }
 
@@ -495,9 +499,24 @@ export class Manager {
     const have = new Set(await this.d.secretNames().catch(() => [] as string[]))
     const servers = this.d.config().mcp.servers as Record<string, McpServerConfig>
     const views = new Map(this.d.hub.view(servers).map((v) => [v.name, v]))
+    const signed = new Map<string, Awaited<ReturnType<typeof oauthStatus>>>()
+    for (const c of CONNECTORS) if (c.oauth) signed.set(c.id, await oauthStatus(c.id))
     return CONNECTORS.map((c) => {
       const v = views.get(c.id)
+      const login = this.logins.get(c.id)
+      const st = signed.get(c.id)
       return {
+        ...(c.oauth
+          ? {
+              oauth: {
+                client: c.oauth.client,
+                signedIn: !!st?.signedIn,
+                canRefresh: !!st?.canRefresh,
+                ...(st?.expiresAt ? { expiresAt: st.expiresAt } : {}),
+                login: login ? { state: login.state, error: login.error } : null,
+              },
+            }
+          : {}),
         id: c.id,
         name: c.name,
         category: c.category,
@@ -518,6 +537,7 @@ export class Manager {
     const c = findConnector(text(body['id'], 40))
     if (!c) return bad('Unknown connector.', 404)
     if (this.d.config().mcp.servers[c.id]) return bad(`"${c.name}" is already connected.`, 409)
+    if (c.oauth) return bad(`"${c.name}" signs in with your browser — use Sign in.`)
     const given = (body['secrets'] ?? {}) as Record<string, unknown>
     const have = new Set(await this.d.secretNames().catch(() => [] as string[]))
     for (const s of c.secrets) {
@@ -527,6 +547,102 @@ export class Manager {
     }
     const r = await this.guard(() => this.update((cfg) => ({ ...cfg, mcp: { ...cfg.mcp, servers: { ...cfg.mcp.servers, [c.id]: connectorServer(c) as never } } })))
     return r.ok ? good(await this.connectors()) : r
+  }
+
+  /* ---------------- OAuth sign-in ---------------- */
+
+  private oauthConnector(id: string): { c: Connector } | { err: MResult<never> } {
+    const c = findConnector(id)
+    if (!c) return { err: bad('Unknown connector.', 404) }
+    if (!c.oauth) return { err: bad(`"${c.name}" does not use a browser sign-in.`) }
+    return { c }
+  }
+
+  /** Start a sign-in. The reply holds the address to open in a browser — no token ever. Poll `loginStatus`. */
+  async startLogin(id: string, body: Record<string, unknown> = {}): Promise<MResult<unknown>> {
+    const r = this.oauthConnector(id)
+    if ('err' in r) return r.err
+    const { c } = r
+    this.logins.get(c.id)?.handle.cancel()
+    const port = int(body['port'], 1024, 65535)
+    let handle: LoginHandle
+    try {
+      handle = await beginLogin({ id: c.id, resourceUrl: c.config.url!, ...(c.oauth!.scope ? { scope: c.oauth!.scope } : {}), ...(port ? { port } : {}), clientName: 'VARA' })
+    } catch (err) {
+      return bad(scrubAll((err as Error).message), 502)
+    }
+    const entry = { handle, state: 'pending' as 'pending' | 'done' | 'error', error: '', authUrl: handle.authUrl, redirectUri: handle.redirectUri }
+    this.logins.set(c.id, entry)
+    handle.done.then(
+      async () => {
+        try {
+          await this.afterLogin(c)
+          if (this.logins.get(c.id) === entry) entry.state = 'done'
+        } catch (err) {
+          entry.state = 'error'
+          entry.error = scrubAll((err as Error).message)
+        }
+      },
+      (err: Error) => {
+        if (this.logins.get(c.id) === entry) {
+          entry.state = 'error'
+          entry.error = scrubAll(err.message)
+        }
+      },
+    )
+    return good({ authUrl: entry.authUrl, redirectUri: entry.redirectUri })
+  }
+
+  /** Signed in: make sure the server entry exists (with `oauth`) and that it reconnects with the new token. */
+  private async afterLogin(c: Connector): Promise<void> {
+    if (this.d.config().mcp.servers[c.id]) {
+      await this.d.hub.reconnect(c.id).catch(() => {})
+      return
+    }
+    const r = await this.guard(() => this.update((cfg) => ({ ...cfg, mcp: { ...cfg.mcp, servers: { ...cfg.mcp.servers, [c.id]: connectorServer(c) as never } } })))
+    if (!r.ok) throw new Error(r.error)
+  }
+
+  loginStatus(id: string): MResult<unknown> {
+    const r = this.oauthConnector(id)
+    if ('err' in r) return r.err
+    const l = this.logins.get(r.c.id)
+    return good(l ? { state: l.state, error: l.error, redirectUri: l.redirectUri } : { state: 'none', error: '' })
+  }
+
+  /** Headless fallback: the owner pastes the address their browser ended up on. */
+  async loginCode(id: string, body: Record<string, unknown>): Promise<MResult<unknown>> {
+    const r = this.oauthConnector(id)
+    if ('err' in r) return r.err
+    const l = this.logins.get(r.c.id)
+    if (!l || l.state !== 'pending') return bad('No sign-in is waiting. Press Connect again.', 409)
+    const pasted = text(body['pasted'], 4_000)
+    if (!pasted) return bad('Paste the address from your browser after approving.')
+    try {
+      await l.handle.submitPasted(pasted)
+    } catch (err) {
+      return bad(scrubAll((err as Error).message))
+    }
+    return good(this.loginStatus(id))
+  }
+
+  cancelLogin(id: string): MResult<unknown> {
+    const r = this.oauthConnector(id)
+    if ('err' in r) return r.err
+    this.logins.get(r.c.id)?.handle.cancel()
+    this.logins.delete(r.c.id)
+    return good({ state: 'none', error: '' })
+  }
+
+  /** Sign out: revoke at the service when it supports that, delete the stored tokens, drop the connection. */
+  async logout(id: string): Promise<MResult<unknown>> {
+    const r = this.oauthConnector(id)
+    if ('err' in r) return r.err
+    this.logins.get(r.c.id)?.handle.cancel()
+    this.logins.delete(r.c.id)
+    const out = await oauthLogout(r.c.id)
+    if (this.d.config().mcp.servers[r.c.id]) await this.d.hub.reconnect(r.c.id).catch(() => {})
+    return good({ revoked: out.revoked, wasSignedIn: out.was, connectors: await this.connectors() })
   }
 
   /* ---------------- routing ---------------- */
@@ -578,6 +694,13 @@ export class Manager {
     if (a === 'connectors') {
       if (!b && method === 'GET') return good(await this.connectors())
       if (!b && method === 'POST') return this.addConnector(body)
+      if (b && c === 'login' && !d) {
+        if (method === 'POST') return this.startLogin(dec(b), body)
+        if (method === 'GET') return this.loginStatus(dec(b))
+        if (method === 'DELETE') return this.cancelLogin(dec(b))
+      }
+      if (b && c === 'login' && d === 'code' && method === 'POST') return this.loginCode(dec(b), body)
+      if (b && c === 'logout' && method === 'POST') return this.logout(dec(b))
     }
     if (a === 'mcp') {
       if (!b && method === 'GET') return good(this.mcp())
@@ -585,7 +708,6 @@ export class Manager {
       if (b && !c && method === 'PATCH') return this.patchMcp(dec(b), body)
       if (b && !c && method === 'DELETE') return this.removeMcp(dec(b))
     }
-    void d
     return bad('not found', 404)
   }
 }

@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import type { McpServerConfig } from '../mcp/client.js'
 import type { McpHub } from '../mcp/hub.js'
+import { oauthStatus } from '../mcp/oauth.js'
 import { CONNECTORS, connectorServer, findConnector } from '../mcp/connectors.js'
 import type { ProviderEntry, VaraConfig } from '../config/config.js'
 import { ModeSchema } from '../config/config.js'
@@ -507,6 +508,9 @@ export function makeSystemPort(deps: SystemDeps): SystemPort {
       }
       if (!c) throw new Error(`No connector "${id}". Ids: ${CONNECTORS.map((x) => x.id).join(', ')}.`)
       if (cfg.mcp.servers[c.id]) throw new Error(`"${c.name}" is already connected.`)
+      if (c.oauth && !(await oauthStatus(c.id)).signedIn) {
+        throw new Error(`${c.name} signs in with a browser, which only the owner can do (you cannot sign in for them). Ask the user to press Connect on it in Settings → Connectors, or run: vara connectors login ${c.id} — then add it again.`)
+      }
       const have = new Set(await deps.secretNames().catch(() => [] as string[]))
       const missing = c.secrets.filter((s) => !have.has(s.name))
       if (missing.length) {

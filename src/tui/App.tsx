@@ -947,6 +947,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
             const c = findConnector(rest[1] ?? '')
             if (!c) return push({ kind: 'note', text: `unknown connector "${rest[1] ?? ''}" — /connectors lists them`, color: 'red' })
             if (servers[c.id]) return push({ kind: 'note', text: `${c.name} is already connected`, color: 'gray' })
+            if (c.oauth) return push({ kind: 'note', text: `${c.name} signs in with your browser. Run: vara connectors login ${c.id}  (or press Connect in the web UI: Settings → Connectors)`, color: 'yellow' })
             const missing = c.secrets.filter((s) => !have.has(s.name))
             if (missing.length) {
               return push({ kind: 'note', text: `${c.name} needs ${missing.map((s) => s.name).join(', ')} in the vault. Run: vara connectors add ${c.id}  (it asks for the value without showing it)`, color: 'yellow' })
