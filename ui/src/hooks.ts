@@ -64,7 +64,7 @@ export interface LiveSession {
 }
 
 /** Events that mean the saved transcript changed: refetch it (debounced). */
-const REFRESH_ON = new Set(['state', 'tool_start', 'tool_end', 'intent', 'completed', 'session_summary', 'message', 'followup_applied', 'subagent', 'error', 'verification', 'waiting', 'budget_warning', 'budget_exhausted'])
+const REFRESH_ON = new Set(['state', 'tool_start', 'tool_end', 'intent', 'completed', 'session_summary', 'message', 'followup_applied', 'subagent', 'error', 'verification', 'waiting', 'budget_warning', 'budget_exhausted', 'approval_request', 'approval_resolved'])
 
 /**
  * One session, kept fresh: a snapshot from the host, plus its live event stream. The text the

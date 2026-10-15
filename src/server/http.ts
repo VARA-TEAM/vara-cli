@@ -291,6 +291,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (b && c === 'insights' && method === 'GET') return reply(await host.insights(p, b))
       if (b && c === 'export' && method === 'GET') return reply(await host.exportMarkdown(p, b))
       if (b && c === 'stop' && method === 'POST') return reply(await host.stop(p, b))
+      if (b && c === 'approvals' && parts[3] && method === 'POST') return reply(await host.resolveApproval(p, b, parts[3], (await readBody(req))['approved'] === true))
       if (b && c === 'kind' && method === 'POST') {
         const kind = (await readBody(req))['kind']
         if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })

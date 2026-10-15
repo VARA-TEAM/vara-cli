@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { Mode } from '../core/types.js'
 import type { ModePolicy } from '../core/modes.js'
+import type { AdminPort } from '../core/selfmanage.js'
 
 export interface ToolContext {
   cwd: string
@@ -13,6 +14,10 @@ export interface ToolContext {
   allowPublish: boolean
   /** Restrictions of the session's custom mode (only ever narrows plan/build). */
   modePolicy?: ModePolicy
+  /** Changes to the agent's own setup. Absent = the agent may not manage itself here. */
+  admin?: AdminPort
+  /** Ask the user to approve a change. Absent or refusing = denied: nothing is ever silent. */
+  approve?: (req: { action: string; title: string; detail: string }) => Promise<{ approved: boolean; note?: string }>
   /** Skills available to this session (for the `skill` tool). */
   skills?: Array<{ name: string; description: string; body: string }>
   /** Run sub-agents in parallel (absent inside a sub-agent: no recursion). */

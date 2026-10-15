@@ -20,7 +20,7 @@ export class SessionRunner {
     private readonly model: string | undefined,
     private readonly onEvent: (event: EngineEvent) => void,
     private readonly contextSettings?: () => ContextSettings,
-    private readonly extras: Pick<EngineOptions, 'loadSkills' | 'budgetFor' | 'routeModel' | 'thinkingLevel' | 'modePolicy' | 'vision' | 'extraTools' | 'mcpSummary'> = {},
+    private readonly extras: Pick<EngineOptions, 'loadSkills' | 'budgetFor' | 'routeModel' | 'thinkingLevel' | 'modePolicy' | 'vision' | 'admin' | 'interactive' | 'extraTools' | 'mcpSummary'> = {},
   ) {}
 
   get isRunning(): boolean {
@@ -34,6 +34,11 @@ export class SessionRunner {
       return
     }
     this.pendingFollowUps.push(text)
+  }
+
+  /** Answer an approval the agent is waiting on. */
+  resolveApproval(id: string, approved: boolean, note?: string): boolean {
+    return this.engine?.resolveApproval(id, approved, note) ?? false
   }
 
   pause(): void {

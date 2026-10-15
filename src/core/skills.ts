@@ -120,3 +120,19 @@ export function skillIndex(skills: Skill[]): string {
   if (!skills.length) return ''
   return skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')
 }
+
+/** Create or overwrite a skill with real content (the agent's `skill_write`, after approval). Returns the file path. */
+export async function writeSkill(name: string, scope: 'user' | 'project', cwd: string, description: string, body: string): Promise<{ path: string; created: boolean }> {
+  if (!validSkillName(name)) throw new Error('Skill name: lowercase letters, digits, "-" or "_" (max 40).')
+  const desc = description.replace(/\s+/g, ' ').trim().slice(0, 300)
+  const text = body.replace(/\r\n/g, '\n').trim()
+  if (!desc) throw new Error('A skill needs a one-line description (when to use it).')
+  if (!text) throw new Error('A skill cannot be empty.')
+  if (text.length > 60_000) throw new Error('A skill body is limited to 60 000 characters.')
+  const dir = join(scope === 'project' ? projectSkillsDir(cwd) : skillsDir, name)
+  const file = join(dir, 'SKILL.md')
+  const created = !existsSync(file)
+  await mkdir(dir, { recursive: true })
+  await writeFile(file, `---\nname: ${name}\ndescription: ${desc}\n---\n${text}\n`, 'utf8')
+  return { path: file, created }
+}

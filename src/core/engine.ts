@@ -14,6 +14,7 @@ import { classifyIntent, isWorkIntent } from './intent.js'
 import { skillIndex, type Skill } from './skills.js'
 import { describePolicy, type ModePolicy } from './modes.js'
 import { resolveImages } from './attachments.js'
+import type { AdminPort } from './selfmanage.js'
 import type { ModelMessage, Provider } from '../llm/provider.js'
 import type { NormalizedUsage } from '../llm/usage.js'
 import { emptyUsage } from '../llm/usage.js'
@@ -144,6 +145,10 @@ export interface EngineOptions {
   modePolicy?: () => ModePolicy | undefined
   /** Whether a model can view images; without it attached images are described as not viewable. */
   vision?: (model: string) => boolean
+  /** The agent may change its own setup through this port, after the user approves each change. */
+  admin?: AdminPort
+  /** A person is watching and can answer approval requests (false for headless runs). */
+  interactive?: boolean
   /** Tools from connected MCP servers (read live each turn). */
   extraTools?: () => Tool<never>[]
   /** One line per connected MCP server, for the prompt. */
@@ -180,6 +185,8 @@ export class Engine {
   private readonly forceIntent?: SessionIntent
   private readonly options: EngineOptions
   private children: Engine[] = []
+  /** Approvals waiting for the user: id → how to answer. */
+  private approvals = new Map<string, (a: { approved: boolean; note?: string }) => void>()
   /** Files already read in full: path → mtime + the tool call that holds the content. */
   private readCache = new Map<string, { mtimeMs: number; callId: string }>()
   /** What the current run is about; decides prompt, tools and when a turn ends. */
@@ -233,7 +240,37 @@ export class Engine {
     this.followUpsToInject.push(followUp)
   }
 
+  /**
+   * Ask the user to approve a change to the agent's own setup. The run waits
+   * (state `waiting_user`) until someone answers; stopping the run declines it.
+   */
+  private requestApproval(req: { action: string; title: string; detail: string }): Promise<{ approved: boolean; note?: string }> {
+    if (!this.options.interactive || this.depth > 0) return Promise.resolve({ approved: false, note: 'nobody is here to approve' })
+    const request = { id: randomUUID().slice(0, 8), action: req.action, title: scrubAll(req.title), detail: scrubAll(req.detail).slice(0, 20_000), at: new Date().toISOString() }
+    this.session.pendingApprovals = [...(this.session.pendingApprovals ?? []), request]
+    this.setState('waiting_user', `Approval needed: ${request.title}`)
+    this.emit({ type: 'approval_request', request })
+    return new Promise((resolve) => {
+      this.approvals.set(request.id, (a) => {
+        this.approvals.delete(request.id)
+        this.session.pendingApprovals = (this.session.pendingApprovals ?? []).filter((r) => r.id !== request.id)
+        if (this.session.state === 'waiting_user') this.setState('running')
+        this.emit({ type: 'approval_resolved', id: request.id, approved: a.approved })
+        resolve(a)
+      })
+    })
+  }
+
+  /** Answer a pending approval. Returns false when there is no such request (already answered). */
+  resolveApproval(id: string, approved: boolean, note?: string): boolean {
+    const answer = this.approvals.get(id)
+    if (!answer) return false
+    answer({ approved, ...(note ? { note } : {}) })
+    return true
+  }
+
   stop(): void {
+    for (const id of [...this.approvals.keys()]) this.resolveApproval(id, false, 'the run was stopped')
     this.abort?.abort()
     for (const c of this.children) c.stop()
   }
@@ -281,6 +318,7 @@ export class Engine {
       env: this.env,
       allowPublish: this.session.config.allowPublish,
       ...(this.options.modePolicy?.() ? { modePolicy: this.options.modePolicy() } : {}),
+      ...(this.options.admin && this.depth === 0 ? { admin: this.options.admin, approve: (r: { action: string; title: string; detail: string }) => this.requestApproval(r) } : {}),
       skills: this.skills,
       ...(this.depth === 0 ? { spawn: (tasks) => this.spawnSubagents(tasks) } : {}),
     }
@@ -444,6 +482,7 @@ export class Engine {
   /** Runs until the session reaches a terminal or waiting state. */
   async run(): Promise<Session> {
     await this.prepareEnv()
+    this.session.pendingApprovals = undefined // a request from a run that died can no longer be answered
     try {
       this.skills = (await this.loadSkills?.()) ?? []
     } catch {
@@ -645,7 +684,7 @@ export class Engine {
     const hasSkills = this.skills.length > 0
     const extra = this.extraTools?.() ?? []
     const policy = this.options.modePolicy?.()
-    const toolSet = { hasSkills, extra, canDelegate: this.depth === 0, ...(policy ? { policy } : {}) }
+    const toolSet = { hasSkills, extra, canDelegate: this.depth === 0, canManage: !!this.options.admin && this.depth === 0, ...(policy ? { policy } : {}) }
     const allowed = new Set(toolsFor(this.intent, this.session.config.mode, toolSet).map((t) => t.name))
 
     // Cost routing: conversation and research turns do not need the big model.

@@ -6,6 +6,7 @@ import { globTool, grepTool } from './search.js'
 import { shellTool } from './shell-tool.js'
 import { ghTool, gitCommitTool, gitDiffTool, gitLogTool, gitStatusTool } from './git-tools.js'
 import { askUserTool, completeTool, delegateTool, escalateTool, skillTool } from './control-tools.js'
+import { mcpManageTool, skillToggleTool, skillWriteTool, switchModeTool, SELF_TOOL_NAMES } from './self-tools.js'
 import { checkCommandAllowed } from './permissions.js'
 import { scrubAll } from '../security/redact.js'
 import { filterByPolicy, type ModePolicy } from '../core/modes.js'
@@ -29,6 +30,10 @@ const ALL_TOOLS: Tool<never>[] = [
   skillTool,
   escalateTool,
   delegateTool,
+  skillWriteTool,
+  skillToggleTool,
+  mcpManageTool,
+  switchModeTool,
 ] as unknown as Tool<never>[]
 
 /**
@@ -49,6 +54,7 @@ const PLAN_ALLOWED = new Set([
   'ask_user',
   'skill',
   'delegate',
+  'switch_mode',
 ])
 
 /** Read-only investigation set used to answer questions. */
@@ -69,6 +75,8 @@ export interface ToolSet {
   hasSkills?: boolean
   /** Sub-agents may not delegate. */
   canDelegate?: boolean
+  /** The agent may manage its own setup here (an approver and an admin port exist). */
+  canManage?: boolean
   /** A custom mode's restrictions: refused tools are hidden from the model. */
   policy?: ModePolicy
 }
@@ -90,6 +98,8 @@ export function toolsFor(intent: ToolIntent, mode: 'plan' | 'build', set: ToolSe
         : toolsForMode(mode)
   if (!opts.hasSkills) list = list.filter((t) => t.name !== 'skill')
   if (opts.canDelegate === false) list = list.filter((t) => t.name !== 'delegate')
+  // Self-management only in real work turns of a session that can ask the user.
+  if (!opts.canManage || intent === 'chat' || intent === 'question') list = list.filter((t) => !(SELF_TOOL_NAMES as readonly string[]).includes(t.name))
   if (intent !== 'chat' && opts.extra?.length) {
     const readOnlyOnly = intent === 'question' || mode === 'plan'
     list = [...list, ...opts.extra.filter((t) => !readOnlyOnly || t.readonly)]

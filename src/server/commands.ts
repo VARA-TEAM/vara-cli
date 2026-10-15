@@ -84,18 +84,19 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   void hub.sync(config.mcp.servers as never)
   mkdirSync(hostDir, { recursive: true })
   const access = new AccessStore()
-  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, providerVersion: () => providerVersion })
+  // Build the provider FIRST: a change that cannot work (no key, bad URL) is refused before it is saved.
+  const applyConfig = async (next: VaraConfig): Promise<void> => {
+    const built = (await buildProvider(next)).provider
+    config = next
+    provider = built
+    providerVersion++
+    await persistConfig(next)
+    void hub.sync(next.mcp.servers as never)
+  }
+  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, providerVersion: () => providerVersion, applyConfig })
   const manager = new Manager({
     config: () => config,
-    // Build the provider FIRST: a change that cannot work (no key, bad URL) is refused before it is saved.
-    apply: async (next) => {
-      const built = (await buildProvider(next)).provider
-      config = next
-      provider = built
-      providerVersion++
-      await persistConfig(next)
-      void hub.sync(next.mcp.servers as never)
-    },
+    apply: applyConfig,
     hub,
     cwd,
     discover: (ep) => discoverModels(ep),

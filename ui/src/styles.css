@@ -302,3 +302,10 @@ table.data td.actions { white-space: nowrap; text-align: end; }
   .jump { inset-block-end: 118px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* Approval cards: the agent asks before it changes its own setup. */
+.approvals { display: grid; gap: 8px; margin-block-end: 8px; }
+.approval-card { background: var(--surface-2); border: 1px solid var(--warn, var(--border)); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; }
+.approval-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.approval-detail { max-height: 220px; overflow: auto; margin: 0; padding: 8px 10px; background: var(--surface); border-radius: var(--radius-sm); font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.approval-actions { display: flex; gap: 8px; justify-content: flex-end; }

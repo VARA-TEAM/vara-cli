@@ -6,6 +6,7 @@ import { contextSettingsFor, thinkingFor, visionFor } from '../config/providers.
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
 import { policyFor } from './modes.js'
+import { makeAdminPort, type AdminPort } from './selfmanage.js'
 import type { McpHub } from '../mcp/hub.js'
 
 /**
@@ -21,6 +22,8 @@ export function makeSessionRunner(opts: {
   config: () => VaraConfig
   hub: McpHub
   onEvent: (event: EngineEvent) => void
+  /** Applies and saves a changed config (and makes it live). Without it the agent cannot manage itself. */
+  applyConfig?: (next: VaraConfig) => Promise<void>
 }): SessionRunner {
   const { session: s, config, hub } = opts
   const model = () => s.config.model ?? config().provider.model
@@ -37,6 +40,7 @@ export function makeSessionRunner(opts: {
       thinkingLevel: (m) => thinkingFor(config(), m).level,
       modePolicy: () => policyFor(config().modes, s.config.customMode),
       vision: (m) => visionFor(config(), m),
+      ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
       extraTools: () => hub.tools(),
       mcpSummary: () => hub.summary(),
     },

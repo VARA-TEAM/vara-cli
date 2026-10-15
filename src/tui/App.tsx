@@ -225,6 +225,17 @@ export function App({ session, provider: initialProvider, config: initialConfig,
             group: `sub-${event.id}`,
           })
           break
+        case 'approval_request':
+          push({
+            kind: 'note',
+            text: `┌ The agent asks permission\n│ ${event.request.title}\n${event.request.detail.split('\n').slice(0, 12).map((l) => `│ ${l}`).join('\n')}\n└ /approve to allow · /deny to decline`,
+            color: 'yellow',
+            group: `approval-${event.request.id}`,
+          })
+          break
+        case 'approval_resolved':
+          push({ kind: 'note', text: event.approved ? `${glyph.ok} approved` : `${glyph.fail} declined`, color: event.approved ? 'green' : 'red', group: `approval-${event.id}` })
+          break
         case 'thinking':
           thinkingRef.current = (thinkingRef.current + event.text).slice(-400)
           scheduleLive()
@@ -320,6 +331,12 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         config: () => configRef.current,
         hub: hubRef.current,
         onEvent: handleEvent,
+        // The agent may change its own setup — each change waits for /approve.
+        applyConfig: async (next) => {
+          configRef.current = next
+          setConfig(next)
+          await persistConfig(next)
+        },
       }),
     [handleEvent],
   )
@@ -1049,6 +1066,15 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         push({ kind: 'note', text: `mode → ${modeLabel(cur.config).toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
         void saveSession(cur)
         refresh()
+        return
+      }
+      case 'approve':
+      case 'deny': {
+        const pending = cur.pendingApprovals ?? []
+        const target = rest[0] ?? pending[0]?.id
+        if (!target || !runnerRef.current?.resolveApproval(target, cmd === 'approve')) {
+          push({ kind: 'note', text: 'nothing is waiting for approval', color: 'gray' })
+        }
         return
       }
       case 'kind': {

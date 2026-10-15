@@ -5,6 +5,7 @@ import { useLiveSession, useResource, useStickToBottom } from '../hooks'
 import { useT } from '../i18n'
 import { usePrefs } from '../prefs'
 import type { Insights, Me, ModelsInfo, ProvidersState, SessionView, SkillRow, ThinkLevel } from '../types'
+import { Approvals } from './Approvals'
 import { Chat } from './Chat'
 import { Composer } from './Composer'
 import { Panel, type PanelTab } from './Panel'
@@ -226,6 +227,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             </button>
           ) : null}
           {error ? <div className="inline-error" role="alert">{error}</div> : null}
+          {isOwner ? <Approvals items={view.pendingApprovals} onAnswer={(aid, approved) => void run(() => post(`/approvals/${encodeURIComponent(aid)}`, { approved }))} /> : null}
           <div className="composer-wrap">
             <Composer
               key={id}

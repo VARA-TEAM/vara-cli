@@ -34,6 +34,8 @@ export const COMMANDS: CommandDef[] = [
   { name: '/evidence', description: 'Recorded evidence' },
   { name: '/last', description: 'Full output of the last tool call' },
   { name: '/pause', description: 'Pause the running agent (state is saved)' },
+  { name: '/approve', args: '[id]', description: 'Allow the change the agent asked to make to itself' },
+  { name: '/deny', args: '[id]', description: 'Decline the change the agent asked for' },
   { name: '/stop', description: 'Stop the session permanently' },
   { name: '/quit', description: 'Save the session and exit', hint: 'Ctrl+C' },
   { name: '/help', description: 'Commands and keyboard shortcuts' },

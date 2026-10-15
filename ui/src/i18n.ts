@@ -394,6 +394,9 @@ const en = {
   m_allowCmds: 'Only these shell commands',
   m_allowCmdsHelp: 'One per line, e.g. npm test*. Empty = no limit. Pipes and redirections are refused when this is set.',
   m_denyCmds: 'Never these shell commands',
+  ap_title: 'The agent asks permission',
+  ap_allow: 'Allow',
+  ap_deny: 'Decline',
 } as const
 
 export type Key = keyof typeof en
@@ -785,6 +788,9 @@ const ar: Record<Key, string> = {
   m_allowCmds: 'أوامر الطرفية هذه فقط',
   m_allowCmdsHelp: 'واحد في كل سطر، مثل npm test*. الفارغ = بلا حد. تُرفض الأنابيب والتحويلات عند تفعيله.',
   m_denyCmds: 'ممنوع أوامر الطرفية هذه',
+  ap_title: 'الوكيل يطلب إذنك',
+  ap_allow: 'السماح',
+  ap_deny: 'رفض',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

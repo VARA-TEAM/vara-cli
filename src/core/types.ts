@@ -141,6 +141,10 @@ export interface SessionConfig {
   mode: Mode
   /** Name of a user-defined mode this session runs in; `mode` is then its base. */
   customMode?: string
+  /** Skills switched off for THIS session only (names). */
+  disabledSkills?: string[]
+  /** MCP servers switched off for THIS session only (names). */
+  disabledMcp?: string[]
   objective: string
   /** Acceptance conditions. Free text; the engine forces evidence per condition. */
   acceptance: string[]
@@ -191,6 +195,8 @@ export interface Session {
     verifiedRequirements?: string[]
     at: string
   }
+  /** Approvals the agent is waiting on right now (cleared when the run ends). */
+  pendingApprovals?: ApprovalRequest[]
   /** The intent of the latest turn (set by the router; absent on old sessions). */
   intent?: SessionIntent
   /** What the cost engine avoided — shown by /cost. */
@@ -201,6 +207,17 @@ export interface Session {
   shared?: boolean
   /** Last turn index that produced a tool call or text — used for no-progress detection. */
   lastProgressTurn: number
+}
+
+/** A change the agent asked to make to its own setup, waiting for the user's yes or no. */
+export interface ApprovalRequest {
+  id: string
+  /** Machine name of the action, e.g. `skill_write`, `mcp_add`, `switch_mode`. */
+  action: string
+  title: string
+  /** The exact thing that would happen (full command line, full skill text…). */
+  detail: string
+  at: string
 }
 
 /** Counters for work the cost engine did NOT send to the model. */
@@ -246,3 +263,5 @@ export type EngineEvent =
   | { type: 'waiting'; reason: string }
   | { type: 'budget_exhausted'; reason: string }
   | { type: 'budget_warning'; percent: number; message: string }
+  | { type: 'approval_request'; request: ApprovalRequest }
+  | { type: 'approval_resolved'; id: string; approved: boolean }

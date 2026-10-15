@@ -65,6 +65,13 @@ export interface TranscriptItem {
   at: string
 }
 
+export interface PendingApproval {
+  id: string
+  action: string
+  title: string
+  detail: string
+}
+
 export interface SessionView {
   id: string
   objective: string
@@ -80,6 +87,7 @@ export interface SessionView {
   shared: boolean
   participant?: { id: string; name: string }
   usage: { turns: number; modelCalls: number; toolCalls: number; costUsd: number | null; costPartial: boolean; inputTokens: number | null; outputTokens: number | null }
+  pendingApprovals: PendingApproval[]
   requirements: string[]
   verified: string[]
   can: { send: boolean; pause: boolean; setMode: boolean; setModel: boolean; manage: boolean }

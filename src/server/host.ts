@@ -60,6 +60,8 @@ export interface HostOptions {
   cwd: string
   /** Bumps whenever the active provider/model/key changes, so idle runners are rebuilt. */
   providerVersion?: () => number
+  /** Apply and save a changed config (what the owner's settings do). Lets the owner's agent manage itself, with approval. */
+  applyConfig?: (next: VaraConfig) => Promise<void>
 }
 
 /** A session as a client may see it: no reasoning blocks, everything scrubbed. */
@@ -79,6 +81,8 @@ export interface SessionView {
   shared: boolean
   participant?: { id: string; name: string }
   usage: { turns: number; modelCalls: number; toolCalls: number; costUsd: number | null; costPartial: boolean; inputTokens: number | null; outputTokens: number | null }
+  /** Changes the agent asked to make to itself, waiting for the owner's yes or no. */
+  pendingApprovals: Array<{ id: string; action: string; title: string; detail: string }>
   requirements: string[]
   /** Requirement numbers ("1", "2"…) the last accepted completion covered. */
   verified: string[]
@@ -189,6 +193,8 @@ export class VaraHost {
       config: this.opts.config,
       hub: this.opts.hub,
       onEvent: (e) => this.publish(live, e),
+      // Only the owner's own sessions may change the host's setup — never a guest's agent.
+      ...(this.opts.applyConfig && !live.session.participant ? { applyConfig: this.opts.applyConfig } : {}),
     })
   }
 
@@ -302,6 +308,7 @@ export class VaraHost {
         inputTokens: s.usage.inputTokens,
         outputTokens: s.usage.outputTokens,
       },
+      pendingApprovals: p.kind === 'owner' ? (s.pendingApprovals ?? []).map((r) => ({ id: r.id, action: r.action, title: scrubAll(r.title), detail: scrubAll(r.detail) })) : [],
       requirements: (s.activeRequirements ?? []).map((r) => cleanTitle(scrubAll(r))),
       verified: s.state === 'completed' ? (s.completionClaim?.verifiedRequirements ?? []) : [],
       can: {
@@ -696,6 +703,16 @@ export class VaraHost {
       for (const c of m.toolCalls ?? []) md.push(`> tool: \`${c.name}\` ${scrubAll(c.arguments).slice(0, 200)}`, '')
     }
     return { ok: true, value: { filename: `vara-${s.id}.md`, markdown: md.join('\n') } }
+  }
+
+  /** Owner: answer a change the agent asked to make to itself. */
+  async resolveApproval(p: Principal, id: string, approvalId: string, approved: boolean): Promise<Result<true>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const live = await this.load(id)
+    if (!live) return fail(404, 'no such session')
+    if (!live.runner.resolveApproval(approvalId, approved)) return fail(404, 'no such request (already answered?)')
+    return { ok: true, value: true }
   }
 
   /** End a session for good (the terminal's /stop, without quitting the host). */
