@@ -4,6 +4,7 @@ import type { VaraConfig } from '../config/config.js'
 import { budgetFor } from '../config/config.js'
 import { contextSettingsFor, thinkingFor, visionFor } from '../config/providers.js'
 import { previewTool } from '../tools/preview-tool.js'
+import { browserTool } from '../tools/browser-tool.js'
 import type { Tool } from '../tools/types.js'
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
@@ -44,7 +45,7 @@ export function makeSessionRunner(opts: {
       swarm: () => config().swarm,
       vision: (m) => visionFor(config(), m),
       ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
-      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>],
+      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.browser ? [browserTool as unknown as Tool<never>] : [])],
       mcpSummary: () => hub.summary(new Set(s.config.disabledMcp ?? [])),
     },
   )

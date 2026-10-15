@@ -802,6 +802,8 @@ export class Engine {
     // distinction a loop of failing calls looks like forward motion and never
     // trips the stall detector (observed: 247 turns, zero evidence).
     let anyToolSucceeded = false
+    // Images produced by tools this turn (browser screenshots): shown to the model once ALL results are in.
+    const shots: string[] = []
 
     for (const rawCall of turn.toolCalls) {
       const call = {
@@ -874,9 +876,11 @@ export class Engine {
             pauseForUser?: string
             completeClaim?: { summary: string; verificationPlan: string; verifiedRequirements?: string[] }
             escalate?: { to: 'task' | 'goal'; objective: string }
+            images?: string[]
           }>)(parsed, ctx)
           ok = result2.ok
           output = scrubAll(result2.output)
+          if (result2.images?.length) shots.push(...result2.images)
           if (result2.pauseForUser) pauseReason = result2.pauseForUser
           if (result2.completeClaim) completionClaim = result2.completeClaim
           if (result2.escalate) escalation = result2.escalate
@@ -922,6 +926,9 @@ export class Engine {
       this.emit({ type: 'tool_end', id: call.id, name: call.name, ok, output })
       if (ok) anyToolSucceeded = true
     }
+
+    // Tool-made images ride in one hidden engine message after the tool results (providers need the results first).
+    if (shots.length) this.addMessage({ role: 'user', content: ['[ENGINE] Image(s) from your last tool call:', ...shots.slice(0, 4)].join(String.fromCharCode(10)) })
 
     // Only genuine progress resets the stall counter: a successful tool or a
     // completed claim. A run of failing calls keeps counting toward the limit.

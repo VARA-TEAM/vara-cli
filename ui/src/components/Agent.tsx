@@ -103,6 +103,9 @@ export function AgentPanel({ state, set, models }: { state: SettingsState | null
       <Row label={t('a_cheap')} help={t('a_cheapHelp')}>
         <Commit value={state.agent.cheapModel} list="model-ids" placeholder={t('a_cheapNone')} onCommit={(v) => patch({ agent: { cheapModel: v } })} />
       </Row>
+      <Row label={t('a_browser')} help={t('a_browserHelp')}>
+        <Switch checked={state.agent.browser} onChange={(v) => void patch({ agent: { browser: v } })} label={state.agent.browser ? t('on') : t('off')} />
+      </Row>
       <Row label={t('a_publish')} help={t('a_publishHelp')}>
         <Switch checked={state.allowPublish} onChange={(v) => void patch({ allowPublish: v })} label={state.allowPublish ? t('on') : t('off')} />
       </Row>

@@ -111,6 +111,7 @@ export function settingItems(skills: SkillRow[]): SettingItem[] {
       commit: (c, t) => ({ ...c, agent: { ...c.agent, cheapModel: t.trim() } }),
     },
     toggle('updates', 'Agent', 'Check for updates', 'Once a day VARA asks GitHub if a newer release exists (nothing else is sent) and tells you here. Update with: vara update.', (c) => c.updates.check, (c, v) => ({ ...c, updates: { ...c.updates, check: v } })),
+    toggle('browser', 'Agent', 'Browser tool', 'Let the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Sites must be approved; passwords are never typed.', (c) => c.agent.browser, (c, v) => ({ ...c, agent: { ...c.agent, browser: v } })),
     toggle('publish', 'Agent', 'Allow publishing', 'Let the agent git push / write to GitHub. Keep off unless you trust the task.', (c) => c.allowPublish, (c, v) => ({ ...c, allowPublish: v })),
     {
       id: 'taskTurns',

@@ -117,6 +117,8 @@ export const AgentSchema = z.object({
   /** Route every message: chat / question / task / goal. Off = always run as the chosen kind. */
   autoIntent: z.boolean().default(true),
   defaultMode: z.enum(['plan', 'build']).default('build'),
+  /** Offer the `browser` tool (an isolated browser the agent can drive). Off until the owner turns it on. */
+  browser: z.boolean().default(false),
 })
 
 /** A user-defined mode: a named restriction of plan or build (see core/modes.ts). */

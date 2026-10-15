@@ -65,6 +65,10 @@ Goal: the agent can be given named modes, and can manage its own setup (skills, 
 
 Proof: tests are written first; `npm run check` green before every push.
 
+### R9 · Browser use — design note for the protected file (`engine.ts`)
+
+`engine.ts` gets one small, additive change: a tool may return `images` (image markers); after ALL tool results of a turn are recorded, the engine appends one hidden `[ENGINE]` user message carrying those markers, which the existing `resolveImages` path turns into image blocks for vision models (and an honest "cannot view images" note for the rest). Why in the engine: providers require every tool result of a turn to be consecutive before any other user message. Why it is safe: no permission logic is touched; images are only ever read from the session's own `attachments/` folder; at most 4 per turn; the message is hidden from the interfaces like other `[ENGINE]` messages. Defence-line tests are unchanged and pass. Everything else (policy, CDP, tool) lives in new files under `src/browser/` and `src/tools/browser-tool.ts`, and the tool is offered only when `agent.browser` is on.
+
 ## 3. Under study (do not implement before agreeing)
 
 | Item | Open question |

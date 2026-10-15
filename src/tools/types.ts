@@ -27,6 +27,8 @@ export interface ToolContext {
 export interface ToolResult {
   ok: boolean
   output: string
+  /** Image markers (see core/attachments.ts) the model should SEE after this result, e.g. a browser screenshot. */
+  images?: string[]
   /** Set when the tool wants the session to pause for a user decision. */
   pauseForUser?: string
   /** Set when the model claims the objective is met; the engine then verifies. */

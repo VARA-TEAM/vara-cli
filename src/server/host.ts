@@ -9,6 +9,7 @@ import { homedir } from 'node:os'
 import { createSession, CreateSessionInput } from '../core/session.js'
 import { contextStatus, estimateSessionTokens } from '../core/context.js'
 import { contextSettingsFor } from '../config/providers.js'
+import { closeAllBrowsers } from '../tools/browser-tool.js'
 import { findModel } from '../llm/registry.js'
 import { cleanTitle, expandMentions, withBlocks } from '../tui/mentions.js'
 import { adoptStaged, neutralize, readAttachment } from '../core/attachments.js'
@@ -843,6 +844,7 @@ export class VaraHost {
   }
 
   async closeAll(): Promise<void> {
+    await closeAllBrowsers()
     await previews.stopAll()
     for (const live of this.live.values()) {
       live.runner.pause()

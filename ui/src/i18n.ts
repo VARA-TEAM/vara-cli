@@ -432,6 +432,8 @@ const en = {
   sw_callsHelp: 'No new sub-agent starts once this many calls are spent. Works even when prices are unknown.',
   sw_cost: 'Cost cap (USD)',
   sw_costHelp: 'Stop starting sub-agents once the known cost reaches this. Empty = no cap.',
+  a_browser: 'Browser tool',
+  a_browserHelp: 'Lets the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Every site must be approved, passwords are never typed, and risky clicks ask you first.',
 } as const
 
 export type Key = keyof typeof en
@@ -861,6 +863,8 @@ const ar: Record<Key, string> = {
   sw_callsHelp: 'لا يبدأ وكيل فرعي جديد بعد صرف هذا العدد. يعمل حتى لو كانت الأسعار مجهولة.',
   sw_cost: 'سقف التكلفة (دولار)',
   sw_costHelp: 'يتوقف بدء الوكلاء الفرعيين عند بلوغ التكلفة المعروفة هذا الحد. الفارغ = بلا سقف.',
+  a_browser: 'أداة المتصفح',
+  a_browserHelp: 'تتيح للوكيل قيادة متصفح معزول (يلزم تثبيت Chrome أو Edge أو Chromium). كل موقع يحتاج موافقتك، ولا تُكتب كلمات المرور أبداً، والنقرات الخطرة تسألك أولاً.',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }
