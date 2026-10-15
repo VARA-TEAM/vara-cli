@@ -43,6 +43,14 @@ export interface ServerOptions {
    * is browsing with — which is 127.0.0.1 when they sit at the host itself, useless to a phone.
    */
   publicUrl?: () => string | undefined
+  /**
+   * Host names that reach this server THROUGH a public tunnel (the live array is read per request).
+   * On those, the owner's token is refused — the owner acts from the host machine only — and rate
+   * limits count the real client (the tunnel's forwarded address), not the tunnel process on 127.0.0.1.
+   */
+  publicHosts?: string[]
+  /** The active public share link, shown to the owner so the page can warn clearly. */
+  share?: () => { url: string; expiresAt?: string } | undefined
   /** Attempt limits per address and 5 minutes (defaults: 10 failed logins, 20 invite tries). */
   limits?: { failures?: number; joins?: number }
   /** Assets served under /assets/ (name → {type, body}). */
@@ -203,7 +211,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     const url = new URL(req.url ?? '/', origin(req))
     const method = req.method ?? 'GET'
-    const ip = req.socket.remoteAddress ?? 'unknown'
+    const hostName = hostnameOf(req.headers.host)
+    const viaTunnel = (opts.publicHosts ?? []).some((h) => h.toLowerCase() === hostName)
+    // Through a tunnel every client reaches us from 127.0.0.1: use the forwarded address, in its own
+    // namespace, so a stranger hammering the public link can never lock the owner out locally.
+    const forwarded = String(req.headers['cf-connecting-ip'] ?? req.headers['x-forwarded-for'] ?? '').split(',')[0]!.trim().slice(0, 64)
+    const ip = viaTunnel ? `public:${forwarded || 'unknown'}` : (req.socket.remoteAddress ?? 'unknown')
 
     // Cross-site requests: a browser always sends Origin on POST/PUT/PATCH/DELETE.
     if (method !== 'GET' && method !== 'HEAD') {
@@ -243,6 +256,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     /* ---- everything else needs a token ---- */
     if (failures.blocked(ip)) return json(res, 429, { error: 'too many failed attempts, try again later' })
     const who = principalOf(req, url)
+    if (who && viaTunnel && who.principal.kind === 'owner') {
+      failures.hit(ip)
+      return json(res, 403, { error: 'the host owner works from the host machine, not through the public link' })
+    }
     if (!who) {
       failures.hit(ip)
       return json(res, 401, { error: 'unauthorized' })
@@ -256,7 +273,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     if (a === 'me' && method === 'GET') {
       const info = host.info(p)
-      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner', host: info } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant, host: info })
+      const share = opts.share?.()
+      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner', host: info, ...(share ? { share } : {}) } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant, host: info })
     }
     if (a === 'models' && method === 'GET') return json(res, 200, host.models(p))
 

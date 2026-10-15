@@ -219,6 +219,13 @@ function Shell({
   const page = route.page === 'team' && me.role !== 'owner' ? ({ page: 'home' } as Route) : route
   return (
     <div className="app">
+      {me.role === 'owner' && me.share ? (
+        <div className="share-banner" role="alert">
+          <strong>{t('share_live')}</strong> <span dir="ltr">{me.share.url}</span>
+          {me.share.expiresAt ? <span> · {t('share_until', { t: new Date(me.share.expiresAt).toLocaleTimeString() })}</span> : null}
+          <span> — {t('share_risk')}</span>
+        </div>
+      ) : null}
       <Sidebar me={me} host={me.host} sessions={sessions} route={page} onRoute={setRoute} onSignOut={signOut} open={navOpen} onClose={() => setNavOpen(false)} onPalette={() => setPalette(true)} {...(owner && folder ? { folder: folder.current, onFolder: () => (loadFolder(), setPickFolder(true)) } : {})} />
       {page.page === 'home' ? <Home me={me} models={models} sessions={sessions} commands={globals} go={setRoute} onOpen={(id) => (reloadSessions(), open(id))} onToggleSidebar={toggle} /> : null}
       {page.page === 'session' ? <SessionPage key={page.id} id={page.id} me={me} models={models} onChanged={reloadSessions} onToggleSidebar={toggle} go={setRoute} /> : null}

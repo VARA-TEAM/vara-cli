@@ -11,11 +11,14 @@ import { checkModel, discoverModels, mapLimit } from '../llm/discovery.js'
 import { deleteSecret, setSecret } from '../security/vault.js'
 import { registerSecret } from '../security/redact.js'
 import type { Provider } from '../llm/provider.js'
+import { sweepStaging } from '../core/attachments.js'
 import { Manager } from './manage.js'
 import { McpHub } from '../mcp/hub.js'
 import { AccessStore, presetGrant, type Grant, type GrantPreset } from './access.js'
 import { VaraHost } from './host.js'
 import { newOwnerToken, startServer } from './http.js'
+import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
+import { PROVIDERS } from './tunnel.js'
 
 const DEFAULT_PORT = 7777
 
@@ -72,6 +75,7 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be 0-65535')
 
   await ensureStore()
+  void sweepStaging() // uploads nobody sent with a message
   let config: VaraConfig = ensureProviders(await loadConfig())
   let provider: Provider
   try {
@@ -112,6 +116,11 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   })
   const ownerToken = newOwnerToken()
   let guestBase: string | undefined
+  const wantShare = args.includes('--share')
+  const allowedHosts: string[] = publicHost ? [publicHost] : []
+  const publicHosts: string[] = []
+  let sharing: Sharing | null = null
+  let baseBeforeShare: string | undefined
   const server = await startServer({
     host,
     manager,
@@ -119,7 +128,12 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
     publicUrl: () => guestBase,
     bind: lan ? '0.0.0.0' : '127.0.0.1',
     port,
-    allowedHosts: publicHost ? [publicHost] : [],
+    allowedHosts,
+    publicHosts,
+    share: () => {
+      const s = sharing?.current()
+      return s ? { url: s.url, ...(s.expiresAt ? { expiresAt: s.expiresAt } : {}) } : undefined
+    },
     onError: (e) => console.error('[vara] internal error:', e instanceof Error ? e.message : e),
   })
 
@@ -129,6 +143,17 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   guestBase = lan || publicHost ? baseUrl : undefined
   writeFileSync(hostInfoFile(), JSON.stringify({ pid: process.pid, port: server.port, baseUrl } satisfies HostInfo))
 
+  baseBeforeShare = guestBase
+  sharing = new Sharing({
+    port: server.port,
+    allowedHosts,
+    publicHosts,
+    setGuestBase: (u) => {
+      guestBase = u ?? baseBeforeShare
+      writeFileSync(hostInfoFile(), JSON.stringify({ pid: process.pid, port: server.port, baseUrl: guestBase ?? baseUrl } satisfies HostInfo))
+    },
+    onEnd: (why) => console.log(`\n[vara] Public link closed: ${why}. Guests can no longer reach this host from outside; the host keeps running locally.`),
+  })
   const ownerUrl = `http://127.0.0.1:${server.port}/#token=${ownerToken}`
   console.log(`VARA host running - folder: ${cwd}`)
   console.log(`\n  You:      ${ownerUrl}`)
@@ -137,6 +162,7 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   if (!lan && !publicHost) console.log('  Local only. Add --lan to let people on your network join.')
   console.log('\nKeep this window open. Ctrl+C stops the host and every guest session.')
   if (lan) console.log('Only invite people you trust: a guest with "build" power can change files and run commands on THIS machine.')
+  if (wantShare) await startShare(sharing, args, access, config)
   if (open) openBrowser(ownerUrl)
 
   await new Promise<void>((done) => {
@@ -148,6 +174,7 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
       }
       void host
         .closeAll()
+        .then(() => sharing?.stop())
         .then(() => server.close())
         .finally(() => {
           hub.closeAll()
@@ -157,6 +184,32 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
     process.once('SIGINT', stop)
     process.once('SIGTERM', stop)
   })
+}
+
+/** `--share`: open the public link, print one safe (read-only) invite on it, and say plainly what is exposed. */
+async function startShare(sharing: Sharing, args: string[], access: AccessStore, _config: VaraConfig): Promise<void> {
+  const via = flag(args, '--share-via') ?? 'auto'
+  const minutes = flag(args, '--share-minutes') === undefined ? DEFAULT_SHARE_MINUTES : Number(flag(args, '--share-minutes'))
+  if (!Number.isFinite(minutes) || minutes < 0) throw new Error('--share-minutes must be 0 (until you stop) or a number of minutes')
+  const preset = (flag(args, '--share-preset') ?? 'participant') as GrantPreset
+  if (!['viewer', 'participant', 'collaborator'].includes(preset)) throw new Error('--share-preset must be viewer, participant or collaborator')
+  const sshHost = flag(args, '--share-ssh-host')
+  console.log(`\nOpening a public link (${via === 'auto' ? PROVIDERS.map((p) => p.id).join(' / ') : via})…`)
+  let info
+  try {
+    info = await sharing.start(via, { minutes, ...(sshHost ? { sshHost } : {}) })
+  } catch (err) {
+    console.log(`Could not open a public link: ${(err as Error).message}\nThe host keeps running locally (add --lan for your network).`)
+    return
+  }
+  const grant = presetGrant(preset)
+  const inv = access.createInvite(grant, { label: 'public share', ttlMs: (minutes > 0 ? minutes : 24 * 60) * 60_000, maxUses: 1 })
+  console.log(`  Public:   ${info.url}  (via ${info.provider}${info.expiresAt ? `, closes ${info.expiresAt}` : ', until you stop the host'})`)
+  console.log(`  Invite:   ${info.url}/join/${inv.token}   (${preset}, read-only agent, one use)`)
+  console.log('\n  !! This host is now reachable from the internet by anyone who has an invite link.')
+  console.log('  !! The tunnel provider relays the traffic. Your owner token does NOT work through it.')
+  console.log('  !! A guest with "build" power runs commands and edits files on THIS machine — keep guests on')
+  console.log('     plan (read-only) unless you trust them completely, and revoke with: vara guests revoke <id>')
 }
 
 /** `vara invite`: create an invite link for the running (or next) host. */

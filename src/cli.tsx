@@ -31,6 +31,8 @@ Usage:
                                        headless run (no TUI), prints events
   vara ui [--lan] [--port N]           open VARA in your browser (local web interface)
   vara serve [--lan] [--port N]        run the host without opening a browser
+  vara ui --share [--share-via cloudflared|ssh] [--share-minutes N] [--share-preset viewer|participant|collaborator]
+                                       temporary PUBLIC link through a tunnel you already have (no VARA relay)
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
   vara doctor                          check the install (interface, provider, git, ripgrep)

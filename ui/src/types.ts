@@ -23,7 +23,7 @@ export interface HostInfo {
 }
 
 export type Me =
-  | { role: 'owner'; name: string; host: HostInfo }
+  | { role: 'owner'; name: string; host: HostInfo; share?: { url: string; expiresAt?: string } }
   | { role: 'guest'; id: string; name: string; grant: Grant; host: HostInfo }
 
 export interface ModelsInfo {
