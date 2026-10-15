@@ -7,6 +7,7 @@ import type { Manager } from './manage.js'
 import { VERSION } from '../version.js'
 import { uiAssets } from './ui-assets.js'
 import { MAX_UPLOAD_BYTES } from '../core/attachments.js'
+import { previews } from '../preview/manager.js'
 
 /**
  * The local HTTP API of a VARA host: REST for commands, Server-Sent Events for
@@ -195,7 +196,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     res.setHeader('referrer-policy', 'no-referrer')
     res.setHeader('cache-control', 'no-store')
     res.setHeader('x-frame-options', 'DENY')
-    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src http://127.0.0.1:* http://localhost:*; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
 
     // DNS rebinding: refuse any Host we did not expect.
     if (!hostAllowed(req.headers.host, lan, extraHosts)) return json(res, 421, { error: 'unexpected host' })
@@ -288,6 +289,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (b && c === 'model' && method === 'POST') return reply(await host.setModel(p, b, str((await readBody(req))['model'], 200)))
       if (b && c === 'share' && method === 'POST') return reply(await host.share(p, b, (await readBody(req))['shared'] === true))
       if (b && c === 'events' && method === 'GET') return sse(req, res, url, who.token, p, b)
+      if (b && c === 'preview') {
+        if (method === 'GET') return reply(await host.previewState(p, b))
+        if (method === 'POST') return reply(await host.previewStart(p, b, str((await readBody(req))['command'], 500)))
+        if (method === 'DELETE') return reply(await host.previewStop(p, b))
+      }
       if (b && c === 'insights' && method === 'GET') return reply(await host.insights(p, b))
       if (b && c === 'export' && method === 'GET') return reply(await host.exportMarkdown(p, b))
       if (b && c === 'stop' && method === 'POST') return reply(await host.stop(p, b))
@@ -428,6 +434,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     server.listen(opts.port ?? 0, bind, resolve)
   })
   const port = (server.address() as AddressInfo).port
+  // The only pages allowed to embed a preview.
+  previews.setFrameAncestors([`http://127.0.0.1:${port}`, `http://localhost:${port}`])
   const sweeper = setInterval(() => host.sweepRevoked(), 5_000)
   sweeper.unref()
   return {

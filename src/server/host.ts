@@ -13,6 +13,7 @@ import { findModel } from '../llm/registry.js'
 import { cleanTitle, expandMentions, withBlocks } from '../tui/mentions.js'
 import { adoptStaged, neutralize, readAttachment } from '../core/attachments.js'
 import { Uploads, type UploadInfo } from './uploads.js'
+import { previews, type PreviewInfo } from '../preview/manager.js'
 import { listSessions, loadSession, saveSession, type SessionSummary } from '../core/store.js'
 import { SessionRunner } from '../core/runner.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
@@ -426,6 +427,37 @@ export class VaraHost {
     }
   }
 
+  /* ---------- live preview (owner only: it runs a command and exposes a loopback port) ---------- */
+
+  private async previewGate(p: Principal, id: string): Promise<Session | null> {
+    if (p.kind !== 'owner') return null
+    return (await this.load(id))?.session ?? null
+  }
+
+  async previewState(p: Principal, id: string): Promise<Result<{ preview: PreviewInfo | null; logs: string }>> {
+    if (!(await this.previewGate(p, id))) return fail(404, 'no such session')
+    return { ok: true, value: { preview: previews.get(id), logs: previews.logs(id, 80) } }
+  }
+
+  async previewStart(p: Principal, id: string, command: string): Promise<Result<{ preview: PreviewInfo; logs: string }>> {
+    const s = await this.previewGate(p, id)
+    if (!s) return fail(404, 'no such session')
+    const cmd = command.trim()
+    if (!cmd) return fail(400, 'write the command that starts your dev server, e.g. npm run dev')
+    try {
+      const preview = await previews.start(id, { command: cmd, cwd: s.config.cwd })
+      return { ok: true, value: { preview, logs: previews.logs(id, 80) } }
+    } catch (err) {
+      return fail(400, scrubAll((err as Error).message))
+    }
+  }
+
+  async previewStop(p: Principal, id: string): Promise<Result<true>> {
+    if (!(await this.previewGate(p, id))) return fail(404, 'no such session')
+    await previews.stop(id)
+    return { ok: true, value: true }
+  }
+
   /** An image attached to a session, for the people who can read that session. */
   async attachment(p: Principal, id: string, file: string): Promise<Result<{ mime: string; bytes: Buffer }>> {
     const live = await this.load(id)
@@ -722,6 +754,7 @@ export class VaraHost {
     const d = authorize(p, 'session.pause', refOf(live.session))
     if (!d.ok) return fail(403, d.reason)
     live.runner.pause()
+    await previews.stop(live.session.id)
     live.session.state = 'stopped'
     live.session.stateReason = 'Stopped by the user.'
     await saveSession(live.session)
@@ -783,6 +816,7 @@ export class VaraHost {
   }
 
   async closeAll(): Promise<void> {
+    await previews.stopAll()
     for (const live of this.live.values()) {
       live.runner.pause()
       for (const l of live.listeners) l.close()

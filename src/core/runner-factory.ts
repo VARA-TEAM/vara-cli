@@ -3,6 +3,8 @@ import type { Provider } from '../llm/provider.js'
 import type { VaraConfig } from '../config/config.js'
 import { budgetFor } from '../config/config.js'
 import { contextSettingsFor, thinkingFor, visionFor } from '../config/providers.js'
+import { previewTool } from '../tools/preview-tool.js'
+import type { Tool } from '../tools/types.js'
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
 import { policyFor } from './modes.js'
@@ -41,7 +43,7 @@ export function makeSessionRunner(opts: {
       modePolicy: () => policyFor(config().modes, s.config.customMode),
       vision: (m) => visionFor(config(), m),
       ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
-      extraTools: () => hub.tools(),
+      extraTools: () => [...hub.tools(), previewTool as unknown as Tool<never>],
       mcpSummary: () => hub.summary(),
     },
   )

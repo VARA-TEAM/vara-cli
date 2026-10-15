@@ -2,8 +2,9 @@ import { useT, type Key } from '../i18n'
 import { changedFiles, formatCost, formatTokens, relativeTime } from '../transcript'
 import type { Insights, SessionView } from '../types'
 import { Icon } from './ui'
+import { Preview } from './Preview'
 
-export type PanelTab = 'proof' | 'cost' | 'files'
+export type PanelTab = 'proof' | 'cost' | 'files' | 'preview'
 
 function Gauge({ value, max, label, tone }: { value: number; max: number; label: string; tone?: 'warn' | 'err' }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((value / max) * 100))) : 0
@@ -186,16 +187,17 @@ function Files({ view }: { view: SessionView }) {
   )
 }
 
-export function Panel({ view, insights, tab, onTab }: { view: SessionView; insights: Insights | null; tab: PanelTab; onTab: (t: PanelTab) => void }) {
+export function Panel({ view, insights, tab, onTab, owner }: { view: SessionView; insights: Insights | null; tab: PanelTab; onTab: (t: PanelTab) => void; owner?: boolean }) {
   const t = useT()
   const files = changedFiles(view).length
   const tabs: Array<[PanelTab, Key]> = [
     ['proof', 'tab_proof'],
     ['cost', 'tab_cost'],
     ['files', 'tab_files'],
+    ...(owner ? [['preview', 'tab_preview'] as [PanelTab, Key]] : []),
   ]
   return (
-    <aside className="panel" aria-label={t('details')}>
+    <aside className={`panel${tab === 'preview' ? ' panel-wide' : ''}`} aria-label={t('details')}>
       <div className="panel-tabs" role="tablist">
         {tabs.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => onTab(id)}>
@@ -208,6 +210,7 @@ export function Panel({ view, insights, tab, onTab }: { view: SessionView; insig
         {tab === 'proof' ? <Proof view={view} insights={insights} /> : null}
         {tab === 'cost' ? <Cost view={view} insights={insights} /> : null}
         {tab === 'files' ? <Files view={view} /> : null}
+        {tab === 'preview' && owner ? <Preview sessionId={view.id} /> : null}
       </div>
     </aside>
   )

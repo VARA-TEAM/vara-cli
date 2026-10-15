@@ -27,6 +27,7 @@ export const COMMANDS: CommandDef[] = [
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
   { name: '/cost', description: 'What this session cost — and what VARA saved you' },
   { name: '/attach', args: '<file>', description: 'Attach an image, PDF or text file to your next message (or type @path)', needsArgs: true },
+  { name: '/preview', args: '[start <command> | stop | logs]', description: 'Run the dev server and print its live URL (the agent can start it too)' },
   { name: '/export', args: '[file]', description: 'Save this conversation as a markdown file' },
   { name: '/skills', args: '[new <name>]', description: 'List skills, or create one' },
   { name: '/skill', args: '<name> [about]', description: 'Make the agent apply a skill now', needsArgs: true },

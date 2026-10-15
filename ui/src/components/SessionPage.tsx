@@ -106,6 +106,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
     add({ id: 'context', slash: 'context', group: 'session', title: t('cmd_context'), run: () => openPanel('cost') })
     add({ id: 'status', slash: 'status', group: 'session', title: t('cmd_status'), run: () => openPanel('proof') })
     add({ id: 'evidence', slash: 'evidence', group: 'session', title: t('cmd_evidence'), run: () => openPanel('proof') })
+    if (isOwner) add({ id: 'preview', slash: 'preview', group: 'session', title: t('cmd_preview'), description: t('cmd_previewHelp'), run: () => openPanel('preview') })
     add({ id: 'export', slash: 'export', group: 'session', title: t('cmd_export'), description: t('cmd_exportHelp'), run: () => void exportMd() })
     if (view.can.pause) {
       if (busy) add({ id: 'pause', slash: 'pause', group: 'session', title: t('pause'), description: t('cmd_pauseHelp'), run: () => run(() => post('/pause')) })
@@ -280,7 +281,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             />
           </div>
         </div>
-        {panelOpen ? <Panel view={view} insights={insights} tab={tab} onTab={setTab} /> : null}
+        {panelOpen ? <Panel view={view} insights={insights} tab={tab} onTab={setTab} owner={isOwner} /> : null}
       </div>
     </main>
   )

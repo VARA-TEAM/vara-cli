@@ -34,7 +34,8 @@ import { modeLabel, modeNames, resolveModeChoice } from '../core/modes.js'
 import { McpScreen } from './mcp.js'
 import { attachPath, cleanTitle, expandMentions } from './mentions.js'
 import { adoptStaged } from '../core/attachments.js'
-import { setModelThinking, thinkingFor } from '../config/providers.js'
+import { previews } from '../preview/manager.js'
+import { setModelThinking, thinkingFor, visionFor } from '../config/providers.js'
 import { nextLevel } from '../llm/capabilities.js'
 import { findModel } from '../llm/registry.js'
 import { writeFile } from 'node:fs/promises'
@@ -700,6 +701,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
 
     switch (action.type) {
       case 'quit': {
+        void previews.stopAll()
         hubRef.current.closeAll()
         runnerRef.current?.pause()
         const current = sessionRef.current
@@ -910,6 +912,56 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         }
         onProvidersChange(setModelThinking(configRef.current, activeProviderName(configRef.current), m, next))
         push({ kind: 'note', text: `thinking → ${next} for ${m} (work turns; chat stays fast)`, color: 'yellow', group: 'think' })
+        return
+      }
+      case 'attach': {
+        const arg = value.replace(/^\/attach\s*/, '').trim().replace(/^(["'])(.*)\1$/, '$2')
+        if (!arg) {
+          const waiting = pendingAttachRef.current
+          push({ kind: 'note', text: waiting.length ? `waiting for your next message: ${waiting.map((a) => a.name).join(', ')}` : 'usage: /attach <file> — an image, a PDF or a text file (or drag a file onto the terminal)', color: 'gray' })
+          return
+        }
+        void attachPath(resolve(cur?.config.cwd ?? process.cwd(), arg))
+          .then((st) => {
+            pendingAttachRef.current.push({ block: st.block, name: st.name })
+            const model = cur?.config.model ?? configRef.current.provider.model
+            const blind = st.kind === 'image' && !visionFor(configRef.current, model)
+            const kb = Math.max(1, Math.round(st.size / 1024))
+            const extra = (blind ? ` · ${model} cannot view images, the agent will only be told one was attached` : '') + (st.note ? ` · ${st.note}` : '')
+            push({ kind: 'note', text: `attached ${st.name} (${st.kind}, ${kb} KB) — it goes with your next message${extra}`, color: blind ? 'yellow' : 'green' })
+          })
+          .catch((err: Error) => push({ kind: 'note', text: `cannot attach: ${err.message}`, color: 'red' }))
+        return
+      }
+      case 'preview': {
+        if (!cur) {
+          push({ kind: 'note', text: 'start a session first', color: 'gray' })
+          return
+        }
+        const sub = rest[0] ?? ''
+        const info = previews.get(cur.id)
+        if (sub === 'stop') {
+          void previews.stop(cur.id).then(() => push({ kind: 'note', text: 'preview stopped', color: 'green' }))
+          return
+        }
+        if (sub === 'logs') {
+          push({ kind: 'note', text: previews.logs(cur.id, 40) || '(no preview output yet)', color: 'gray' })
+          return
+        }
+        if (sub === 'start') {
+          const command = value.replace(/^\/preview\s+start\s*/, '').trim()
+          if (!command) {
+            push({ kind: 'note', text: 'usage: /preview start <command>  e.g. /preview start npm run dev', color: 'gray' })
+            return
+          }
+          push({ kind: 'note', text: `starting ${command} …`, color: 'gray' })
+          void previews
+            .start(cur.id, { command, cwd: cur.config.cwd })
+            .then((i) => push({ kind: 'note', text: i.state === 'running' ? `preview running — open ${i.url}` : `preview did not start: ${i.error ?? i.state}`, color: i.state === 'running' ? 'green' : 'red' }))
+            .catch((err: Error) => push({ kind: 'note', text: err.message, color: 'red' }))
+          return
+        }
+        push({ kind: 'note', text: info ? `preview ${info.state}${info.url ? ` — open ${info.url}` : ''}${info.error ? ` — ${info.error}` : ''}` : 'no preview running — /preview start <command>, or ask the agent to start the dev server', color: 'gray' })
         return
       }
       case 'export': {

@@ -236,6 +236,14 @@ ul.plain li { display: flex; gap: 8px; align-items: center; color: var(--muted);
 .watching { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 
 .panel { width: var(--panel-w); flex-shrink: 0; border-inline-start: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px 16px; display: grid; gap: 18px; align-content: start; }
+.panel.panel-wide { width: min(560px, 46vw); }
+.preview { display: grid; gap: 10px; }
+.preview-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.preview-frame { width: 100%; height: min(62vh, 560px); border: 1px solid var(--border); border-radius: 10px; background: #fff; }
+.preview-start { display: grid; gap: 8px; }
+.preview-start input { font-family: var(--mono, monospace); }
+.preview-logs { max-height: 220px; overflow: auto; font-size: 12px; background: var(--surface-2); border-radius: 8px; padding: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.linklike { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; justify-self: start; font-size: 12.5px; }
 .panel h3 { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin-block-end: 8px; display: flex; gap: 8px; align-items: center; }
 .count { background: var(--surface-2); border-radius: 99px; padding: 0 7px; font-size: 11px; }
 .reqs { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
