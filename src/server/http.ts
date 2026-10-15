@@ -94,7 +94,8 @@ export function hostAllowed(hostHeader: string | undefined, lan: boolean, extra:
   if (name === 'localhost' || name === '127.0.0.1' || name === '::1') return true
   if (extra.map((e) => e.toLowerCase()).includes(name)) return true
   // On the LAN, devices type the machine's private IP. A DOMAIN name is refused: that is what rebinding uses.
-  return lan && PRIVATE_IPV4.test(name)
+  // A literal IP cannot be rebound to somewhere else, so any IP the machine is opened on is fine (a VPS's public one too).
+  return lan && (PRIVATE_IPV4.test(name) || /^\d{1,3}(\.\d{1,3}){3}$/.test(name) || name.includes(':'))
 }
 
 class RateLimit {

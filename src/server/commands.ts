@@ -23,6 +23,7 @@ import { VaraHost } from './host.js'
 import { newOwnerToken, startServer } from './http.js'
 import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
 import { PROVIDERS } from './tunnel.js'
+import { askExposure, exposureArgs, exposureDecided, publicIp } from './expose.js'
 
 const DEFAULT_PORT = 7777
 
@@ -87,6 +88,8 @@ export interface ServeHooks {
  */
 export async function serveCommand(args: string[], open: boolean, hooks: ServeHooks = {}): Promise<void> {
   const env = hooks.env ?? process.env
+  // At a terminal with nothing said about exposure: ask, instead of silently listening where a VPS cannot be reached.
+  if (!hooks.env && process.stdin.isTTY && process.stdout.isTTY && !exposureDecided(args, env)) args = [...args, ...exposureArgs(await askExposure())]
   const settings = parseServeSettings(args, env, { daemon: !open })
   const { port, publicHost, cwd, daemon } = settings
   const lan = !isLoopback(settings.bind)
@@ -196,7 +199,9 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
     throw err
   }
 
-  const lanUrls = lan && !daemon ? lanAddresses().map((ip) => `http://${ip}:${server.port}`) : []
+  const wantPublic = args.includes('--public')
+  const outside = wantPublic ? await publicIp() : null
+  const lanUrls = lan ? [...(outside ? [outside] : []), ...lanAddresses()].map((ip) => `http://${ip}:${server.port}`) : []
   const localUrl = `http://${settings.bind === '0.0.0.0' || settings.bind === '::' ? '127.0.0.1' : settings.bind}:${server.port}`
   const baseUrl = publicHost ? `https://${publicHost}` : (lanUrls[0] ?? localUrl)
   // Invites made in the browser must carry the address a guest can actually reach.
@@ -228,10 +233,16 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
     }
     logger.info(`health check: ${localUrl}/api/health`)
   } else {
-    ownerUrl = `http://127.0.0.1:${server.port}/#token=${ownerToken}`
+    // Where the owner opens it: a remote server's own 127.0.0.1 is no use to someone browsing from home.
+    const reach = wantPublic && lanUrls[0] ? lanUrls[0] : `http://127.0.0.1:${server.port}`
+    ownerUrl = `${reach}/#token=${ownerToken}`
     console.log(`VARA host running - folder: ${cwd}`)
     console.log(`\n  You:      ${ownerUrl}`)
     if (lan) for (const u of lanUrls) console.log(`  Guests:   ${u}  (they need an invite: vara invite --preset collaborator)`)
+    if (wantPublic) {
+      if (!outside) console.log('  (could not learn this server\'s public IP — use the IP your provider shows)')
+      console.log(`  If it does not load: open port ${server.port} (ufw allow ${server.port}/tcp, and your provider's firewall / security group). It is plain HTTP: put TLS in front for anything beyond a trial.`)
+    }
     if (publicHost) console.log(`  Public:   https://${publicHost}  (through your tunnel)`)
     if (!lan && !publicHost) console.log('  Local only. Add --lan to let people on your network join.')
     console.log('\nKeep this window open. Ctrl+C stops the host and every guest session.')

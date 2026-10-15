@@ -69,9 +69,10 @@ export function parseServeSettings(args: string[], env: Env, opts: { daemon: boo
   const port = Number(portText)
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`the port must be a number from 0 to 65535 (got "${portText}")`)
 
-  const lan = args.includes('--lan')
+  // --public means "reachable from anywhere by this machine's IP": the same listener as --lan, said honestly.
+  const lan = args.includes('--lan') || args.includes('--public')
   const bindText = flag(args, '--bind') ?? e('VARA_BIND')
-  if (lan && bindText) throw new Error('use either --lan or --bind <address>, not both')
+  if (lan && bindText) throw new Error('use either --lan / --public or --bind <address>, not both')
   const bind = (bindText ?? (lan ? '0.0.0.0' : '127.0.0.1')).trim()
   if (!bind || /\s/.test(bind)) throw new Error('--bind needs an address such as 127.0.0.1 or 0.0.0.0')
 

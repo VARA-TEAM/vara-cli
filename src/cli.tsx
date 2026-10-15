@@ -33,7 +33,7 @@ Usage:
                                        headless run (no TUI), prints events
   vara ui [--lan] [--port N]           open VARA in your browser (local web interface)
   vara update [--check] [--rollback]   update this install from the latest GitHub release (SHA-256 verified)
-  vara serve [--port N] [--bind ADDR] [--public-host NAME] [--cwd DIR] [--token-file F] [--rotate-token] [--trust-proxy] [--log text|json|journal]
+  vara serve [--public | --lan | --local] [--port N] [--bind ADDR] [--public-host NAME] [--cwd DIR] [--token-file F] [--rotate-token] [--trust-proxy] [--log text|json|journal]
                                        run VARA as a headless service (VPS, Docker, CI); also configured by VARA_PORT, VARA_BIND,
                                        VARA_PUBLIC_HOST, VARA_CWD, VARA_OWNER_TOKEN[_FILE], VARA_LOG, VARA_TRUST_PROXY. See docs/DEPLOYMENT.md
   vara ui --share [--share-via cloudflared|ssh] [--share-minutes N] [--share-preset viewer|participant|collaborator]

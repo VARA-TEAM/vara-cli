@@ -110,7 +110,8 @@ describe('server — authentication and hardening', () => {
     expect(hostAllowed('[::1]:80', false, [])).toBe(true)
     expect(hostAllowed('192.168.1.20:7777', false, [])).toBe(false)
     expect(hostAllowed('192.168.1.20:7777', true, [])).toBe(true)
-    expect(hostAllowed('8.8.8.8', true, [])).toBe(false)
+    expect(hostAllowed('8.8.8.8', true, [])).toBe(true) // a literal IP (a VPS's public one) cannot be rebound
+    expect(hostAllowed('8.8.8.8', false, [])).toBe(false)
     expect(hostAllowed('attacker.com', true, [])).toBe(false)
     expect(hostAllowed('my-tunnel.example.org', true, ['my-tunnel.example.org'])).toBe(true)
     expect(hostAllowed(undefined, true, [])).toBe(false)
