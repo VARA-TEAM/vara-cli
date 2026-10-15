@@ -52,6 +52,26 @@ export const onUnauthorized = (fn: () => void): (() => void) => {
   return () => unauthorizedListeners.delete(fn)
 }
 
+export interface UploadInfo {
+  id: string
+  name: string
+  kind: 'image' | 'text'
+  size: number
+  note?: string
+}
+
+/** Send one file (raw bytes) to be attached to the next message. */
+export async function uploadFile(file: File): Promise<UploadInfo> {
+  const res = await fetch('/api/uploads', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${auth.get()}`, 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name || 'pasted-image') },
+    body: file,
+  })
+  const data = (await res.json().catch(() => ({}))) as UploadInfo & { error?: string }
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `HTTP ${res.status}`)
+  return data
+}
+
 export async function api<T>(method: string, path: string, body?: unknown, opts: { anonymous?: boolean; signal?: AbortSignal } = {}): Promise<T> {
   const token = auth.get()
   const res = await fetch(path, {

@@ -171,3 +171,13 @@ describe('translations and themes', () => {
     expect(new Set(THEMES.map((t) => t.id)).size).toBe(THEMES.length)
   })
 })
+
+describe('attached files in a user message', () => {
+  it('lists images and files after the marker and hides them from the text', async () => {
+    const { buildItems, attachedOf } = await import('../ui/src/transcript')
+    const body = 'what is this\n\n[attached files]\n<image id="0123456789abcdef.png" name="shot.png"/>\n<file name="a.txt">\nhi\n</file>'
+    const [item] = buildItems({ transcript: [{ role: 'user', content: body, at: 'x' }] })
+    expect(item).toMatchObject({ kind: 'user', text: 'what is this', images: [{ id: '0123456789abcdef.png', name: 'shot.png' }], files: ['a.txt'] })
+    expect(attachedOf('<image id="../x.png" name="n"/>').images).toEqual([])
+  })
+})

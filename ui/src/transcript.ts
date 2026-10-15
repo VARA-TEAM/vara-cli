@@ -2,7 +2,7 @@ import type { SessionView, ToolCall, TranscriptItem } from './types'
 
 /** What the chat draws, derived from the host's snapshot. Pure and tested. */
 export type ChatItem =
-  | { kind: 'user'; text: string; author?: string; at: string }
+  | { kind: 'user'; text: string; author?: string; at: string; images?: Array<{ id: string; name: string }>; files?: string[] }
   | { kind: 'assistant'; text: string; at: string }
   | { kind: 'tool'; id: string; name: string; args: string; output?: string; ok?: boolean; at: string }
 
@@ -19,8 +19,10 @@ export function buildItems(view: Pick<SessionView, 'transcript'>): ChatItem[] {
       const a = ATTRIBUTION.exec(m.content)
       const raw = a ? m.content.slice(a[0].length) : m.content
       // Attached files ride after a marker; show only what the person typed.
-      const text = raw.split('\n\n[attached files]')[0] ?? raw
-      items.push({ kind: 'user', text, ...(a ? { author: a[1]! } : {}), at: m.at })
+      const [text = raw, ...tail] = raw.split('\n\n[attached files]')
+      const attached = tail.join('')
+      const { images, files } = attachedOf(attached)
+      items.push({ kind: 'user', text, ...(a ? { author: a[1]! } : {}), at: m.at, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) })
     } else if (m.role === 'assistant') {
       if (m.content.trim()) items.push({ kind: 'assistant', text: m.content, at: m.at })
       for (const c of m.toolCalls ?? []) {
@@ -30,6 +32,15 @@ export function buildItems(view: Pick<SessionView, 'transcript'>): ChatItem[] {
     }
   }
   return items
+}
+
+/** The images and file names that ride after a message's attachment marker. */
+export function attachedOf(section: string): { images: Array<{ id: string; name: string }>; files: string[] } {
+  const images: Array<{ id: string; name: string }> = []
+  for (const m of section.matchAll(/<image id="([a-f0-9]{16}\.(?:png|jpg|gif|webp))"(?: name="([^"<>]{0,120})")?\/>/g)) images.push({ id: m[1]!, name: m[2] ?? 'image' })
+  const files: string[] = []
+  for (const m of section.matchAll(/<file (?:name|path)="([^"]{1,200})"/g)) files.push(m[1]!)
+  return { images, files }
 }
 
 /** One-line summary of a tool call for its card header. */

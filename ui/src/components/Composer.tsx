@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '../api'
+import { api, uploadFile, type UploadInfo } from '../api'
+import { useToast } from './toast'
 import { matchCommands, parseSlash, type Cmd } from '../commands'
 import { useT } from '../i18n'
 import { Button, Icon } from './ui'
@@ -51,8 +52,11 @@ export function Composer({
   files,
   draftKey,
   onUnknownCommand,
+  attachable = true,
 }: {
-  onSend: (text: string) => Promise<void> | void
+  onSend: (text: string, attachments: string[]) => Promise<void> | void
+  /** Allow attaching files (drag, paste, the clip button). On by default. */
+  attachable?: boolean
   disabled?: boolean
   busy?: boolean
   placeholder?: string
@@ -68,6 +72,10 @@ export function Composer({
   onUnknownCommand?: (name: string) => void
 }) {
   const t = useT()
+  const toast = useToast()
+  const [picks, setPicks] = useState<Array<UploadInfo | { id: string; name: string; pending: true }>>([])
+  const [over, setOver] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [text, setTextState] = useState(() => readDraft(draftKey))
   const [sending, setSending] = useState(false)
   const [caret, setCaret] = useState(0)
@@ -148,9 +156,25 @@ export function Composer({
     })
   }
 
+  const canAttach = attachable && !disabled
+  const addFiles = (list: FileList | File[]): void => {
+    for (const file of Array.from(list).slice(0, 6)) {
+      const tmp = `pending-${Math.random().toString(36).slice(2)}`
+      setPicks((p) => [...p, { id: tmp, name: file.name || 'pasted-image', pending: true }])
+      uploadFile(file)
+        .then((info) => setPicks((p) => p.map((x) => (x.id === tmp ? info : x))))
+        .catch((e: Error) => {
+          setPicks((p) => p.filter((x) => x.id !== tmp))
+          toast(t('attach_failed', { name: file.name || 'file', why: e.message }), 'err')
+        })
+    }
+  }
+  const ready = picks.filter((p): p is UploadInfo => !('pending' in p))
+  const uploading = picks.length > ready.length
+
   const submit = async (): Promise<void> => {
-    const value = text.trim()
-    if (!value || disabled || sending) return
+    const value = text.trim() || (ready.length ? '(see the attached files)' : '')
+    if (!value || disabled || sending || uploading) return
     const cmd = commands ? parseSlash(value) : null
     if (cmd && commands) {
       const c = commands.find((x) => x.slash === cmd.name)
@@ -164,8 +188,9 @@ export function Composer({
     }
     setSending(true)
     try {
-      await onSend(value)
+      await onSend(value, ready.map((r) => r.id))
       setText('')
+      setPicks([])
     } finally {
       setSending(false)
       ref.current?.focus()
@@ -173,7 +198,34 @@ export function Composer({
   }
 
   return (
-    <div className={`composer${disabled ? ' is-disabled' : ''}${big ? ' composer-big' : ''}`}>
+    <div
+      className={`composer${disabled ? ' is-disabled' : ''}${big ? ' composer-big' : ''}${over ? ' drop' : ''}`}
+      onDragOver={(e) => {
+        if (!canAttach || !e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setOver(true)
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false)
+        if (!canAttach || !e.dataTransfer.files.length) return
+        e.preventDefault()
+        addFiles(e.dataTransfer.files)
+      }}
+    >
+      {picks.length ? (
+        <div className="picks">
+          {picks.map((p) => (
+            <span className={`pick${'pending' in p ? ' busy' : ''}`} key={p.id} title={p.name}>
+              <Icon name={'kind' in p && p.kind === 'image' ? 'eye' : 'file'} size={13} />
+              <span>{p.name}</span>
+              <button type="button" aria-label={t('attach_remove', { name: p.name })} onClick={() => setPicks((all) => all.filter((x) => x.id !== p.id))}>
+                <Icon name="x" size={12} />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
       {open ? (
         <ul className="menu" role="listbox" aria-label={mentionQuery !== null ? t('c_files') : t('c_commands')}>
           {menu.map((m, i) => (
@@ -199,6 +251,12 @@ export function Composer({
         aria-expanded={open}
         onChange={(e) => (setText(e.target.value), setCaret(e.target.selectionStart))}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.files)
+          if (!canAttach || !files.length) return
+          e.preventDefault()
+          addFiles(files)
+        }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
           if (open) {
@@ -220,14 +278,24 @@ export function Composer({
         }}
       />
       <div className="composer-bar">
-        <div className="composer-controls">{controls}</div>
+        <div className="composer-controls">
+          {canAttach ? (
+            <>
+              <input ref={fileInput} type="file" multiple hidden onChange={(e) => (e.target.files && addFiles(e.target.files), (e.target.value = ''))} />
+              <button type="button" className="attach-btn" onClick={() => fileInput.current?.click()} aria-label={t('attach')} title={t('attach')}>
+                <Icon name="clip" size={17} />
+              </button>
+            </>
+          ) : null}
+          {controls}
+        </div>
         <div className="composer-actions">
           {busy && canPause && onPause ? (
             <Button kind="ghost" icon="pause" onClick={onPause} title={t('pause')}>
               {t('pause')}
             </Button>
           ) : null}
-          <button className="send" onClick={() => void submit()} disabled={disabled || sending || !text.trim()} aria-label={t('send')} title={t('send')}>
+          <button className="send" onClick={() => void submit()} disabled={disabled || sending || uploading || (!text.trim() && !ready.length)} aria-label={t('send')} title={t('send')}>
             <Icon name="send" size={18} />
           </button>
         </div>

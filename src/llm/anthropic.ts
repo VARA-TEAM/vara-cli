@@ -94,6 +94,20 @@ export function anthropicProvider(config: ProviderConfig): Provider {
           continue
         }
 
+        if (m.role === 'user' && m.images?.length) {
+          const blocks: Array<Record<string, unknown>> = [
+            ...m.images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.data } })),
+            { type: 'text', text: m.content || '(see the attached images)' },
+          ]
+          const prev = anthropicMessages[anthropicMessages.length - 1]
+          if (prev && prev.role === 'user') {
+            prev.content = Array.isArray(prev.content) ? [...prev.content, ...blocks] : [{ type: 'text', text: String(prev.content) }, ...blocks]
+          } else {
+            anthropicMessages.push({ role: 'user', content: blocks })
+          }
+          continue
+        }
+
         if (m.role === 'user') {
           const prev = anthropicMessages[anthropicMessages.length - 1]
           if (prev && prev.role === 'user') {

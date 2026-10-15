@@ -32,12 +32,13 @@ import { McpHub } from '../mcp/hub.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
 import { modeLabel, modeNames, resolveModeChoice } from '../core/modes.js'
 import { McpScreen } from './mcp.js'
-import { cleanTitle, expandMentions } from './mentions.js'
+import { attachPath, cleanTitle, expandMentions } from './mentions.js'
+import { adoptStaged } from '../core/attachments.js'
 import { setModelThinking, thinkingFor } from '../config/providers.js'
 import { nextLevel } from '../llm/capabilities.js'
 import { findModel } from '../llm/registry.js'
 import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Markdown } from './markdown.js'
 import { keySource } from '../runtime.js'
 import { resolveKey, type Overlay } from './keymap.js'
@@ -129,6 +130,8 @@ export function App({ session, provider: initialProvider, config: initialConfig,
   /** Indirection to the fresh `runCommand` (defined below) — submit must never
    * call a stale copy that acts on the wrong session. */
   const runCommandRef = useRef<(value: string) => void>(() => {})
+  /** Files added with /attach, waiting for the next message. */
+  const pendingAttachRef = useRef<Array<{ block: string; name: string }>>([])
   /** Stale-closure shields for the input path. ink re-subscribes `useInput`
    * on every render, but a keystroke can arrive BEFORE the next subscription
    * flushes — the attached handler then belongs to the PREVIOUS render and
@@ -519,10 +522,15 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           auto,
         })
         const created = createSession(parsed, configRef.current)
-        void saveSession(created)
-        attachSession(created)
-        push({ kind: 'user', text: objective })
-        startRun()
+        // Images wait in staging until the session exists; they must be in its folder before the first turn reads them.
+        void adoptStaged(created.id, objective)
+          .then(() => saveSession(created))
+          .then(() => {
+            attachSession(created)
+            push({ kind: 'user', text: objective })
+            startRun()
+          })
+          .catch((err: Error) => push({ kind: 'note', text: err.message, color: 'red' }))
       } catch (err) {
         // Never show raw validation JSON: say what is wrong in one line.
         const text = err instanceof ZodError ? err.issues.map((i) => i.message).join('; ') : (err as Error).message
@@ -622,9 +630,12 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         if (!activeRef.current && sessionRef.current) return
         const homeCwd = activeRef.current?.config.cwd ?? process.cwd()
         setInput('')
-        void expandMentions(value, homeCwd).then(({ text, files }) => {
+        const extra = pendingAttachRef.current.map((a) => a.block)
+        pendingAttachRef.current = []
+        void expandMentions(value, homeCwd, { extra }).then(({ text, files, skipped }) => {
           createSessionFlow(text, { kind: draftKindRef.current, mode: draftModeRef.current, cwd: homeCwd })
           if (files.length) push({ kind: 'note', text: `attached ${files.join(', ')}`, color: 'gray' })
+          for (const k of skipped) push({ kind: 'note', text: `not attached — ${k}`, color: 'yellow' })
         })
         return
       }
@@ -635,7 +646,10 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         return
       }
       const sendCwd = activeRef.current?.config.cwd ?? process.cwd()
-      void expandMentions(value, sendCwd).then(({ text, files }) => {
+      const extra = pendingAttachRef.current.map((a) => a.block)
+      pendingAttachRef.current = []
+      void expandMentions(value, sendCwd, { extra }).then(async ({ text, files, skipped }) => {
+        if (sessionRef.current) await adoptStaged(sessionRef.current.id, text)
         runnerRef.current?.send(text)
         if (!runnerRef.current?.isRunning) {
           push({ kind: 'user', text: value })
@@ -644,6 +658,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           push({ kind: 'note', text: 'queued — the agent will see it at the next safe point', color: 'cyan', group: 'queue' })
         }
         if (files.length) push({ kind: 'note', text: `attached ${files.join(', ')}`, color: 'gray' })
+        for (const k of skipped) push({ kind: 'note', text: `not attached — ${k}`, color: 'yellow' })
         refresh()
       })
     },

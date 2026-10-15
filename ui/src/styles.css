@@ -214,6 +214,18 @@ ul.plain li { display: flex; gap: 8px; align-items: center; color: var(--muted);
 .composer.is-disabled { opacity: .75; }
 .composer textarea { width: 100%; resize: none; background: none; border: 0; padding: 4px 0; outline: none; max-height: 220px; line-height: 1.5; display: block; }
 .composer-big textarea { font-size: 16px; min-height: 76px; }
+.composer.drop { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent); }
+.picks { display: flex; flex-wrap: wrap; gap: 6px; margin-block-end: 6px; }
+.pick { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 4px 3px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); font-size: 12.5px; }
+.pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick.busy { opacity: .6; }
+.pick button { border: 0; background: none; color: inherit; cursor: pointer; display: grid; place-items: center; padding: 2px; border-radius: 50%; }
+.attach-btn { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 6px; border-radius: 8px; display: grid; place-items: center; }
+.attach-btn:hover { color: var(--text); background: var(--surface-2); }
+.attached { display: flex; flex-wrap: wrap; gap: 6px; margin-block-start: 8px; }
+.attached-img { display: block; max-width: 220px; max-height: 160px; border-radius: 10px; border: 1px solid var(--border); object-fit: cover; }
+.attached-loading { width: 120px; height: 80px; background: var(--surface); }
+.attached-missing { font-size: 12.5px; opacity: .7; }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-block-start: 6px; }
 .composer-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; min-width: 0; }
 .composer-controls select { font-size: 13px; padding: 4px 8px; max-width: 180px; }

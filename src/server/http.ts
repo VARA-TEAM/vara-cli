@@ -6,6 +6,7 @@ import type { StampedEvent, VaraHost } from './host.js'
 import type { Manager } from './manage.js'
 import { VERSION } from '../version.js'
 import { uiAssets } from './ui-assets.js'
+import { MAX_UPLOAD_BYTES } from '../core/attachments.js'
 
 /**
  * The local HTTP API of a VARA host: REST for commands, Server-Sent Events for
@@ -161,6 +162,30 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       req.on('error', reject)
     })
 
+  /** Raw request body up to `max` bytes (uploads). */
+  const readRaw = (req: IncomingMessage, max: number): Promise<Buffer> =>
+    new Promise((resolve, reject) => {
+      let size = 0
+      let over = false
+      const chunks: Buffer[] = []
+      // Past the limit the rest is read and thrown away, so the client still receives the 413 instead of a reset connection.
+      req.on('data', (c: Buffer) => {
+        size += c.length
+        if (over) return
+        if (size > max) {
+          over = true
+          chunks.length = 0
+          reject(new HttpError(413, 'file too large'))
+          return
+        }
+        chunks.push(c)
+      })
+      req.on('end', () => resolve(Buffer.concat(chunks)))
+      req.on('error', reject)
+    })
+
+  const ids = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 12).map((x) => x.slice(0, 40)) : undefined)
+
   const str = (v: unknown, max = 20_000): string => (typeof v === 'string' ? v.slice(0, max) : '')
 
   const origin = (req: IncomingMessage): string => `http://${req.headers.host ?? ''}`
@@ -170,7 +195,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     res.setHeader('referrer-policy', 'no-referrer')
     res.setHeader('cache-control', 'no-store')
     res.setHeader('x-frame-options', 'DENY')
-    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+    res.setHeader('content-security-policy', "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
 
     // DNS rebinding: refuse any Host we did not expect.
     if (!hostAllowed(req.headers.host, lan, extraHosts)) return json(res, 421, { error: 'unexpected host' })
@@ -241,10 +266,19 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const body = await readBody(req)
         const kind = body['kind'] === 'task' || body['kind'] === 'goal' || body['kind'] === 'auto' ? body['kind'] : undefined
         const mode = typeof body['mode'] === 'string' && MODE_NAME.test(body['mode']) ? body['mode'] : undefined
-        return reply(await host.create(p, { message: str(body['message']), ...(mode ? { mode } : {}), ...(kind ? { kind } : {}), ...(typeof body['model'] === 'string' ? { model: str(body['model'], 200) } : {}) }))
+        return reply(await host.create(p, { message: str(body['message']), ...(ids(body['attachments']) ? { attachments: ids(body['attachments'])! } : {}), ...(mode ? { mode } : {}), ...(kind ? { kind } : {}), ...(typeof body['model'] === 'string' ? { model: str(body['model'], 200) } : {}) }))
       }
       if (b && !c && method === 'GET') return reply(await host.get(p, b))
-      if (b && c === 'messages' && method === 'POST') return reply(await host.send(p, b, str((await readBody(req))['text'])))
+      if (b && c === 'messages' && method === 'POST') {
+        const body = await readBody(req)
+        return reply(await host.send(p, b, str(body['text']), ids(body['attachments'])))
+      }
+      if (b && c === 'attachments' && parts[4] && method === 'GET') {
+        const r = await host.attachment(p, b, parts[4])
+        if (!r.ok) return json(res, r.status, { error: r.error })
+        res.writeHead(200, { 'content-type': r.value.mime, 'content-length': r.value.bytes.length, 'content-disposition': 'inline' })
+        return void res.end(r.value.bytes)
+      }
       if (b && c === 'pause' && method === 'POST') return reply(await host.pause(p, b))
       if (b && c === 'mode' && method === 'POST') {
         const mode = (await readBody(req))['mode']
@@ -262,6 +296,18 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })
         return reply(await host.setKind(p, b, kind))
       }
+    }
+
+    /* ---- uploads: raw bytes, kept until the message that carries them is sent ---- */
+    if (a === 'uploads' && !b && method === 'POST') {
+      const bytes = await readRaw(req, MAX_UPLOAD_BYTES)
+      let name = 'file'
+      try {
+        name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'file')).slice(0, 200)
+      } catch {
+        /* keep the default */
+      }
+      return reply(await host.upload(p, name, bytes))
     }
 
     /* ---- the working folder (owner) ---- */

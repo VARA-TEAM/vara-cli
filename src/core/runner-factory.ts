@@ -2,7 +2,7 @@ import type { EngineEvent, Session } from './types.js'
 import type { Provider } from '../llm/provider.js'
 import type { VaraConfig } from '../config/config.js'
 import { budgetFor } from '../config/config.js'
-import { contextSettingsFor, thinkingFor } from '../config/providers.js'
+import { contextSettingsFor, thinkingFor, visionFor } from '../config/providers.js'
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
 import { policyFor } from './modes.js'
@@ -36,6 +36,7 @@ export function makeSessionRunner(opts: {
       routeModel: () => config().agent.cheapModel || undefined,
       thinkingLevel: (m) => thinkingFor(config(), m).level,
       modePolicy: () => policyFor(config().modes, s.config.customMode),
+      vision: (m) => visionFor(config(), m),
       extraTools: () => hub.tools(),
       mcpSummary: () => hub.summary(),
     },

@@ -18,6 +18,8 @@ export const ModelEntrySchema = z.object({
   thinking: z.enum(['off', 'low', 'medium', 'high']).optional(),
   /** The provider's own model list says the model reasons (OpenRouter `supported_parameters`). */
   reasoning: z.boolean().optional(),
+  /** The model accepts images (provider list or the user's override); unset = guessed from the id. */
+  vision: z.boolean().optional(),
   /** ok = last test call succeeded, fail = it failed, unknown = never tested. */
   status: z.enum(['ok', 'fail', 'unknown']).default('unknown'),
   statusDetail: z.string().optional(),

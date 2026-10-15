@@ -13,6 +13,7 @@ import type {
 import { classifyIntent, isWorkIntent } from './intent.js'
 import { skillIndex, type Skill } from './skills.js'
 import { describePolicy, type ModePolicy } from './modes.js'
+import { resolveImages } from './attachments.js'
 import type { ModelMessage, Provider } from '../llm/provider.js'
 import type { NormalizedUsage } from '../llm/usage.js'
 import { emptyUsage } from '../llm/usage.js'
@@ -122,6 +123,8 @@ const KEEP_RECENT_MESSAGES = 8
 /** Tool outputs shorter than this are not worth compacting. */
 const COMPACT_THRESHOLD_CHARS = 1_200
 const MAX_PARALLEL_AGENTS = 3
+/** Rough context cost of one attached image (providers charge ~1-2k tokens). */
+const IMAGE_TOKENS = 1_600
 
 export interface EngineOptions {
   session: Session
@@ -139,6 +142,8 @@ export interface EngineOptions {
   thinkingLevel?: (model: string) => ThinkLevel | undefined
   /** Restrictions of the session's custom mode (read live each turn; only ever narrows plan/build). */
   modePolicy?: () => ModePolicy | undefined
+  /** Whether a model can view images; without it attached images are described as not viewable. */
+  vision?: (model: string) => boolean
   /** Tools from connected MCP servers (read live each turn). */
   extraTools?: () => Tool<never>[]
   /** One line per connected MCP server, for the prompt. */
@@ -167,6 +172,7 @@ export class Engine {
   private lastModelUsed = ''
   private readonly routeModel?: EngineOptions['routeModel']
   private readonly thinkingLevel?: EngineOptions['thinkingLevel']
+  private readonly vision?: EngineOptions['vision']
   private readonly extraTools?: EngineOptions['extraTools']
   private readonly mcpSummary?: EngineOptions['mcpSummary']
   private readonly ephemeral: boolean
@@ -201,6 +207,7 @@ export class Engine {
     this.budgetFor = options.budgetFor
     this.routeModel = options.routeModel
     this.thinkingLevel = options.thinkingLevel
+    this.vision = options.vision
     this.extraTools = options.extraTools
     this.mcpSummary = options.mcpSummary
     this.ephemeral = options.ephemeral ?? false
@@ -309,7 +316,7 @@ export class Engine {
     return true
   }
 
-  private toModelMessages(): ModelMessage[] {
+  private toModelMessages(model: string): ModelMessage[] {
     const msgs = this.session.transcript
     // Enforce the REAL token budget computed by context.ts (window minus reserved
     // output minus safety margin) — not a fixed char threshold. A stress session
@@ -329,9 +336,11 @@ export class Engine {
     let used = 0
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]!
+      const sees = m.role === 'user' ? resolveImages(this.session.id, m.content, this.vision?.(model) ?? false) : null
       const msg: ModelMessage = {
         role: m.role === 'system' ? 'user' : m.role,
-        content: m.content,
+        content: sees ? sees.content : m.content,
+        ...(sees?.images.length ? { images: sees.images } : {}),
         ...(m.toolCalls?.length ? { toolCalls: m.toolCalls } : {}),
         ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
         ...(m.reasoning?.length ? { reasoning: m.reasoning } : {}),
@@ -340,7 +349,7 @@ export class Engine {
       // silently dropped — dropping it would orphan its assistant tool_call.
       // Likewise an assistant message carrying toolCalls must never be dropped:
       // its tool results would then be orphaned. Only plain text is droppable.
-      const cost = estimateTokens(msg.content)
+      const cost = estimateTokens(msg.content) + (msg.images?.length ?? 0) * IMAGE_TOKENS
       if (used + cost > budget && kept.length > 0) {
         if (m.role === 'tool') {
           kept.push({ ...msg, content: '[earlier tool output trimmed to save context]' })
@@ -662,7 +671,7 @@ export class Engine {
           subagent: this.depth > 0,
           ...(policy ? { modeNote: describePolicy(policy) } : {}),
         }),
-        messages: this.toModelMessages(),
+        messages: this.toModelMessages(model),
         tools: toolDefinitions(this.session.config.mode, this.intent, toolSet),
         model,
         ...(thinking !== undefined ? { thinking } : {}),

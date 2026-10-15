@@ -10,7 +10,9 @@ import { createSession, CreateSessionInput } from '../core/session.js'
 import { contextStatus, estimateSessionTokens } from '../core/context.js'
 import { contextSettingsFor } from '../config/providers.js'
 import { findModel } from '../llm/registry.js'
-import { cleanTitle, expandMentions } from '../tui/mentions.js'
+import { cleanTitle, expandMentions, withBlocks } from '../tui/mentions.js'
+import { adoptStaged, neutralize, readAttachment } from '../core/attachments.js'
+import { Uploads, type UploadInfo } from './uploads.js'
 import { listSessions, loadSession, saveSession, type SessionSummary } from '../core/store.js'
 import { SessionRunner } from '../core/runner.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
@@ -97,6 +99,8 @@ function refOf(s: Pick<Session, 'id' | 'participant' | 'shared'>): SessionRef {
  */
 export class VaraHost {
   private live = new Map<string, Live>()
+  /** Files uploaded and waiting for their message. */
+  private uploads = new Uploads()
 
   /** The folder new sessions work in. The owner can change it while the host runs. */
   private folder: string
@@ -348,11 +352,14 @@ export class VaraHost {
     })
   }
 
-  async create(p: Principal, input: { message: string; mode?: string; kind?: 'task' | 'goal' | 'auto'; model?: string }): Promise<Result<SessionView>> {
-    const typed = input.message.trim()
+  async create(p: Principal, input: { message: string; mode?: string; kind?: 'task' | 'goal' | 'auto'; model?: string; attachments?: string[] }): Promise<Result<SessionView>> {
+    const typed = neutralize(input.message.trim())
     if (!typed) return fail(400, 'write a message first')
     // Only the owner may pull host files into a prompt with @path.
-    const text = p.kind === 'owner' ? (await expandMentions(typed, this.folder)).text : typed
+    const mentioned = p.kind === 'owner' ? (await expandMentions(typed, this.folder, { dropped: false })).text : typed
+    const claimed = this.claimUploads(p, input.attachments)
+    if (!Array.isArray(claimed)) return claimed
+    const text = withBlocks(mentioned, claimed)
     const cfg = this.opts.config()
     // A guest limited to a model list starts on the first allowed model, not the owner's pick.
     const model = input.model ?? (p.kind === 'guest' && p.grant.modelPolicy === 'list' ? p.grant.allowedModels[0] : undefined) ?? cfg.provider.model
@@ -378,6 +385,7 @@ export class VaraHost {
     const session = createSession(parsed, cfg)
     if (wanted.customMode) session.config.customMode = wanted.customMode
     if (p.kind === 'guest') session.participant = { id: p.id, name: p.name }
+    await adoptStaged(session.id, text)
     await saveSession(session)
     const live = this.adopt(session)
     this.publish(live, { type: 'message', author: authorOf(p), text: typed })
@@ -385,21 +393,59 @@ export class VaraHost {
     return { ok: true, value: this.view(session, p) }
   }
 
+  /* ---------- attachments ---------- */
+
+  private whoKey(p: Principal): string {
+    return p.kind === 'owner' ? 'owner' : `guest:${p.id}`
+  }
+
+  /** Turn uploaded ids into message blocks, or say why not. */
+  private claimUploads(p: Principal, ids: string[] | undefined): string[] | { ok: false; status: 400; error: string } {
+    if (!ids?.length) return []
+    try {
+      return this.uploads.claim(this.whoKey(p), ids)
+    } catch (err) {
+      return fail(400, (err as Error).message) as { ok: false; status: 400; error: string }
+    }
+  }
+
+  /** Keep an uploaded file until its message is sent. Anyone who can write a message may attach to it. */
+  async upload(p: Principal, name: string, bytes: Buffer): Promise<Result<UploadInfo>> {
+    if (p.kind === 'guest' && !p.grant.sendShared && !p.grant.ownSession) return fail(403, 'your invite does not let you send messages')
+    try {
+      return { ok: true, value: await this.uploads.add(this.whoKey(p), name, bytes) }
+    } catch (err) {
+      return fail(400, (err as Error).message)
+    }
+  }
+
+  /** An image attached to a session, for the people who can read that session. */
+  async attachment(p: Principal, id: string, file: string): Promise<Result<{ mime: string; bytes: Buffer }>> {
+    const live = await this.load(id)
+    if (!live || !authorize(p, 'session.read', refOf(live.session)).ok) return fail(404, 'no such session')
+    const a = await readAttachment(live.session.id, file)
+    return a ? { ok: true, value: a } : fail(404, 'no such file')
+  }
+
   private async usageOf(p: Principal): Promise<{ usage?: Usage }> {
     const u = await this.usageFor(p)
     return u ? { usage: u } : {}
   }
 
-  async send(p: Principal, id: string, text: string): Promise<Result<{ queued: boolean }>> {
+  async send(p: Principal, id: string, text: string, attachments?: string[]): Promise<Result<{ queued: boolean }>> {
     const live = await this.load(id)
     if (!live) return fail(404, 'no such session')
     const ref = refOf(live.session)
     if (!authorize(p, 'session.read', ref).ok) return fail(404, 'no such session')
-    const typed = text.trim()
-    if (!typed) return fail(400, 'write a message first')
+    const typed = neutralize(text.trim())
+    if (!typed && !attachments?.length) return fail(400, 'write a message first')
     const d = authorize(p, 'session.send', ref, await this.usageOf(p))
     if (!d.ok) return fail(403, d.reason)
-    const message = p.kind === 'owner' ? (await expandMentions(typed, this.folder)).text : typed
+    const mentioned = p.kind === 'owner' ? (await expandMentions(typed, this.folder, { dropped: false })).text : typed
+    const claimed = this.claimUploads(p, attachments)
+    if (!Array.isArray(claimed)) return claimed
+    const message = withBlocks(mentioned || '(see the attached files)', claimed)
+    await adoptStaged(live.session.id, message)
     this.refresh(live)
 
     if (p.kind === 'guest') this.enforceGrant(live, p)

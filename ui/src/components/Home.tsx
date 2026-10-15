@@ -32,10 +32,10 @@ export function Home({ me, models, sessions, commands, go, onOpen, onToggleSideb
   const canPickModel = !guest || guest.grant.modelPolicy !== 'locked'
   const recent = sessions.slice(0, 6)
 
-  const create = async (message: string): Promise<void> => {
+  const create = async (message: string, attachments: string[] = []): Promise<void> => {
     setError(null)
     try {
-      const v = await api<SessionView>('POST', '/api/sessions', { message, kind, mode, ...(model ? { model } : {}) })
+      const v = await api<SessionView>('POST', '/api/sessions', { message, kind, mode, ...(model ? { model } : {}), ...(attachments.length ? { attachments } : {}) })
       onOpen(v.id)
     } catch (e) {
       setError((e as Error).message)

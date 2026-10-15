@@ -83,7 +83,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
       toast((e as Error).message, 'err')
     }
   }
-  const sendText = (text: string): Promise<void> => run(() => post('/messages', { text }))
+  const sendText = (text: string, attachments: string[] = []): Promise<void> => run(() => post('/messages', { text, ...(attachments.length ? { attachments } : {}) }))
   const openPanel = (to: PanelTab): void => (setPanelOpen(true), setTab(to))
 
   // Everything the person may do here, as one list: slash commands, palette, menu.

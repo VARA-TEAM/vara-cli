@@ -4,6 +4,7 @@ import { useT, type Key } from '../i18n'
 /** Tiny inline icon set (stroke icons, 24x24). */
 const PATHS: Record<string, string> = {
   send: 'M4 12l16-8-6 16-2.5-6.5L4 12z',
+  clip: 'M21 11.5l-8.6 8.6a5.5 5.5 0 01-7.8-7.8l8.6-8.6a3.7 3.7 0 015.2 5.2l-8.6 8.6a1.8 1.8 0 01-2.6-2.6l7.9-7.9',
   plus: 'M12 5v14M5 12h14',
   share: 'M16 6l-4-4-4 4M12 2v13M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7',
   users: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.9M16 3.1a4 4 0 010 7.8',

@@ -29,6 +29,8 @@ export interface ModelRef {
   model: string
   /** From the provider's own model list (OpenRouter `supported_parameters`), when known. */
   reasoningHint?: boolean
+  /** From the provider's own model list (OpenRouter `architecture.input_modalities`) or the user: true/false overrides the id guess. */
+  visionHint?: boolean
 }
 
 export function thinkingSupport(ref: ModelRef): ThinkSupport | null {
@@ -97,4 +99,22 @@ export function anthropicThinking(ref: ModelRef, level: ThinkLevel | undefined):
   const eff = effectiveLevel(support, level)
   if (!support || !eff || eff === 'off') return null
   return { type: 'enabled', budget_tokens: THINK_BUDGET[eff] }
+}
+
+/**
+ * Can this model look at images? An explicit hint (the provider's own list, or
+ * the user's setting) wins; otherwise it is guessed from the model id. A model
+ * that is not recognised reports no vision — the image is then described to the
+ * model as "not viewable" instead of being sent to an endpoint that may reject it.
+ */
+export function visionSupport(ref: ModelRef): boolean {
+  if (ref.visionHint !== undefined) return ref.visionHint
+  const id = ref.model.toLowerCase()
+  if (ref.type === 'anthropic') return /claude-(3|[a-z]+-[3-9]|[4-9])/.test(id)
+  if (/(^|[/:-])(vision|vl|llava|pixtral|minicpm-v|moondream|bakllava)([/:.\d-]|$)|llama-?3\.2-(11|90)b|qwen\d*(\.\d+)?-?vl|gemma-?3(?!n)|internvl/.test(id)) return true
+  if (/(^|\/)(gpt-4o|gpt-4\.1|gpt-4\.5|gpt-4-turbo|gpt-4-vision|gpt-5|chatgpt-4o|o1(?!-mini|-preview)|o3(?!-mini)|o4)/.test(id)) return true
+  if (/(^|\/)gemini/.test(id)) return true
+  if (/claude-(3|[a-z]+-[3-9]|[4-9])/.test(id)) return true
+  if (/(^|\/)(grok-(2-vision|4|vision)|mistral-(medium|small)-(3|2506)|llama-4|pixtral)/.test(id)) return true
+  return false
 }

@@ -82,7 +82,10 @@ export function parseModelList(body: unknown): FoundModel[] {
     const maxOutputTokens = outputOf(m)
     const params = m['supported_parameters']
     const reasoning = Array.isArray(params) ? params.includes('reasoning') || params.includes('include_reasoning') : undefined
-    out.push({ id, ...(contextWindow ? { contextWindow } : {}), ...(maxOutputTokens ? { maxOutputTokens } : {}), ...(reasoning !== undefined ? { reasoning } : {}) })
+    const arch = m['architecture']
+    const modalities = arch && typeof arch === 'object' ? (arch as Record<string, unknown>)['input_modalities'] : undefined
+    const vision = Array.isArray(modalities) ? modalities.includes('image') : undefined
+    out.push({ id, ...(contextWindow ? { contextWindow } : {}), ...(maxOutputTokens ? { maxOutputTokens } : {}), ...(reasoning !== undefined ? { reasoning } : {}), ...(vision !== undefined ? { vision } : {}) })
   }
   return out.sort((a, b) => a.id.localeCompare(b.id))
 }

@@ -10,6 +10,8 @@ export interface ModelMessage {
   toolCallId?: string
   /** Reasoning blocks to replay with this assistant turn (provider-specific). */
   reasoning?: unknown[]
+  /** Images that travel with a user message (base64, no data: prefix). Only set for models that can see. */
+  images?: Array<{ mime: string; data: string }>
 }
 
 export interface ProviderRequest {

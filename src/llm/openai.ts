@@ -44,6 +44,12 @@ export function openaiProvider(config: ProviderConfig): Provider {
               role: m.role,
               content: m.role === 'assistant' && m.toolCalls?.length && !m.content ? null : (m.content ?? ''),
             }
+            if (m.role === 'user' && m.images?.length) {
+              out['content'] = [
+                { type: 'text', text: m.content || '(see the attached images)' },
+                ...m.images.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.data}` } })),
+              ]
+            }
             if (m.toolCalls?.length) {
               out['tool_calls'] = m.toolCalls.map((c, i) => ({
                 id: c.id || `call_${i}`,

@@ -6,6 +6,7 @@ import type { SessionView } from '../types'
 import type { SubagentRow } from '../hooks'
 import { Badge, Icon } from './ui'
 import { Markdown } from './Markdown'
+import { AttachedImage } from './Attached'
 
 const TOOL_ICON: Record<string, string> = {
   read_file: 'file',
@@ -85,6 +86,16 @@ export function Chat({
               {item.author ? <div className="msg-author">{item.author}</div> : null}
               <div className="bubble" dir="auto">
                 {item.text}
+                {item.images?.length || item.files?.length ? (
+                  <div className="attached">
+                    {item.images?.map((im) => <AttachedImage key={im.id} sessionId={view.id} file={im.id} name={im.name} />)}
+                    {item.files?.map((f) => (
+                      <span className="chip" key={f}>
+                        <Icon name="file" size={12} /> {f}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           )

@@ -2,7 +2,7 @@ import type { VaraConfig, ProviderEntry, ModelEntry } from './config.js'
 import type { ProviderPreset } from '../llm/presets.js'
 import { contextWindowFromPattern, type ContextSettings } from '../core/context.js'
 import { findModel } from '../llm/registry.js'
-import { effectiveLevel, thinkingSupport, type ThinkLevel, type ThinkSupport } from '../llm/capabilities.js'
+import { effectiveLevel, thinkingSupport, visionSupport, type ThinkLevel, type ThinkSupport } from '../llm/capabilities.js'
 
 /**
  * Pure operations over the multi-provider config. No I/O: callers persist the
@@ -117,6 +117,8 @@ export interface FoundModel {
   maxOutputTokens?: number
   /** The provider's own list says this model reasons. */
   reasoning?: boolean
+  /** The provider's own list says the model accepts image input. */
+  vision?: boolean
 }
 
 /**
@@ -143,6 +145,7 @@ export function mergeDiscovered(config: VaraConfig, name: string, found: FoundMo
         ...(f.contextWindow && !manual ? { contextWindow: f.contextWindow, contextSource: 'discovered' as const } : {}),
         ...(f.maxOutputTokens && prev.maxOutputTokens === undefined ? { maxOutputTokens: f.maxOutputTokens } : {}),
         ...(f.reasoning !== undefined ? { reasoning: f.reasoning } : {}),
+        ...(f.vision !== undefined && prev.vision === undefined ? { vision: f.vision } : {}),
       }
     }
     return { ...p, models }
@@ -274,6 +277,18 @@ export function thinkingFor(config: VaraConfig, modelId: string, providerName = 
     ...(m?.reasoning !== undefined ? { reasoningHint: m.reasoning } : {}),
   })
   return { support, level: effectiveLevel(support, m?.thinking) }
+}
+
+/** Does this model of the provider accept images? */
+export function visionFor(config: VaraConfig, modelId: string, providerName = activeProviderName(config)): boolean {
+  const entry = config.providers[providerName]
+  const m = entry?.models[modelId]
+  return visionSupport({
+    type: entry?.type ?? config.provider.id,
+    baseUrl: entry?.baseUrl ?? config.provider.baseUrl,
+    model: modelId,
+    ...(m?.vision !== undefined ? { visionHint: m.vision } : {}),
+  })
 }
 
 /** Store a thinking level for a model of a provider. */
