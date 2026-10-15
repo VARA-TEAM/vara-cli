@@ -546,6 +546,17 @@ export class VaraHost {
     return { ok: true, value: true }
   }
 
+  /** Cancel one running sub-agent (by its task id) or, with no id, the whole swarm — the session itself keeps going. */
+  async cancelAgents(p: Principal, id: string, taskId?: string): Promise<Result<{ cancelled: boolean }>> {
+    const live = await this.load(id)
+    if (!live) return fail(404, 'no such session')
+    const ref = refOf(live.session)
+    if (!authorize(p, 'session.read', ref).ok) return fail(404, 'no such session')
+    const d = authorize(p, 'session.pause', ref)
+    if (!d.ok) return fail(403, d.reason)
+    return { ok: true, value: { cancelled: live.runner.cancelAgents(taskId) } }
+  }
+
   async setMode(p: Principal, id: string, name: string): Promise<Result<true>> {
     const choice = resolveModeChoice(this.opts.config().modes, name)
     if (!choice.ok) return fail(400, choice.error)

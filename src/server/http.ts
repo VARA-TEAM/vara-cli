@@ -327,7 +327,11 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         if ((body['kind'] !== 'skill' && body['kind'] !== 'mcp') || typeof body['name'] !== 'string' || typeof body['enabled'] !== 'boolean') return json(res, 400, { error: 'kind (skill|mcp), name and enabled are required' })
         return reply(await host.setToggle(p, b, body['kind'], str(body['name'], 80), body['enabled']))
       }
-      if (b && c === 'approvals' && parts[3] && method === 'POST') return reply(await host.resolveApproval(p, b, parts[3], (await readBody(req))['approved'] === true))
+      if (b && c === 'approvals' && parts[4] && method === 'POST') return reply(await host.resolveApproval(p, b, parts[4], (await readBody(req))['approved'] === true))
+      if (b && c === 'agents' && parts[4] === 'cancel' && method === 'POST') {
+        const task = (await readBody(req))['id']
+        return reply(await host.cancelAgents(p, b, typeof task === 'string' && task ? str(task, 40) : undefined))
+      }
       if (b && c === 'kind' && method === 'POST') {
         const kind = (await readBody(req))['kind']
         if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })
