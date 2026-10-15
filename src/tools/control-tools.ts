@@ -112,12 +112,14 @@ type DelegateTask = { id?: string; title: string; prompt: string; kind?: 'explor
 export const delegateTool: Tool<{ tasks: DelegateTask[] }> = {
   name: 'delegate',
   description:
-    'Run a small swarm of sub-agents, each with its own fresh context, and get ONE merged report back. ' +
-    'Use it for broad research (several areas of the codebase at once) or for independent pieces of work (never give two agents the same file). ' +
+    'Run sub-agents IN PARALLEL, each with its own fresh context, and get ONE merged report back. ' +
+    'Send every independent task in ONE call (up to 4): they run at the same time (3 at once), so one call with 3 tasks is far faster and cheaper than 3 calls. ' +
+    'Use it for broad research (several areas of the code at once), reviews of separate modules, or separate pieces of work (never give two agents the same file). Do not use it for a small job you can finish yourself in a few steps. ' +
     'Name a `role` for each task: researcher / reviewer (read-only), implementer / tester (may change files). ' +
-    'Give a task an `id` and let others list it in `dependsOn` to run them in order (the later task receives the earlier report). ' +
-    'Every sub-agent sees the whole task list, so say who does what. At most 4 tasks, 3 at a time, within a shared call budget. ' +
-    'Each prompt must be self-contained: the sub-agent sees nothing of this conversation. Sub-agents cannot delegate further.',
+    'To run tasks in order, give the first an `id` and list it in the next task\'s `dependsOn` (the later task receives the earlier report; if the earlier one fails, the later one is skipped). ' +
+    'Every sub-agent sees the whole task list, so the titles should say who does what. At most 4 tasks within a shared call budget. ' +
+    'Each prompt must be self-contained (paths, what to look for, the report format you want): the sub-agent sees nothing of this conversation, and cannot delegate further. ' +
+    'The user sees the agents live and can cancel them. When the merged report returns, check it (and git diff / the tests if files changed) before you answer.',
   readonly: true,
   schema: z
     .object({

@@ -31,7 +31,7 @@ export interface KeyEvent {
   downArrow?: boolean
 }
 
-export type Overlay = null | 'palette' | 'sessions' | 'help' | 'providers' | 'models' | 'settings' | 'mcp'
+export type Overlay = null | 'palette' | 'sessions' | 'help' | 'providers' | 'models' | 'settings' | 'mcp' | 'agents'
 
 export interface KeyContext {
   view: 'home' | 'session'
@@ -114,7 +114,7 @@ export function resolveKey(raw: string, key: KeyEvent, ctx: KeyContext): KeyActi
   }
 
   // 3. Overlays.
-  if (ctx.overlay === 'providers' || ctx.overlay === 'models' || ctx.overlay === 'settings' || ctx.overlay === 'mcp') return { type: 'overlay-input' }
+  if (ctx.overlay === 'providers' || ctx.overlay === 'models' || ctx.overlay === 'settings' || ctx.overlay === 'mcp' || ctx.overlay === 'agents') return { type: 'overlay-input' }
   if (ctx.overlay === 'palette' || ctx.overlay === 'sessions' || ctx.overlay === 'help') {
     // Esc is resolved here so it closes even before the overlay's own
     // subscription attaches (its onClose does the same thing, idempotently).

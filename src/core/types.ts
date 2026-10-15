@@ -243,7 +243,26 @@ export type EngineEvent =
   | { type: 'tool_end'; id: string; name: string; ok: boolean; output: string; truncated?: boolean }
   | { type: 'turn'; turn: number }
   | { type: 'intent'; intent: SessionIntent; reason: string }
-  | { type: 'subagent'; id: string; title: string; status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string; role?: string; dependsOn?: string[] }
+  | {
+      type: 'subagent'
+      id: string
+      title: string
+      status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'
+      detail?: string
+      role?: string
+      dependsOn?: string[]
+      /** Which `delegate` call this belongs to (1, 2, …): a UI groups one swarm by it. */
+      swarm?: number
+      kind?: 'explore' | 'work'
+      /** Tool calls the agent has made so far. */
+      steps?: number
+      /** Finished only: model calls it used, its cost (null = unknown, never 0), its final report (scrubbed, clipped). */
+      calls?: number
+      costUsd?: number | null
+      report?: string
+      cancelled?: boolean
+    }
+  | { type: 'swarm_report'; swarm: number; merged: string; modelCalls: number; costUsd: number | null; done: number; failed: number; skipped: number }
   | { type: 'followup_applied'; id: string; turn: number }
   | { type: 'evidence'; record: EvidenceRecord }
   | { type: 'verification'; ok: boolean; detail: string }

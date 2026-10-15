@@ -3,6 +3,7 @@ import type { Session } from './types.js'
 import { resolveModeChoice } from './modes.js'
 import { discoverAllSkills, validSkillName, writeSkill } from './skills.js'
 import { serverFromInput } from '../mcp/input.js'
+import { makeSystemPort, type SystemDeps, type SystemPort } from './systeminfo.js'
 
 /**
  * What the agent may ask to change about ITSELF. Every method is only ever
@@ -16,6 +17,8 @@ export interface AdminPort {
   /** `scope` only matters for enable/disable: this session, or the saved config for everyone. */
   mcp(action: 'add' | 'remove' | 'enable' | 'disable', name: string, input?: string, scope?: 'session' | 'global'): Promise<string>
   setMode(name: string): Promise<string>
+  /** Reading the environment and the remaining approved changes (see systeminfo.ts). Absent in minimal ports. */
+  system?: SystemPort
 }
 
 const MCP_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,30}$/
@@ -24,9 +27,10 @@ const MCP_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,30}$/
  * The one implementation, shared by the terminal and the browser host. The
  * front end only supplies how a new config is applied and saved.
  */
-export function makeAdminPort(deps: { session: Session; config: () => VaraConfig; apply: (next: VaraConfig) => Promise<void> }): AdminPort {
+export function makeAdminPort(deps: { session: Session; config: () => VaraConfig; apply: (next: VaraConfig) => Promise<void>; system?: Omit<SystemDeps, 'session' | 'config' | 'apply'> }): AdminPort {
   const { session, config, apply } = deps
   return {
+    ...(deps.system ? { system: makeSystemPort({ session, config, apply, ...deps.system }) } : {}),
     async writeSkill(name, description, body, scope) {
       const r = await writeSkill(name, scope, session.config.cwd, description, body)
       return `${r.created ? 'Created' : 'Updated'} skill "${name}" (${scope}) at ${r.path}`

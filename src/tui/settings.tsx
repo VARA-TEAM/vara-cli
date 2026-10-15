@@ -51,7 +51,27 @@ const SECTION_LABELS: Array<[keyof SidebarSections, string, string]> = [
   ['cost', 'Cost', 'spend and token counts'],
   ['budget', 'Budget & proof', 'turns, model calls, evidence, tool calls'],
   ['skills', 'Skills', 'skills available to the agent'],
+  ['agents', 'Agents (sub-agents)', 'who works on what when the agent delegates; /agents opens the full view'],
 ]
+
+/** A whole-number swarm limit, clamped to the built-in ceiling (limits can only be lowered). */
+function swarmNumber(id: string, label: string, help: string, max: number | null, get: (c: VaraConfig) => number, set: (c: VaraConfig, n: number) => VaraConfig): SettingItem {
+  return {
+    id,
+    group: 'Agents',
+    label,
+    help,
+    kind: 'number',
+    show: (c) => String(get(c)),
+    edit: (c) => String(get(c)),
+    commit: (c, t) => {
+      const n = posInt(t)
+      if (n === undefined) return 'Enter a whole number ≥ 1.'
+      if (max !== null && n > max) return `At most ${max} (a built-in ceiling: it can only be lowered).`
+      return set(c, n)
+    },
+  }
+}
 
 /** Every setting, in display order. Pure data: the screen below just renders it. */
 export function settingItems(skills: SkillRow[]): SettingItem[] {
@@ -109,6 +129,23 @@ export function settingItems(skills: SkillRow[]): SettingItem[] {
       show: (c) => c.agent.cheapModel || '(none — use the session model)',
       edit: (c) => c.agent.cheapModel,
       commit: (c, t) => ({ ...c, agent: { ...c.agent, cheapModel: t.trim() } }),
+    },
+    swarmNumber('swarmTasks', 'Sub-agents: tasks per call', 'How many tasks one delegate call may have (1-4).', 4, (c) => c.swarm.maxTasks, (c, n) => ({ ...c, swarm: { ...c.swarm, maxTasks: n } })),
+    swarmNumber('swarmParallel', 'Sub-agents: at the same time', 'How many run in parallel (1-3). 1 = one after another.', 3, (c) => c.swarm.maxParallel, (c, n) => ({ ...c, swarm: { ...c.swarm, maxParallel: n } })),
+    swarmNumber('swarmCalls', 'Sub-agents: model-call budget', 'Model calls one swarm may spend in total; no new sub-agent starts after it.', null, (c) => c.swarm.maxModelCalls, (c, n) => ({ ...c, swarm: { ...c.swarm, maxModelCalls: n } })),
+    {
+      id: 'swarmCost',
+      group: 'Agents',
+      label: 'Sub-agents: cost cap (USD)',
+      help: 'Stop starting sub-agents once the KNOWN cost reaches this. Empty = no cap. Unknown cost is never counted as zero.',
+      kind: 'number',
+      show: (c) => (c.swarm.maxCostUsd === null ? 'no cap' : `$${c.swarm.maxCostUsd}`),
+      edit: (c) => (c.swarm.maxCostUsd === null ? '' : String(c.swarm.maxCostUsd)),
+      commit: (c, t) => {
+        if (!t.trim()) return { ...c, swarm: { ...c.swarm, maxCostUsd: null } }
+        const n = Number(t.trim().replace(/^\$/, ''))
+        return Number.isFinite(n) && n > 0 ? { ...c, swarm: { ...c.swarm, maxCostUsd: n } } : 'Enter an amount in USD like 0.50, or leave empty for no cap.'
+      },
     },
     toggle('updates', 'Agent', 'Check for updates', 'Once a day VARA asks GitHub if a newer release exists (nothing else is sent) and tells you here. Update with: vara update.', (c) => c.updates.check, (c, v) => ({ ...c, updates: { ...c.updates, check: v } })),
     toggle('browser', 'Agent', 'Browser tool', 'Let the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Sites must be approved; passwords are never typed.', (c) => c.agent.browser, (c, v) => ({ ...c, agent: { ...c.agent, browser: v } })),

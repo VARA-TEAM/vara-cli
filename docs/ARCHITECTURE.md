@@ -194,7 +194,9 @@ Counters live in `session.savings`, shown by `/cost`, the terminal side panel an
 - **Shared task list:** every sub-agent is shown the whole plan (who does what) and, for a task that depends on others, the reports of those tasks. A task starts only when its dependencies are done; if one fails, what depends on it is skipped and the rest still runs. A plan with an unknown id, a duplicate or a cycle is refused with a reason the model can act on.
 - **Limits** (`config.json` → `swarm`, also Settings → Agent): `maxTasks` ≤ 4 and `maxParallel` ≤ 3 can only be *lowered*; `maxModelCalls` (default 120) is spent by the whole swarm and no new sub-agent starts after it; `maxCostUsd` stops new sub-agents once the **known** cost reaches it. Unknown cost is never counted as zero, so the call cap is the guard that always works.
 - **One merged report:** a header (done / failed / skipped, calls, cost) and every report in plan order; if a file-editing agent ran, the parent is told to verify before claiming anything.
-- **Live:** each status change is a `subagent` event (id, title, role, dependsOn, status `waiting|running|done|failed|skipped`) shown in the terminal and as a board in the browser.
+- **Live:** each status change is a `subagent` event (id, title, role, dependsOn, status `waiting|running|done|failed|skipped`, plus `swarm` — which `delegate` call —, `kind`, `steps`, and when finished `calls`, `costUsd` (`null` = unknown, never 0), the scrubbed `report` and `cancelled`); a `swarm_report` event carries the merged report and totals. The terminal shows them in the conversation, in a side-panel section and in `/agents` (§9); the browser as a board.
+- **Cancel:** `Engine.cancelSubagents(id?)` (via `SessionRunner.cancelAgents`) stops one running sub-agent or, with no id, the whole swarm: running ones are stopped (`child.stop()`), queued ones are skipped (`runSwarm`'s `shouldStop`), a cancelled agent reports `failed` + `cancelled`, and what depended on it is skipped by the normal rule. A sub-agent that ends *paused / stopped / interrupted* (a provider error, its own budget) is reported **failed**, whatever text it left.
+- **Using it well:** the work prompt (`DELEGATION_NOTE` in `core/prompt.ts`) and the `delegate` description say: send every independent task in ONE call (they run together), give roles, make prompts self-contained, order with `id`/`dependsOn`, verify the merged report. `tests/delegation-eval.test.ts` measures it with a scripted model: three reviews in one call overlap (peak concurrency 3, measured), a dependency serialises, a failure skips dependants, a cancel stops one agent.
 
 Each agent is an **ephemeral** session (not saved, events not logged) with the parent's mode **and custom-mode policy**, the parent's per-session skill/MCP switches, a small budget (25 turns for `work`, 12 for `explore`), the cheaper model, and no `delegate` of its own. Its model calls are added to the parent's ledger.
 
@@ -215,6 +217,13 @@ Each agent is an **ephemeral** session (not saved, events not logged) with the p
 ## 7.7 Self-management with approval (`tools/self-tools.ts`, `core/selfmanage.ts`)
 
 Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `mcp_manage`, `switch_mode`. None acts alone: the tool calls `ctx.approve()`, the engine emits `approval_request` with the exact change (the full command line of an MCP server, the full text of a skill), puts the session in `waiting_user`, and waits. The owner answers with **Allow / Decline** in the browser (`POST /api/sessions/:id/approvals/:aid`) or `/approve` / `/deny` in the terminal; stopping the run declines. No approver means *denied*: headless runs, sub-agents and **guests' agents** (the host gives an admin port only to the owner's own sessions) cannot use these tools at all. The change itself goes through `AdminPort` — one implementation shared by both front ends. A custom mode that does not list a tool cannot use it; `skill_write`, `skill_toggle` and `mcp_manage` are build-only, `switch_mode` also works in plan.
+
+**A system-aware agent (`core/systeminfo.ts`, `tools/system-tools.ts`).** The agent also knows its own environment, like an assistant that can open its own settings. `AdminPort.system` (only in the owner's own sessions — the host never gives it to a guest, a sub-agent or a headless run) adds:
+- **`vara_system` (read-only):** `overview`, `settings`, `providers`, `skills`, `skill <name>`, `mcp`, `connectors`, `modes`, `sessions` (this folder, another `folder`, or `all`), `session <id>` (`summary|transcript|usage|evidence`), `usage`, `update`, `host`. Offered in questions, plan mode and work turns of a session that can ask the owner; never in plain chat.
+- **Changes, each behind `ctx.approve()` with the exact change on the card:** `skill_delete`, `mode_manage` (create / replace / delete a custom mode), `setting_change` (an allow-list: `agent.autoIntent|defaultMode|cheapModel`, `ui.*`, `swarm.*`, `updates.check`, task/goal budgets — **never** `allowPublish`, `agent.browser`, `agent.desktop`, the verify command, providers, keys), `connector_manage` (a connector that needs a token only connects when the token is already in the vault). With `skill_write`, `skill_toggle`, `mcp_manage` and `switch_mode` from above, "make me a skill", "install an MCP server", "turn off skill Q here", "switch to mode M" are all things the agent does itself, after a yes.
+- **Prompt and skills:** `SELF_MANAGE_NOTE` (static, so the prompt stays cache-stable) is added only when the port exists; built-in skills `create-skill`, `setup-mcp` and `vara-environment` teach the procedure.
+
+**The privacy rule — enforced in code, tested in `tests/system-privacy.test.ts`:** no tool in this family can return a secret. The vault is asked for **names only** (`namesOnly`: the listing's `hint` carries the first characters of a value and is never passed on); provider keys are `vault | env | none` plus the secret's *name*; MCP `env`, headers and `secretEnv` are listed by name, URLs lose credentials, query and fragment, and arguments after `--token`/`--api-key`/… are hidden; everything else — other sessions' transcripts, skill bodies, server errors — goes through `scrubSystem` (`security/redact.ts`: everything `scrubAll` removes plus `password=…`-style assignments, JWTs, well-known token shapes and VARA's own 43-character token format) and transcripts are wrapped as `UNTRUSTED_SESSION_DATA`. No query takes a path: a session is found by id through the session store (an id is `[A-Za-z0-9-]{3,64}`), so nothing here can open `~/.vara/vault` or `~/.vara/host`. Sessions of other folders are readable only because only the owner's agent has the port.
 
 **Per-session switches:** `config.disabledSkills` and `config.disabledMcp` hide a skill (from the prompt, so `/skill-name` refuses it) or an MCP server (its tools and its line in the prompt) for one session only. Browser: *Tools* tab of the side panel (`POST /api/sessions/:id/toggle`); terminal: `/disable <name>` and `/enable <name>`.
 
@@ -244,6 +253,8 @@ Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `m
 4. Unknown cost ≠ zero: the cap that protects the owner when cost is unknown is `maxModelCalls`.
 5. The model's private reasoning is streamed to the owner only.
 6. Management (providers, keys, settings, skills, MCP), `@file` attachments and project file search are owner-only; no key is ever returned in any response.
+
+**As a service (`vara serve`, `server/daemon.ts`, `server/doctor-server.ts`; guide: [DEPLOYMENT.md](DEPLOYMENT.md)).** `parseServeSettings` turns flags and `VARA_*` variables into one validated object (an empty variable means "not set"; bad port, `--lan` with `--bind`, a short or doubled token, a malformed `--public-host` are refused with a reason; a non-loopback bind always warns). The owner's credential is a **digest**: `resolveOwnerAuth` uses a provided token (file / variable / flag — never stored, never printed) or the SHA-256 saved in `host/owner-token.sha256` (`0600`) by an earlier start, or makes a token, returns it ONCE to be printed and saves only its digest (`--rotate-token` replaces it). `startServer({ ownerTokenDigest, trustProxy })` compares in constant time and, behind a trusted proxy, counts failed logins per the last `X-Forwarded-For` entry (own namespace). `makeLogger` writes `text`, `json` or `journal` (syslog `<N>` priorities) and never logs a request. `makeShutdown` runs the steps in order, once, with a per-step timeout (stop sessions, close the public link, drop connections, close MCP), and a second signal exits at once. `/api/health` (no auth) is the probe for Docker and proxies. `vara doctor --server` checks the whole setup with injectable probes.
 
 **Hardening:** binds to `127.0.0.1` unless `--lan` is given; a secret token on every call (the owner's is random per run and travels in the URL fragment, so it is never sent to the server); `Host` check (blocks DNS rebinding — on a LAN only private IP addresses are accepted, not domain names) and `Origin` check (blocks cross-site requests); rate limits on failed attempts and invite guessing; a body size limit; security headers (strict CSP, no framing, no sniffing); internal errors are never leaked to the client.
 
@@ -302,6 +313,8 @@ Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `m
 - `Esc` closes the layer at **application level** in `resolveKey` — it works even before an overlay's subscription attaches, and `onClose` closes again safely (idempotent).
 - Multi-character input arriving as one chunk is a paste; its line breaks are kept.
 
+- **Agents (`tui/agents.ts`, `agents-view.tsx`):** a pure reducer folds `subagent` / `swarm_report` events into swarms of rows (status, role, dependencies, steps, calls, cost — unknown shown as "cost unknown", never `$0`), the single source for the three views: one line per agent in the conversation (replaced in place as it changes) plus a summary line when the swarm ends; a side-panel section (`ui.sections.agents`, Settings → Side panel) showing the latest swarm; and the `/agents` overlay (↑↓ pick, Enter report, `c` cancel it, `C` cancel all, `m` merged report, ←/→ older swarms). `/agents cancel <id|all>`, `/agents report`, `/agents list` work without the overlay. Settings → Agents has the swarm limits (tasks ≤ 4, parallel ≤ 3 — they can only be lowered —, model-call budget, cost cap).
+
 The reference list of shortcuts is `KEYS_HELP` in `tui/commands.ts` (shown by `/help`).
 
 ## 9.1 Web UI (`ui/`)
@@ -310,10 +323,110 @@ React 18 bundled by esbuild into the host (see `ui-assets.ts`). Key points:
 
 - **Same powers, one source:** the UI shows controls from what the server computed (`view.can`, `me.role`), never from guesses.
 - **Safe rendering:** a small markdown parser produces nodes (no `innerHTML`); only `http(s)` and `mailto` links are clickable.
-- **Live updates:** `fetch`-based SSE so the token stays in a header; reconnects with backoff and resumes after the last event id.
-- **Commands everywhere:** one command list (`ui/src/commands.ts`) feeds `/` in the message box, the palette (`Ctrl K`) and help; a command that is not allowed for the person is simply absent.
-- **Pages:** home (start screen), session (conversation, composer, side panel with Proof / Cost / Files), Team (owner), Settings (owner: models & providers, agent, skills, MCP; everyone: look & feel, this host). English and Arabic (`i18n.ts`, right-to-left via logical CSS properties), 9 themes, a mobile layout.
-- **Owner token** lives in sessionStorage; a guest's in localStorage. Tests cover the pure logic (`tests/ui-logic.test.ts`).
+- **Live updates:** `fetch`-based SSE so the token stays in a header; reconnects with backoff and resumes after the last event id. Events carry the host's timestamp, so a replay after a reload keeps the real timeline.
+- **Commands everywhere:** one command list (`ui/src/commands.ts`) feeds `/` in the message box, the palette (`Ctrl K`) and `/help`; a command that is not allowed for the person is simply absent.
+- **A workbench, not a page** (`Workbench.tsx`): sidebar | tab strip with one or two sessions | side panel | bottom dock | status bar.
+  - *Resizing is pure math* (`layout.ts`, unit-tested). Drag a handle, or focus it and press ← → (↑ ↓ for the dock); Shift takes 64 px instead of 16, Home / End go to the limits, Enter or a double click resets that pane. Handles are real ARIA separators (`aria-valuenow`). Limits: sidebar 200–440 px, side panel 280–720 px, dock 120–640 px. The conversation never gets narrower than 360 px: the side panel gives way first, then the sidebar, and the saved sizes are left alone, so a larger window brings the layout back.
+  - *Layouts:* status bar → Layout, or `/layout-focus`, `/layout-review`, `/layout-swarm`, `/layout-preview`; `/layout-reset` restores the default. Remembered per browser (`localStorage`: `vara.layout.v1`, open tabs `vara.tabs.v1`, folder scope `vara.scope`) and never sent to the host.
+  - *Tabs* (`tabs.ts`): open sessions are tabs (at most 12). Drag a tab to reorder it, or onto the right half of the conversation to open it beside the current one (split view, two sessions, from 1100 px wide); the divider between them resizes like the others. From the keyboard: Alt ← / → switch, Alt Shift ← / → move, Delete closes. A tab whose session no longer exists is dropped.
+  - *Side panel* of the focused session: Proof, Cost, Agents, Files, Tools. *Dock:* Output (a terminal-like feed of what ran and what came back; `/last` jumps to the last call), Preview (the running app), Events (this page's live event log).
+  - Below 900 px the side panel and the dock become drawers, the sidebar a menu, and split view is off.
+- **Sub-agents are first-class** (`swarm-model.ts`, `AgentsPanel.tsx`, tested): every `delegate` call is a *run*. A run is rebuilt from two sources: the saved conversation (the call's plan and its merged report; survives a reload) and the live `subagent` / `swarm_report` events. The Agents panel shows the run's state, a **Trace** (one lane per agent on a shared time axis, elbow lines for dependencies; runs read back from the saved conversation have no timestamps, so their lanes are placed by dependency level and the panel says so) or a list, each agent's steps, calls, cost and report, and the merged report. The conversation draws the same team inline, the session header and the status bar show `n of m running`, and `Ctrl Shift A` or `/agents` opens the panel. **Cost is never invented:** a finished agent's calls and cost come from the host, an unknown cost shows as *unknown* (never `$0`), and the running total is "at least" while any agent's cost is unknown. A host that sends no per-agent figures falls back to the merged report's totals. **Cancel:** `POST /api/sessions/:id/agents/cancel` with `{ "id": "<task>" }` cancels one running agent, with no id the whole swarm; the session itself carries on (pause and stop are separate buttons).
+- **Pages:** home (start screen), session (conversation, composer), Team (owner), Settings (owner: models & providers, agent, skills, connectors, MCP; everyone: look & feel, this host). English and Arabic (`i18n.ts`, right-to-left via logical CSS properties, including the layout and the trace), 9 themes, a mobile layout, visible keyboard focus, reduced motion respected.
+- **Owner token** lives in sessionStorage; a guest's in localStorage. Tests cover the pure logic (`tests/ui-logic.test.ts`, `tests/ui-workbench.test.ts`) and the routes the UI depends on (`tests/agents-http.test.ts`).
+
+### Terminal ↔ browser parity
+
+The terminal is the reference. `ui/src/parity.ts` lists, for every command, key action and full-screen form of the terminal, where it lives in the browser; `tests/ui-workbench.test.ts` fails when a terminal command or key action has no row, when a row names a command the browser does not register, and when these tables stop matching the data. *Adapted* means the same job done the browser's way (the browser keeps Ctrl N, Ctrl W and Tab for itself, so those have other keys); *planned* means the terminal has it and the browser does not yet.
+
+<!-- parity:begin -->
+
+### Commands
+
+| Terminal command | In the browser | Same? |
+| --- | --- | --- |
+| `/new` | New session tab (Ctrl Shift O); the + button in the tab strip | same |
+| `/palette` | Command palette (Ctrl K) | same |
+| `/sessions` | Sidebar filter and the "this folder / all folders" switch; /sessions --all | same |
+| `/resume` | Open by the start of an id, or click a session in the sidebar | same |
+| `/mode` | Mode menu in the message box; Alt M flips plan/build | same |
+| `/kind` | In a session: task or goal; Auto is chosen on the start screen | adapted |
+| `/providers` | Settings → Models & providers | same |
+| `/provider` | Makes another provider (and optionally a model) the default | same |
+| `/model` | Model menu in the message box | same |
+| `/models` | Settings → Models: status, context and thinking per model, with a filter | same |
+| `/context` | Side panel → Cost: window, usage and where the size comes from | same |
+| `/settings` | Settings (Ctrl O) | same |
+| `/theme` | Nine themes; Settings → Look and feel | same |
+| `/agents` | Side panel → Agents (Ctrl Shift A): roles, status, trace, calls and cost, reports; cancel one agent or all | same |
+| `/mcp` | Settings → MCP servers (add, switch, reconnect, remove) | same |
+| `/connectors` | Settings → Connectors (guided token entry) | same |
+| `/think` | Thinking menu in the message box | same |
+| `/cost` | Side panel → Cost, and the status bar | same |
+| `/limit` | Not in the browser yet: arrives with the cost-engine board | planned |
+| `/savings` | Not in the browser yet: the Cost tab shows this session’s savings; the 7-day and all-time view arrives with the cost-engine board | planned |
+| `/route` | Not in the browser yet: arrives with the cost-engine board | planned |
+| `/attach` | Clip button, drag and drop, paste; /attach opens the file picker | same |
+| `/preview` | Bottom dock → Preview; /preview start <command>, stop, logs | same |
+| `/export` | Downloads the conversation as a markdown file (the browser picks the folder) | adapted |
+| `/skills` | Settings → Skills (list, create, edit, switch) | same |
+| `/skill` | Makes the agent apply a skill now; each skill is also its own /name | same |
+| `/status` | Side panel → Proof: turns, calls, time limit, context, evidence | same |
+| `/evidence` | Side panel → Proof: the evidence timeline | same |
+| `/last` | Bottom dock → Output, scrolled to the last tool call | same |
+| `/pause` | Pause button; Esc twice | same |
+| `/enable` | Side panel → Tools, per session; /enable <skill\|server> | same |
+| `/disable` | Side panel → Tools, per session; /disable <skill\|server> | same |
+| `/approve` | Approval cards above the message box; /approve [id] | same |
+| `/deny` | Approval cards above the message box; /deny [id] | same |
+| `/stop` | Session menu → Stop (the page stays open) | same |
+| `/quit` | Close the tab; the session is saved as it runs (guests: Sign out) | not applicable |
+| `/help` | Help and shortcuts (commands and both keyboards) | same |
+
+### Keys
+
+| Terminal key action | In the browser | Same? |
+| --- | --- | --- |
+| `quit` | Not needed: the host keeps running; close the tab | not applicable |
+| `overlay-input` | Dialogs and menus own the keyboard while open | same |
+| `close-overlay` | Esc closes a dialog or menu | same |
+| `open-palette` | Ctrl K | same |
+| `open-settings` | Ctrl O | same |
+| `open-home` | Ctrl Shift O (the browser keeps Ctrl N) | adapted |
+| `close-home` | Close the tab, or open a session | same |
+| `home-move` | Tab and arrow keys through the recent list | same |
+| `arm-interrupt` | Esc once in the message box while an agent runs | same |
+| `interrupt` | Esc a second time pauses it | same |
+| `toggle-sidebar` | Ctrl B hides the sidebar; Ctrl . the side panel | adapted |
+| `close-tab` | Alt W (the browser keeps Ctrl W) | adapted |
+| `switch-tab` | Alt ← / Alt →; Alt Shift ← / → moves a tab | same |
+| `scroll` | Page Up / Page Down in the conversation | same |
+| `scroll-line` | Arrow keys and the wheel | same |
+| `wheel` | Mouse wheel and touch scrolling | same |
+| `scroll-latest` | Ctrl G, or the "New messages" button | same |
+| `toggle-mode` | Alt M (Tab stays for moving focus) | adapted |
+| `toggle-kind` | The Kind menu on the start screen | adapted |
+| `submit` | Enter | same |
+| `newline` | Shift Enter or Ctrl J | same |
+| `delete-back` | Backspace (native text field) | same |
+| `text` | Typing and pasting (native text field) | same |
+| `none` | No effect | same |
+
+### Full-screen forms
+
+| Terminal screen or key | In the browser | Same? |
+| --- | --- | --- |
+| Providers: Enter use · k key · d remove | Settings → Models: Use, key field, remove provider | same |
+| Models: t test · a test all · r refresh | Test, Test all, Fetch models | same |
+| Models: c context · h thinking | Context dialog, Thinking menu on each model | same |
+| Models: n add · x remove | Add a model field, Remove | same |
+| Models: / filter | Filter field above the model list (more than six models) | same |
+| MCP: Enter add · t on/off · r reconnect · d remove | Settings → MCP servers: Add, switch, Reconnect, Remove | same |
+| Sessions overlay: type to filter · Tab scope · Enter open | Sidebar filter · folder/all switch · Enter opens the first match | same |
+| Settings: theme, mode, verify command, cheap model, budgets, context, skills | Settings → Agent, Skills, Look and feel | same |
+| Start screen: recent sessions, Ctrl N tabs | Home page and session tabs | same |
+
+<!-- parity:end -->
 
 ---
 

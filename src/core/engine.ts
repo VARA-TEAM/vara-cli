@@ -186,6 +186,12 @@ export class Engine {
   private readonly forceIntent?: SessionIntent
   private readonly options: EngineOptions
   private children: Engine[] = []
+  /** `delegate` calls so far in this session (numbers a swarm for the UI). */
+  private swarmCount = 0
+  /** Running sub-agents by task id, so the user can cancel one. */
+  private childByTask = new Map<string, Engine>()
+  private cancelledTasks = new Set<string>()
+  private swarmCancelled = false
   /** Approvals waiting for the user: id → how to answer. */
   private approvals = new Map<string, (a: { approved: boolean; note?: string }) => void>()
   /** Files already read in full: path → mtime + the tool call that holds the content. */
@@ -709,6 +715,7 @@ export class Engine {
           skills: skillIndex(this.skills),
           mcp: this.mcpSummary?.() || undefined,
           subagent: this.depth > 0,
+          ...(this.options.admin?.system && this.depth === 0 ? { selfManage: true } : {}),
           ...(policy ? { modeNote: describePolicy(policy) } : {}),
         }),
         messages: this.toModelMessages(model),
@@ -1025,12 +1032,22 @@ export class Engine {
     const parentMode = this.session.config.mode
     const planned = planSwarm(inputs, limits, { readOnly: parentMode === 'plan' })
     if (!planned.ok) return `Swarm plan rejected: ${planned.error}`
-    const view = (t: SwarmTask, status: SwarmStatus, extra: { detail?: string } = {}): void =>
-      this.emit({ type: 'subagent', id: t.id, title: t.title, status, ...(t.role ? { role: t.role } : {}), ...(t.dependsOn.length ? { dependsOn: t.dependsOn } : {}), ...extra })
+    const swarm = ++this.swarmCount
+    this.swarmCancelled = false
+    this.cancelledTasks.clear()
+    type Extra = { detail?: string; steps?: number; calls?: number; costUsd?: number | null; report?: string; cancelled?: boolean }
+    const view = (t: SwarmTask, status: SwarmStatus, extra: Extra = {}): void =>
+      this.emit({ type: 'subagent', id: t.id, title: t.title, status, swarm, kind: t.kind, ...(t.role ? { role: t.role } : {}), ...(t.dependsOn.length ? { dependsOn: t.dependsOn } : {}), ...extra })
     const out = await runSwarm({
       tasks: planned.tasks,
       limits,
-      onStatus: (t, status, detail) => view(t, status, detail ? { detail } : {}),
+      shouldStop: () => (this.swarmCancelled ? 'cancelled by the user' : null),
+      onStatus: (t, status, detail, o) =>
+        view(t, status, {
+          ...(detail ? { detail } : {}),
+          ...(o ? { calls: o.modelCalls, costUsd: o.costUsd, report: scrubAll(o.report).slice(0, 2_000) } : {}),
+          ...(this.cancelledTasks.has(t.id) ? { cancelled: true } : {}),
+        }),
       run: async (task, ctx) => {
         const child = createSession(
           CreateSessionInput.parse({ kind: 'task', mode: parentMode, objective: task.prompt, cwd: this.session.config.cwd, auto: false }),
@@ -1046,6 +1063,7 @@ export class Engine {
         const childModel = this.routeModel?.('subagent') || this.model || this.session.config.model
         child.config.model = childModel
         let lastTool = ''
+        let steps = 0
         const engine = new Engine({
           ...this.options,
           session: child,
@@ -1055,17 +1073,20 @@ export class Engine {
           forceIntent: task.kind === 'explore' ? 'question' : 'task',
           routeModel: undefined,
           onEvent: (e) => {
-            if (e.type === 'tool_start' && e.name !== lastTool) {
+            if (e.type === 'tool_start') {
+              steps++
               lastTool = e.name
-              view(task, 'running', { detail: e.name })
+              view(task, 'running', { detail: e.name, steps })
             }
           },
         })
         this.children.push(engine)
+        this.childByTask.set(task.id, engine)
         try {
           await engine.run()
         } finally {
           this.children = this.children.filter((c) => c !== engine)
+          this.childByTask.delete(task.id)
         }
         // Cost: the child's calls belong to this session's bill.
         this.session.modelCalls ??= []
@@ -1073,18 +1094,44 @@ export class Engine {
         this.applyUsageTotals(aggregateModelCalls(this.session.modelCalls))
         this.savings().subagents += 1
         const lastText = [...child.transcript].reverse().find((m) => m.role === 'assistant' && m.content.trim())?.content.trim()
-        const failed = child.state === 'failed' || (child.state !== 'ready' && child.state !== 'completed' && !lastText)
+        const cancelled = this.cancelledTasks.has(task.id) || this.swarmCancelled
+        // A child that ended paused / stopped / interrupted (a provider error, its budget) did NOT finish its job, whatever text it left.
+        const failed = cancelled || ['failed', 'paused', 'stopped', 'interrupted'].includes(child.state) || (child.state !== 'ready' && child.state !== 'completed' && !lastText)
         const own = aggregateModelCalls(child.modelCalls ?? [])
         const report = child.completionClaim?.summary ?? lastText ?? '(the sub-agent produced no report)'
         return {
-          report: failed ? `FAILED (${child.stateReason ?? child.state})\n${report}` : report,
+          report: cancelled ? `CANCELLED by the user.${lastText ? ` What it had so far:\n${report}` : ''}` : failed ? `FAILED (${child.stateReason ?? child.state})\n${report}` : report,
           failed,
           modelCalls: child.usage.modelCalls,
           costUsd: own.costPartial || own.unpricedCalls > 0 ? null : own.costUsd,
         }
       },
     })
+    const count = (s: string): number => out.results.filter((r) => r.status === s).length
+    this.emit({ type: 'swarm_report', swarm, merged: scrubAll(out.merged).slice(0, 12_000), modelCalls: out.modelCalls, costUsd: out.costUsd, done: count('done'), failed: count('failed'), skipped: count('skipped') })
     return out.merged
+  }
+
+  /**
+   * Cancel one running sub-agent (`id`) or the whole swarm (no id): running ones are stopped, waiting ones are
+   * skipped, and whatever depends on a cancelled task is skipped by the swarm's normal rule. Returns false when
+   * nothing was running.
+   */
+  cancelSubagents(id?: string): boolean {
+    if (id) {
+      const child = this.childByTask.get(id)
+      if (!child) return false
+      this.cancelledTasks.add(id)
+      child.stop()
+      return true
+    }
+    if (!this.childByTask.size && !this.children.length) return false
+    this.swarmCancelled = true
+    for (const [tid, child] of this.childByTask) {
+      this.cancelledTasks.add(tid)
+      child.stop()
+    }
+    return true
   }
 
   private appendToolResult(callId: string, name: string, ok: boolean, output: string): void {

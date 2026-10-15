@@ -7,6 +7,7 @@ import { shellTool } from './shell-tool.js'
 import { ghTool, gitCommitTool, gitDiffTool, gitLogTool, gitStatusTool } from './git-tools.js'
 import { askUserTool, completeTool, delegateTool, escalateTool, skillTool } from './control-tools.js'
 import { mcpManageTool, skillToggleTool, skillWriteTool, switchModeTool, SELF_TOOL_NAMES } from './self-tools.js'
+import { connectorManageTool, modeManageTool, settingChangeTool, skillDeleteTool, varaSystemTool, SYSTEM_READ_TOOL_NAME, SYSTEM_WRITE_TOOL_NAMES } from './system-tools.js'
 import { checkCommandAllowed } from './permissions.js'
 import { todoTool } from './todo-tool.js'
 import { scrubAll } from '../security/redact.js'
@@ -36,6 +37,11 @@ const ALL_TOOLS: Tool<never>[] = [
   skillToggleTool,
   mcpManageTool,
   switchModeTool,
+  varaSystemTool,
+  skillDeleteTool,
+  modeManageTool,
+  settingChangeTool,
+  connectorManageTool,
 ] as unknown as Tool<never>[]
 
 /**
@@ -58,10 +64,11 @@ const PLAN_ALLOWED = new Set([
   'delegate',
   'todo',
   'switch_mode',
+  SYSTEM_READ_TOOL_NAME,
 ])
 
 /** Read-only investigation set used to answer questions. */
-const QUESTION_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_status', 'git_diff', 'git_log', 'skill', 'escalate', 'delegate'])
+const QUESTION_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'repo_map', 'read_symbol', 'tool_output', 'git_status', 'git_diff', 'git_log', 'skill', 'escalate', 'delegate', SYSTEM_READ_TOOL_NAME])
 
 /** Work tools for a mode. `escalate` only exists outside work. */
 export function toolsForMode(mode: 'plan' | 'build'): Tool<never>[] {
@@ -102,7 +109,10 @@ export function toolsFor(intent: ToolIntent, mode: 'plan' | 'build', set: ToolSe
   if (!opts.hasSkills) list = list.filter((t) => t.name !== 'skill')
   if (opts.canDelegate === false) list = list.filter((t) => t.name !== 'delegate')
   // Self-management only in real work turns of a session that can ask the user.
-  if (!opts.canManage || intent === 'chat' || intent === 'question') list = list.filter((t) => !(SELF_TOOL_NAMES as readonly string[]).includes(t.name))
+  const writes: readonly string[] = [...SELF_TOOL_NAMES, ...SYSTEM_WRITE_TOOL_NAMES]
+  if (!opts.canManage || intent === 'chat' || intent === 'question') list = list.filter((t) => !writes.includes(t.name))
+  // Reading its own environment: only where an owner's admin port exists, and never in plain chat.
+  if (!opts.canManage || intent === 'chat') list = list.filter((t) => t.name !== SYSTEM_READ_TOOL_NAME)
   if (intent !== 'chat' && opts.extra?.length) {
     const readOnlyOnly = intent === 'question' || mode === 'plan'
     list = [...list, ...opts.extra.filter((t) => !readOnlyOnly || t.readonly)]

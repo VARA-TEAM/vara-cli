@@ -24,6 +24,7 @@ export const COMMANDS: CommandDef[] = [
   { name: '/settings', description: 'Theme, side panel, budgets, context, skills…', hint: 'Ctrl+O' },
   { name: '/theme', args: '<name>', description: 'Switch the color theme', needsArgs: true },
   { name: '/mcp', description: 'Connect MCP servers (external tools for the agent)' },
+  { name: '/agents', args: '[cancel <id|all> | report | list]', description: 'Sub-agents of this session: roles, status, cost, reports; cancel one or all' },
   { name: '/connectors', args: '[add <id>]', description: 'Ready-made connectors (GitHub, Notion, Sentry…); add one with its token' },
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
   { name: '/cost', description: 'What this session cost — and what VARA saved you' },

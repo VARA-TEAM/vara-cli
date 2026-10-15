@@ -42,6 +42,11 @@ export class SessionRunner {
     return this.engine?.resolveApproval(id, approved, note) ?? false
   }
 
+  /** Cancel one running sub-agent (by its task id) or, with no id, the whole swarm. False when none is running. */
+  cancelAgents(id?: string): boolean {
+    return this.engine?.cancelSubagents(id) ?? false
+  }
+
   pause(): void {
     // The desktop kill switch: whatever the agent was about to do on the screen is cancelled at once.
     killDesktop(this.session.id)

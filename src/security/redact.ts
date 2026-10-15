@@ -54,3 +54,27 @@ export function scrubPatterns(input: string): string {
 export function scrubAll(input: string): string {
   return scrubPatterns(scrub(input))
 }
+
+/** `name: value` / `name=value` pairs whose NAME says it is a secret: keep the name, drop the value. */
+const ASSIGNMENT = /\b((?:[A-Za-z0-9_.-]*)(?:api[_-]?key|apikey|token|secret|passw(?:or)?d|passwd|authorization|bearer)[A-Za-z0-9_.-]*["']?\s*[:=]\s*["']?)(?:Bearer\s+)?(?![\d.,_]+(?:[\s"',;`)\]}]|$))[^\s"',;`)]{6,}/gi
+const OTHER_TOKENS: Array<[RegExp, string]> = [
+  [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, 'jwt'],
+  [/xox[abprs]-[A-Za-z0-9-]{10,}/g, 'slack-token'],
+  [/AIza[0-9A-Za-z_-]{30,}/g, 'google-key'],
+  [/gh[ousr]_[A-Za-z0-9]{20,}/g, 'github-token'],
+]
+/** A 43+ character base64url blob with upper, lower and a digit: the shape of VARA's own owner / invite / access tokens. */
+const BLOB = /(?<![A-Za-z0-9_/.-])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]{43,}(?![A-Za-z0-9_/.-])/g
+
+/**
+ * The strictest scrub, for text the agent is shown ABOUT its own environment (other sessions' transcripts,
+ * settings, server definitions): everything `scrubAll` removes, plus secret-looking assignments, JWTs, other
+ * well-known token shapes and VARA's own token format. It may over-redact; that is the right side to err on.
+ */
+export function scrubSystem(input: string): string {
+  if (!input) return input
+  let out = scrubAll(input)
+  for (const [re, label] of OTHER_TOKENS) out = out.replace(re, `⟦${label}⟧`)
+  out = out.replace(ASSIGNMENT, (_m, head: string) => `${head}⟦secret⟧`)
+  return out.replace(BLOB, '⟦token⟧')
+}

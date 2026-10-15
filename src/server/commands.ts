@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { networkInterfaces } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { loadConfig, persistConfig, type VaraConfig } from '../config/config.js'
 import { ensureProviders } from '../config/providers.js'
-import { hostDir } from '../config/paths.js'
+import { hostDir, VARA_HOME } from '../config/paths.js'
+import { VERSION } from '../version.js'
+import { isLoopback, makeLogger, makeShutdown, parseServeSettings, resolveOwnerAuth, type Env } from './daemon.js'
 import { ensureStore } from '../core/store.js'
 import { buildProvider, keySource, resolveApiKey } from '../runtime.js'
 import { checkModel, discoverModels, mapLimit } from '../llm/discovery.js'
@@ -14,6 +16,7 @@ import type { Provider } from '../llm/provider.js'
 import { sweepStaging } from '../core/attachments.js'
 import { checkForUpdate, type UpdateNotice } from '../update/updater.js'
 import { Manager } from './manage.js'
+import type { HostStatus } from '../core/systeminfo.js'
 import { McpHub } from '../mcp/hub.js'
 import { AccessStore, presetGrant, type Grant, type GrantPreset } from './access.js'
 import { VaraHost } from './host.js'
@@ -67,13 +70,29 @@ function openBrowser(url: string): void {
   }
 }
 
-/** `vara serve` / `vara ui`: run the host. */
-export async function serveCommand(args: string[], open: boolean): Promise<void> {
-  const lan = args.includes('--lan')
-  const port = Number(flag(args, '--port') ?? DEFAULT_PORT)
-  const publicHost = flag(args, '--public-host')
-  const cwd = resolve(flag(args, '--cwd') ?? process.cwd())
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be 0-65535')
+export interface ServeHooks {
+  /** Environment to read VARA_* settings from (default: process.env). */
+  env?: Env
+  /** Where log lines go (default: stdout). */
+  write?: (line: string) => void
+  /** Called once the server is listening. */
+  onReady?: (info: { port: number; baseUrl: string; ownerUrl?: string; oneTimeToken?: string }) => void
+  /** Stop the host (what SIGTERM does). Mostly for tests and embedding. */
+  abort?: AbortSignal
+}
+
+/**
+ * `vara serve` (headless daemon: settings from flags and VARA_* variables, an owner token that survives restarts,
+ * log lines for journald/containers, a clean stop on SIGTERM) and `vara ui` (opens a browser, fresh token per run).
+ */
+export async function serveCommand(args: string[], open: boolean, hooks: ServeHooks = {}): Promise<void> {
+  const env = hooks.env ?? process.env
+  const settings = parseServeSettings(args, env, { daemon: !open })
+  const { port, publicHost, cwd, daemon } = settings
+  const lan = !isLoopback(settings.bind)
+  const logger = makeLogger(daemon ? settings.log : 'text', hooks.write)
+  // `vara ui` talks to a person at a terminal, the daemon to a log: same facts, different voice.
+  const say = (line: string): void => (daemon ? logger.info(line) : (hooks.write ?? console.log)(line))
 
   await ensureStore()
   void sweepStaging() // uploads nobody sent with a message
@@ -82,7 +101,13 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   try {
     provider = (await buildProvider(config)).provider
   } catch (err) {
-    throw new Error(`${(err as Error).message}\nRun: vara setup`)
+    const key = config.provider.apiKeyEnv
+    throw new Error(
+      `${(err as Error).message}\n` +
+        (daemon
+          ? `Give the host a model key before it starts: export ${key || 'the provider key variable'} (or run \`vara secret set ${config.provider.apiKeySecret || 'NAME'}\` / \`vara setup\` once with the same VARA_HOME).`
+          : 'Run: vara setup'),
+    )
   }
   let providerVersion = 0
   const hub = new McpHub()
@@ -102,9 +127,22 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
   let updateNotice: UpdateNotice | null = null
   void checkForUpdate({ enabled: config.updates.check }).then((n) => {
     updateNotice = n
-    if (n) console.log(`\nA new VARA is available: ${n.latest} (you have ${n.current}). Update with: vara update`)
+    if (n) say(daemon ? `a new VARA is available: ${n.latest} (this is ${n.current}); update with: vara update` : `\nA new VARA is available: ${n.latest} (you have ${n.current}). Update with: vara update`)
   })
-  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, update: () => updateNotice ?? undefined, providerVersion: () => providerVersion, applyConfig })
+  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, update: () => updateNotice ?? undefined, providerVersion: () => providerVersion, applyConfig, hostStatus: () => hostStatus() })
+  // What the owner's agent may learn about this host: how exposed it is and how many guests — never a token or a link.
+  const hostStatus = (): HostStatus => {
+    const s = sharing?.current()
+    const guests = access.listGuests()
+    return {
+      exposure: publicHost ? 'public host' : lan ? 'local network' : 'local only',
+      ...(publicHost ? { publicHost } : {}),
+      shareActive: !!s,
+      ...(s?.expiresAt ? { shareExpiresAt: s.expiresAt } : {}),
+      guests: { active: guests.filter((g) => !g.revoked).length, revoked: guests.filter((g) => g.revoked).length },
+      openInvites: access.listInvites().filter((i) => !i.revoked && Date.parse(i.expiresAt) > Date.now() && i.uses < i.maxUses).length,
+    }
+  }
   const manager = new Manager({
     config: () => config,
     apply: applyConfig,
@@ -122,31 +160,45 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
     keyState: (entry) => keySource(entry),
     mapLimit,
   })
-  const ownerToken = newOwnerToken()
+
+  // The owner's credential: a daemon keeps only a digest (and shows a new token once); `vara ui` makes a fresh one per run.
+  const auth = daemon ? resolveOwnerAuth(settings, hostDir) : null
+  const ownerToken = daemon ? undefined : newOwnerToken()
+  for (const w of [...settings.warnings, ...(auth?.warnings ?? [])]) (daemon ? logger.warn(w) : say(`Warning: ${w}`))
+
   let guestBase: string | undefined
   const wantShare = args.includes('--share')
   const allowedHosts: string[] = publicHost ? [publicHost] : []
   const publicHosts: string[] = []
   let sharing: Sharing | null = null
   let baseBeforeShare: string | undefined
-  const server = await startServer({
-    host,
-    manager,
-    ownerToken,
-    publicUrl: () => guestBase,
-    bind: lan ? '0.0.0.0' : '127.0.0.1',
-    port,
-    allowedHosts,
-    publicHosts,
-    share: () => {
-      const s = sharing?.current()
-      return s ? { url: s.url, ...(s.expiresAt ? { expiresAt: s.expiresAt } : {}) } : undefined
-    },
-    onError: (e) => console.error('[vara] internal error:', e instanceof Error ? e.message : e),
-  })
+  let server: Awaited<ReturnType<typeof startServer>>
+  try {
+    server = await startServer({
+      host,
+      manager,
+      ...(auth ? { ownerTokenDigest: auth.digest } : { ownerToken: ownerToken! }),
+      trustProxy: settings.trustProxy,
+      publicUrl: () => guestBase,
+      bind: settings.bind,
+      port,
+      allowedHosts,
+      publicHosts,
+      share: () => {
+        const s = sharing?.current()
+        return s ? { url: s.url, ...(s.expiresAt ? { expiresAt: s.expiresAt } : {}) } : undefined
+      },
+      // Internal errors are for the operator's log, never for the client; messages only, so no request data lands in the journal.
+      onError: (e) => (daemon ? logger.error('internal error', { message: e instanceof Error ? e.message : String(e) }) : console.error('[vara] internal error:', e instanceof Error ? e.message : e)),
+    })
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EADDRINUSE') throw new Error(`port ${port} on ${settings.bind} is already in use (another VARA host? \`vara doctor --server\` shows who). Use --port or VARA_PORT.`)
+    throw err
+  }
 
-  const lanUrls = lan ? lanAddresses().map((ip) => `http://${ip}:${server.port}`) : []
-  const baseUrl = publicHost ? `https://${publicHost}` : (lanUrls[0] ?? `http://127.0.0.1:${server.port}`)
+  const lanUrls = lan && !daemon ? lanAddresses().map((ip) => `http://${ip}:${server.port}`) : []
+  const localUrl = `http://${settings.bind === '0.0.0.0' || settings.bind === '::' ? '127.0.0.1' : settings.bind}:${server.port}`
+  const baseUrl = publicHost ? `https://${publicHost}` : (lanUrls[0] ?? localUrl)
   // Invites made in the browser must carry the address a guest can actually reach.
   guestBase = lan || publicHost ? baseUrl : undefined
   writeFileSync(hostInfoFile(), JSON.stringify({ pid: process.pid, port: server.port, baseUrl } satisfies HostInfo))
@@ -160,38 +212,81 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
       guestBase = u ?? baseBeforeShare
       writeFileSync(hostInfoFile(), JSON.stringify({ pid: process.pid, port: server.port, baseUrl: guestBase ?? baseUrl } satisfies HostInfo))
     },
-    onEnd: (why) => console.log(`\n[vara] Public link closed: ${why}. Guests can no longer reach this host from outside; the host keeps running locally.`),
+    onEnd: (why) => say(`${daemon ? '' : '\n'}[vara] Public link closed: ${why}. Guests can no longer reach this host from outside; the host keeps running locally.`),
   })
-  const ownerUrl = `http://127.0.0.1:${server.port}/#token=${ownerToken}`
-  console.log(`VARA host running - folder: ${cwd}`)
-  console.log(`\n  You:      ${ownerUrl}`)
-  if (lan) for (const u of lanUrls) console.log(`  Guests:   ${u}  (they need an invite: vara invite --preset collaborator)`)
-  if (publicHost) console.log(`  Public:   https://${publicHost}  (through your tunnel)`)
-  if (!lan && !publicHost) console.log('  Local only. Add --lan to let people on your network join.')
-  console.log('\nKeep this window open. Ctrl+C stops the host and every guest session.')
-  if (lan) console.log('Only invite people you trust: a guest with "build" power can change files and run commands on THIS machine.')
-  if (wantShare) await startShare(sharing, args, access, config)
-  if (open) openBrowser(ownerUrl)
 
-  await new Promise<void>((done) => {
-    const stop = (): void => {
-      try {
-        unlinkSync(hostInfoFile())
-      } catch {
-        /* already gone */
-      }
-      void host
-        .closeAll()
-        .then(() => sharing?.stop())
-        .then(() => server.close())
-        .finally(() => {
-          hub.closeAll()
-          done()
-        })
+  let ownerUrl: string | undefined
+  if (daemon) {
+    logger.info(`VARA ${VERSION} host listening on ${settings.bind}:${server.port}`, { folder: cwd, ...(publicHost ? { publicHost } : {}), pid: process.pid, home: VARA_HOME, log: settings.log })
+    if (auth?.oneTimeToken) {
+      ownerUrl = `${baseUrl}/#token=${auth.oneTimeToken}`
+      logger.raw('Owner login — shown ONCE. Open it (or keep the token in a password manager): only its hash is stored, so it cannot be shown again.')
+      logger.raw(`  ${ownerUrl}`)
+      logger.raw('If you lose it: restart with --rotate-token (the old token stops working).')
+    } else if (auth) {
+      logger.info(auth.source === 'persisted' ? `owner token: the one saved earlier (${auth.where}); start with --rotate-token to replace it` : `owner token: provided (${auth.where})`)
     }
-    process.once('SIGINT', stop)
-    process.once('SIGTERM', stop)
+    logger.info(`health check: ${localUrl}/api/health`)
+  } else {
+    ownerUrl = `http://127.0.0.1:${server.port}/#token=${ownerToken}`
+    console.log(`VARA host running - folder: ${cwd}`)
+    console.log(`\n  You:      ${ownerUrl}`)
+    if (lan) for (const u of lanUrls) console.log(`  Guests:   ${u}  (they need an invite: vara invite --preset collaborator)`)
+    if (publicHost) console.log(`  Public:   https://${publicHost}  (through your tunnel)`)
+    if (!lan && !publicHost) console.log('  Local only. Add --lan to let people on your network join.')
+    console.log('\nKeep this window open. Ctrl+C stops the host and every guest session.')
+    if (lan) console.log('Only invite people you trust: a guest with "build" power can change files and run commands on THIS machine.')
+  }
+  if (wantShare) await startShare(sharing, args, access, config)
+  if (open && ownerUrl) openBrowser(ownerUrl)
+  hooks.onReady?.({ port: server.port, baseUrl, ...(ownerUrl ? { ownerUrl } : {}), ...(auth?.oneTimeToken ? { oneTimeToken: auth.oneTimeToken } : {}) })
+
+  const shutdown = makeShutdown({
+    log: logger,
+    steps: [
+      {
+        name: 'forget this host',
+        run: () => {
+          try {
+            unlinkSync(hostInfoFile())
+          } catch {
+            /* already gone */
+          }
+        },
+      },
+      { name: 'stop sessions', run: () => host.closeAll() },
+      { name: 'close the public link', run: () => sharing?.stop() },
+      { name: 'stop accepting connections', run: () => server.close() },
+      { name: 'close MCP servers', run: () => hub.closeAll() },
+    ],
   })
+
+  let signals = 0
+  const onInt = (): void => stop('SIGINT')
+  const onTerm = (): void => stop('SIGTERM')
+  const stop = (reason: string): void => {
+    signals++
+    // A second Ctrl+C / SIGTERM while stopping means "now": do not leave a stuck process behind.
+    if (signals > 1) {
+      logger.warn('second stop request: exiting now')
+      process.exit(1)
+    }
+    void shutdown(reason).then(finish)
+  }
+  let finish: (r: { clean: boolean }) => void = () => {}
+  const result = await new Promise<{ clean: boolean }>((done) => {
+    finish = done
+    process.once('SIGINT', onInt)
+    process.once('SIGTERM', onTerm)
+    hooks.abort?.addEventListener('abort', () => void shutdown('requested').then(done), { once: true })
+    if (hooks.abort?.aborted) void shutdown('requested').then(done)
+    if (daemon) {
+      process.on('unhandledRejection', (e) => logger.error('unhandled rejection', { message: e instanceof Error ? e.message : String(e) }))
+    }
+  })
+  process.off('SIGINT', onInt)
+  process.off('SIGTERM', onTerm)
+  if (daemon) process.exitCode = result.clean ? 0 : 1
 }
 
 /** `--share`: open the public link, print one safe (read-only) invite on it, and say plainly what is exposed. */

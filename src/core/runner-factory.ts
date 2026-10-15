@@ -12,6 +12,11 @@ import { discoverSkills } from './skills.js'
 import { policyFor } from './modes.js'
 import { makeAdminPort, type AdminPort } from './selfmanage.js'
 import type { McpHub } from '../mcp/hub.js'
+import { listSessions, loadSession } from './store.js'
+import { namesOnly, type HostStatus } from './systeminfo.js'
+import { keySource } from '../runtime.js'
+import { listSecrets } from '../security/vault.js'
+import { VERSION } from '../version.js'
 
 /**
  * The ONE place that wires a session to everything it needs: provider, live
@@ -28,6 +33,10 @@ export function makeSessionRunner(opts: {
   onEvent: (event: EngineEvent) => void
   /** Applies and saves a changed config (and makes it live). Without it the agent cannot manage itself. */
   applyConfig?: (next: VaraConfig) => Promise<void>
+  /** A newer release, when the quiet check found one. */
+  update?: () => { current: string; latest: string; url: string } | undefined
+  /** What the running web host reports about itself (absent in the terminal). */
+  host?: () => HostStatus | undefined
 }): SessionRunner {
   const { session: s, config, hub } = opts
   const model = () => s.config.model ?? config().provider.model
@@ -45,7 +54,22 @@ export function makeSessionRunner(opts: {
       modePolicy: () => policyFor(config().modes, s.config.customMode),
       swarm: () => config().swarm,
       vision: (m) => visionFor(config(), m),
-      ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
+      ...(opts.applyConfig ? { admin: makeAdminPort({
+              session: s,
+              config,
+              apply: opts.applyConfig,
+              system: {
+                hub,
+                version: VERSION,
+                // NAMES only: the vault's own listing also carries a hint with the first characters, which is never passed on.
+                secretNames: async () => namesOnly(await listSecrets()),
+                keyState: (e) => keySource(e),
+                listSessions,
+                loadSession,
+                ...(opts.update ? { update: opts.update } : {}),
+                ...(opts.host ? { host: opts.host } : {}),
+              },
+            }) as AdminPort, interactive: true } : {}),
       extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.browser ? [browserTool as unknown as Tool<never>] : []), ...(config().agent.desktop && opts.applyConfig ? [desktopTool as unknown as Tool<never>] : [])],
       mcpSummary: () => hub.summary(new Set(s.config.disabledMcp ?? [])),
     },

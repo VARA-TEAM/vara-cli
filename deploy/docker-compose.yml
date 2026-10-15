@@ -1,0 +1,64 @@
+# VARA as a service with Docker Compose.
+#
+#   cp deploy/vara.env.example deploy/.env      # then edit the provider key (this file is git-ignored by the name .env)
+#   docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
+#   docker compose -f deploy/docker-compose.yml logs vara      # the FIRST start prints a one-time owner login link
+#
+# The port is published on 127.0.0.1 only: put a TLS reverse proxy (deploy/Caddyfile or deploy/nginx.conf) in front
+# of it. Publishing it as "7777:7777" would put a plain-HTTP login page on the internet.
+name: vara
+
+services:
+  vara:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: vara:local
+    restart: unless-stopped
+    init: false # the image already runs tini
+    ports:
+      - "127.0.0.1:7777:7777"
+    environment:
+      # read_only below: git and other tools keep their small state in /tmp.
+      HOME: /tmp
+      # Where the host is reachable by people (the DNS name your proxy serves). Empty = local only.
+      VARA_PUBLIC_HOST: ${VARA_PUBLIC_HOST:-}
+      # 1 once a reverse proxy in front sets X-Forwarded-For (the compose file publishes the port on loopback only).
+      VARA_TRUST_PROXY: ${VARA_TRUST_PROXY:-0}
+      # Optional: your own owner token as a file secret (see `secrets:` below) instead of a generated one.
+      # VARA_OWNER_TOKEN_FILE: /run/secrets/vara_owner_token
+      # The model key. Use the variable your provider expects (config.json says which; OpenAI by default).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      # Sessions, config, the encrypted vault, the owner token's hash: keep this volume (back it up).
+      - vara-data:/data
+      # The folder the agent works in: mount your project here (set VARA_WORKSPACE). It must be writable by uid 1000:
+      #   mkdir -p deploy/workspace && sudo chown 1000:1000 deploy/workspace
+      - ${VARA_WORKSPACE:-./workspace}:/workspace
+    # Hardening: nothing the agent runs can become root or write outside /data, /workspace and /tmp.
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    # The image has its own HEALTHCHECK (GET /api/health); this only changes the timing if you want.
+    # healthcheck:
+    #   interval: 30s
+
+volumes:
+  vara-data:
+
+# secrets:
+#   vara_owner_token:
+#     file: ./owner-token.txt     # chmod 600; at least 24 characters, e.g. `openssl rand -base64 32 > owner-token.txt`

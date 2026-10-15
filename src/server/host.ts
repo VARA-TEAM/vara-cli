@@ -68,6 +68,8 @@ export interface HostOptions {
   providerVersion?: () => number
   /** Apply and save a changed config (what the owner's settings do). Lets the owner's agent manage itself, with approval. */
   applyConfig?: (next: VaraConfig) => Promise<void>
+  /** What this host reports about itself to the owner's agent (never a token, an invite or a link). */
+  hostStatus?: () => import('../core/systeminfo.js').HostStatus | undefined
 }
 
 /** A session as a client may see it: no reasoning blocks, everything scrubbed. */
@@ -204,7 +206,9 @@ export class VaraHost {
       hub: this.opts.hub,
       onEvent: (e) => this.publish(live, e),
       // Only the owner's own sessions may change the host's setup — never a guest's agent.
-      ...(this.opts.applyConfig && !live.session.participant ? { applyConfig: this.opts.applyConfig } : {}),
+      ...(this.opts.applyConfig && !live.session.participant
+        ? { applyConfig: this.opts.applyConfig, ...(this.opts.update ? { update: () => (this.opts.config().updates.check ? this.opts.update?.() : undefined) } : {}), ...(this.opts.hostStatus ? { host: this.opts.hostStatus } : {}) }
+        : {}),
     })
   }
 

@@ -4,7 +4,9 @@ import { PassThrough } from 'node:stream'
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { VERSION } from './version.js'
-import { configFile, VARA_HOME } from './config/paths.js'
+import { configFile, hostDir, VARA_HOME } from './config/paths.js'
+import { realProbes, serverChecks } from './server/doctor-server.js'
+import { uiAssets } from './server/ui-assets.js'
 import { loadConfig } from './config/config.js'
 import { keySource } from './runtime.js'
 import { activeProviderName, ensureProviders } from './config/providers.js'
@@ -46,7 +48,7 @@ function has(cmd: string, args: string[]): string | null {
 }
 
 /** `vara doctor`: what works, what is missing, and how to fix it. Exit code 1 if something required fails. */
-export async function doctorCommand(): Promise<void> {
+export async function doctorCommand(args: string[] = []): Promise<void> {
   const checks: Check[] = []
   checks.push({ name: 'VARA', ok: true, detail: `v${VERSION} on ${process.platform}/${process.arch}, Node ${process.versions.node}` })
   const nodeMajor = Number(process.versions.node.split('.')[0])
@@ -76,11 +78,29 @@ export async function doctorCommand(): Promise<void> {
   const rg = has('rg', ['--version'])
   checks.push({ name: 'ripgrep', ok: !!rg, optional: true, detail: rg ?? 'not found — search falls back to a slower built-in engine' })
 
+  // `--server`: can this machine run VARA unattended (port, token, exposure, proxy, provider key)?
+  if (args.includes('--server')) {
+    const probes = realProbes(VARA_HOME, hostDir, {
+      uiBuilt: () => !!uiAssets.html,
+      providerKey: async () => {
+        try {
+          const config = ensureProviders(await loadConfig())
+          const key = await keySource(config.provider)
+          return key === 'none' ? { ok: false, detail: `${activeProviderName(config)}: no API key. Set ${config.provider.apiKeyEnv || 'the provider key variable'} or run: vara secret set ${config.provider.apiKeySecret || 'NAME'}` } : { ok: true, detail: `${activeProviderName(config)} · ${config.provider.model} (key: ${key})` }
+        } catch (err) {
+          return { ok: false, detail: (err as Error).message.split(/\r?\n/)[0] ?? 'config unreadable' }
+        }
+      },
+    })
+    // `Provider` above already covers the key for the interactive case; the server section re-checks it with the server wording.
+    checks.push(...(await serverChecks(args, process.env, probes)).map((c) => ({ ...c, name: `server: ${c.name}` })))
+  }
+
   let broken = false
   for (const c of checks) {
     const mark = c.ok ? 'ok  ' : c.optional ? 'todo' : 'FAIL'
     if (!c.ok && !c.optional) broken = true
-    console.log(`${mark}  ${c.name.padEnd(12)} ${c.detail}`)
+    console.log(`${mark}  ${c.name.padEnd(c.name.startsWith('server:') ? 22 : 12)} ${c.detail}`)
   }
   if (broken) process.exitCode = 1
   else if (checks.some((c) => !c.ok)) console.log('\nThe install works. Items marked "todo" are optional or one-time setup (start with: vara setup).')

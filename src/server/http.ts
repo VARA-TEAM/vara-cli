@@ -27,8 +27,12 @@ export interface ServerOptions {
   host: VaraHost
   /** Providers, models, settings, skills and MCP — owner only. Without it those routes answer 404. */
   manager?: Manager
-  /** Secret that identifies the OWNER. Generate with newOwnerToken(). */
-  ownerToken: string
+  /** Secret that identifies the OWNER. Generate with newOwnerToken(). Not needed when `ownerTokenDigest` is given. */
+  ownerToken?: string
+  /** SHA-256 of the owner's token (a headless host keeps only this, never the token). Takes precedence over `ownerToken`. */
+  ownerTokenDigest?: Buffer
+  /** Behind a reverse proxy that appends X-Forwarded-For: rate-limit the real client, not the proxy. */
+  trustProxy?: boolean
   bind?: string
   port?: number
   /** Extra hostnames clients may use (e.g. a tunnel's), besides localhost and private IPs. */
@@ -137,7 +141,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     // EventSource cannot set headers; allow the token in the query for the event stream only.
     if (!token && url.pathname.endsWith('/events')) token = url.searchParams.get('access_token') ?? ''
     if (!token) return null
-    if (safeEqual(token, opts.ownerToken)) return { principal: { kind: 'owner' }, token }
+    const isOwner = opts.ownerTokenDigest ? timingSafeEqual(sha(token), opts.ownerTokenDigest) : !!opts.ownerToken && safeEqual(token, opts.ownerToken)
+    if (isOwner) return { principal: { kind: 'owner' }, token }
     const guest = host.access.authenticate(token)
     if (!guest) return null
     host.access.touch(guest.id)
@@ -216,7 +221,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     // Through a tunnel every client reaches us from 127.0.0.1: use the forwarded address, in its own
     // namespace, so a stranger hammering the public link can never lock the owner out locally.
     const forwarded = String(req.headers['cf-connecting-ip'] ?? req.headers['x-forwarded-for'] ?? '').split(',')[0]!.trim().slice(0, 64)
-    const ip = viaTunnel ? `public:${forwarded || 'unknown'}` : (req.socket.remoteAddress ?? 'unknown')
+    // A trusted reverse proxy appends the address it saw as the LAST X-Forwarded-For entry (earlier ones are the client's own claim).
+    const proxied = opts.trustProxy ? String(req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'] ?? '').split(',').pop()!.trim().slice(0, 64) : ''
+    const ip = viaTunnel ? `public:${forwarded || 'unknown'}` : proxied ? `proxy:${proxied}` : (req.socket.remoteAddress ?? 'unknown')
 
     // Cross-site requests: a browser always sends Origin on POST/PUT/PATCH/DELETE.
     if (method !== 'GET' && method !== 'HEAD') {

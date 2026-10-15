@@ -1,0 +1,61 @@
+# VARA as a systemd service (Linux). Install:
+#
+#   sudo useradd --system --create-home --home-dir /var/lib/vara --shell /usr/sbin/nologin vara
+#   sudo install -d -o vara -g vara -m 0750 /var/lib/vara/workspace
+#   sudo cp deploy/vara.service /etc/systemd/system/vara.service
+#   sudo install -d -m 0750 -o root -g vara /etc/vara
+#   sudo cp deploy/vara.env.example /etc/vara/vara.env && sudo chmod 640 /etc/vara/vara.env && sudo editor /etc/vara/vara.env
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vara
+#   journalctl -u vara -n 30        # the FIRST start prints a one-time owner login link
+#
+# Adjust ExecStart if `vara` is not at /usr/local/bin/vara (the packaged install puts a launcher there).
+[Unit]
+Description=VARA agent host
+Documentation=https://github.com/VARA-TEAM/vara-cli/blob/main/docs/DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vara
+Group=vara
+# The data folder (sessions, config, vault, owner token hash) and the folder the agent works in.
+Environment=VARA_HOME=/var/lib/vara/data
+Environment=VARA_CWD=/var/lib/vara/workspace
+Environment=VARA_BIND=127.0.0.1
+Environment=VARA_PORT=7777
+# journald understands the "<6>" priority prefixes this mode writes (it is the default under systemd).
+Environment=VARA_LOG=journal
+# Settings in this file win over the defaults above (systemd applies assignments in the order written).
+EnvironmentFile=/etc/vara/vara.env
+ExecStart=/usr/local/bin/vara serve
+# SIGTERM = a clean stop (sessions saved, connections closed). Give it time before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+# A host that cannot start (missing key, port taken) should not spin forever.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Hardening. VARA runs commands for the agent, so the sandbox below limits what those commands can reach.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+# Only these paths are writable. Add the project folders the agent should be able to change.
+ReadWritePaths=/var/lib/vara
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

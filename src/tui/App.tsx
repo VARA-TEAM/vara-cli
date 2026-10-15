@@ -46,6 +46,8 @@ import { keySource } from '../runtime.js'
 import { CONNECTORS, connectorServer, findConnector } from '../mcp/connectors.js'
 import { listSecrets } from '../security/vault.js'
 import { resolveKey, type Overlay } from './keymap.js'
+import { agentLine, agentsText, applyAgentEvent, isBusy, swarmSummaryLine, type SwarmView } from './agents.js'
+import { AgentsScreen } from './agents-view.js'
 
 interface Props {
   /** null → welcome flow: the first message becomes a new session's objective. */
@@ -81,6 +83,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
   const configRef = useRef(config)
   const providerRef = useRef(provider)
   const hubRef = useRef<McpHub>(new McpHub())
+  const updateRef = useRef<{ current: string; latest: string; url: string } | undefined>(undefined)
   configRef.current = config
   providerRef.current = provider
   // --- session tabs: every open session stays in memory with its own view ---
@@ -114,6 +117,10 @@ export function App({ session, provider: initialProvider, config: initialConfig,
   const [intent, setIntent] = useState<SessionIntent | null>(session?.intent ?? null)
   const [skillRows, setSkillRows] = useState<SkillRow[]>([])
   const [skillNames, setSkillNames] = useState<string[]>([])
+  // Sub-agents (swarms) of the active session: the ref is the truth (events update it synchronously), the state re-renders.
+  const agentsRef = useRef<SwarmView[]>([])
+  const agentsCacheRef = useRef<Record<string, SwarmView[]>>({})
+  const [agents, setAgents] = useState<SwarmView[]>([])
   const [keyMissing, setKeyMissing] = useState(false)
 
   const runnerRef = useRef<SessionRunner | null>(null)
@@ -221,14 +228,29 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         case 'intent':
           setIntent(event.intent)
           break
-        case 'subagent':
-          push({
-            kind: 'note',
-            text: `${event.status === 'running' ? '⧉' : event.status === 'done' ? glyph.ok : event.status === 'waiting' || event.status === 'skipped' ? '○' : glyph.fail} sub-agent · ${event.title}${event.role ? ` [${event.role}]` : ''}${event.dependsOn?.length ? ` ← ${event.dependsOn.join(', ')}` : ''}${event.status === 'running' ? (event.detail ? ` — ${event.detail}…` : ' — working…') : event.status === 'done' ? ' — done' : event.status === 'waiting' ? ' — waiting' : event.status === 'skipped' ? ` — skipped${event.detail ? `: ${event.detail}` : ''}` : ' — failed'}`,
-            color: event.status === 'failed' ? 'red' : event.status === 'done' ? 'green' : event.status === 'waiting' || event.status === 'skipped' ? 'gray' : 'cyan',
-            group: `sub-${event.id}`,
-          })
+        case 'subagent': {
+          agentsRef.current = applyAgentEvent(agentsRef.current, event)
+          if (activeIdRef.current) agentsCacheRef.current[activeIdRef.current] = agentsRef.current
+          setAgents(agentsRef.current)
+          const row = agentsRef.current.find((s) => s.swarm === (event.swarm ?? 1))?.rows.find((r) => r.id === event.id)
+          if (row) {
+            push({
+              kind: 'note',
+              text: `agent #${event.swarm ?? 1} · ${agentLine(row, Date.now())}`,
+              color: event.status === 'failed' ? 'red' : event.status === 'done' ? 'green' : event.status === 'waiting' || event.status === 'skipped' ? 'gray' : 'cyan',
+              group: `sub-${event.swarm ?? 1}-${event.id}`,
+            })
+          }
           break
+        }
+        case 'swarm_report': {
+          agentsRef.current = applyAgentEvent(agentsRef.current, event)
+          if (activeIdRef.current) agentsCacheRef.current[activeIdRef.current] = agentsRef.current
+          setAgents(agentsRef.current)
+          const v = agentsRef.current.find((s) => s.swarm === event.swarm)
+          if (v) push({ kind: 'note', text: swarmSummaryLine(v), color: event.failed ? 'yellow' : 'green', group: `swarm-${event.swarm}` })
+          break
+        }
         case 'approval_request':
           push({
             kind: 'note',
@@ -335,6 +357,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         config: () => configRef.current,
         hub: hubRef.current,
         onEvent: handleEvent,
+        update: () => (configRef.current.updates.check ? updateRef.current : undefined),
         // The agent may change its own setup — each change waits for /approve.
         applyConfig: async (next) => {
           configRef.current = next
@@ -374,6 +397,8 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       }
       streamBuffer = ''
       setStream('')
+      agentsRef.current = agentsCacheRef.current[next.id] ?? []
+      setAgents(agentsRef.current)
       scrollOffsetRef.current = 0
       setScrollOffset(0)
       refresh()
@@ -402,6 +427,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
   // A quiet, non-blocking "update available" note (at most one request a day; off in /settings).
   useEffect(() => {
     void checkForUpdate({ enabled: configRef.current.updates.check }).then((n) => {
+      updateRef.current = n ?? undefined
       if (n) push({ kind: 'note', text: `VARA ${n.latest} is available (you have ${n.current}) — quit and run: vara update`, color: 'cyan' })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1181,6 +1207,26 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         })
         return
       }
+      case 'agents': {
+        const sub = rest[0]
+        if (sub === 'cancel') {
+          const target = rest[1] && rest[1] !== 'all' ? rest[1] : undefined
+          const ok = runnerRef.current?.cancelAgents(target) ?? false
+          push({ kind: 'note', text: ok ? `cancelling ${target ? `agent ${target}` : 'every agent'}…` : target ? `agent "${target}" is not running` : 'no agents are running', color: ok ? 'yellow' : 'gray' })
+          return
+        }
+        if (sub === 'report') {
+          const last = agentsRef.current[agentsRef.current.length - 1]
+          push({ kind: 'note', text: last?.report ? last.report.merged.slice(0, 4000) : agentsText(agentsRef.current), color: 'gray' })
+          return
+        }
+        if (sub === 'list') {
+          push({ kind: 'note', text: agentsText(agentsRef.current), color: 'gray' })
+          return
+        }
+        setOverlay('agents')
+        return
+      }
       case 'approve':
       case 'deny': {
         const pending = cur.pendingApprovals ?? []
@@ -1354,6 +1400,8 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           void loadSkillRows()
         }}
       />
+    ) : overlay === 'agents' ? (
+      <AgentsScreen swarms={agents} maxRows={overlayRows} onCancel={(id) => runnerRef.current?.cancelAgents(id) ?? false} onClose={() => setOverlay(null)} />
     ) : overlay === 'sessions' ? (
       <SessionBrowser
         cwd={active?.config.cwd ?? process.cwd()}
@@ -1535,7 +1583,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
               ) : null}
             </Box>
             {sidebarVisible ? (
-              <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} sections={config.ui.sections} skillNames={skillNames} think={thinkingFor(config, model).level} mcpReady={hubRef.current.tools(new Set(active.config.disabledMcp ?? [])).length} />
+              <Sidebar session={active} config={config} ctx={ctx} usedTokens={usedTokens} sections={config.ui.sections} skillNames={skillNames} think={thinkingFor(config, model).level} mcpReady={hubRef.current.tools(new Set(active.config.disabledMcp ?? [])).length} agents={agents} now={Date.now()} />
             ) : null}
           </>
         )}

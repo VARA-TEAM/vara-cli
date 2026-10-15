@@ -76,13 +76,14 @@ Proof: tests are written first; `npm run check` green before every push.
 - **Agent evals** — an offline harness of scripted scenarios (refuses false completion, recovers after a failing tool, does not write in plan mode) beyond the unit tests that exist.
 - **R4 (parallel read tools), R5 (cheap-model summaries), R6 (provider per session)** remain open above.
 
-### R11 · System-aware agent, visible sub-agents, run anywhere — design note for the protected file (`engine.ts`)
+### R12 · System-aware agent, visible sub-agents, run anywhere — design note for the protected file (`engine.ts`)
 
 Written *before* touching `engine.ts`. `permissions.ts` and `vault.ts` are **not** touched.
 
 **`src/core/engine.ts` — what changes (all additive, no permission logic)**
 - The `subagent` event gains optional fields: `swarm` (a counter, so a UI can group one `delegate` call), `kind`, `steps` (tool calls so far), `calls`, `costUsd` (`null` = unknown), `report` (the sub-agent's final text, scrubbed, ≤ 2 000 chars) and `cancelled`. A new event `swarm_report` carries the merged report and the totals. Why in the engine: only `spawnSubagents` knows the child engines; nothing else can produce these facts.
 - `Engine.cancelSubagents(id?)` stops one child (or all) and makes the swarm stop starting new ones. It only calls `child.stop()`, which already exists; a cancelled task reports `failed` with the reason "cancelled", so its dependants are skipped by the existing rule. `SessionRunner` exposes it.
+- Two more small things in the same function/area: a sub-agent that ends `paused`, `stopped` or `interrupted` (a provider error, its own budget) is now reported **failed** (before, any leftover text made it "done"); and `runTurn` passes one more option to `buildSystemPrompt` (`selfManage: true` when the owner's admin port has the system tools) — a prompt flag, no permission logic.
 - `core/swarm.ts` passes the outcome to `onStatus` and accepts an optional `shouldStop` hook; limits and ceilings (4 tasks, 3 parallel, no nesting, ephemeral children) are unchanged.
 
 **Why it is safe:** the new fields are display data; no tool, mode or approval decision reads them. The approval flow, `authorize()`, the custom-mode policy and the "no approver means denied" rule are untouched. Existing swarm and engine tests stay and new ones are added first.

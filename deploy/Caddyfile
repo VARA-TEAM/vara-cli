@@ -1,0 +1,22 @@
+# Caddy in front of VARA: automatic HTTPS, and the event stream is not buffered.
+# Replace vara.example.com with your DNS name (an A/AAAA record must point at this machine) and start VARA with
+#   VARA_PUBLIC_HOST=vara.example.com  VARA_TRUST_PROXY=1  VARA_BIND=127.0.0.1
+vara.example.com {
+	encode zstd gzip
+
+	# Live updates are Server-Sent Events: send every chunk at once instead of waiting to fill a buffer,
+	# and never time out a quiet stream.
+	reverse_proxy 127.0.0.1:7777 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			response_header_timeout 0
+		}
+		# Caddy sets X-Forwarded-For to the client it saw (it replaces anything the client sent).
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+}

@@ -115,14 +115,14 @@ vara
 | `vara resume <id>` · `vara sessions [--all]` | استئناف جلسة محفوظة · عرض الجلسات (هذا المجلد أو كلها) |
 | `vara setup` · `vara providers` | إعداد المزوّدين · عرض حالتهم |
 | `vara run "<مهمة>" [--goal] [--plan] [--cwd dir] [--verify "npm test"] [--publish] [--provider p] [--model m]` | تنفيذ بلا واجهة مع طباعة الأحداث |
-| `vara ui` · `vara serve` | واجهة المتصفح · تشغيل المضيف بلا فتح متصفح |
+| `vara ui` · `vara serve` | واجهة المتصفح · تشغيل VARA كخدمة بلا واجهة (VPS وDocker وCI) — انظر [docs/ar/DEPLOYMENT.md](docs/ar/DEPLOYMENT.md) |
 | `vara ui --share` | رابط **عام** مؤقت عبر `cloudflared` أو `ssh` — انظر أدناه |
 | `vara update [--check] [--rollback]` | تحديث هذا التثبيت من آخر إصدار (مع التحقق من SHA-256) · الرجوع |
 | `vara invite` · `vara guests` | دعوة شخص · عرض الضيوف وسحب وصولهم |
 | `vara secret set\|list\|delete <NAME>` | المخزن المشفّر |
 | `vara config init\|show` | كتابة الإعدادات الافتراضية · عرضها (الأسرار لا تُعرض أبداً) |
 | `vara connectors [list\|add <id>\|remove <id>]` | موصّلات جاهزة (GitHub وNotion وSentry وSupabase…)؛ والرموز تذهب إلى الخزنة |
-| `vara doctor` · `vara --version` | فحص التثبيت · طباعة الإصدار |
+| `vara doctor [--server]` · `vara --version` | فحص التثبيت (`--server`: وإعداد الخدمة أيضاً) · طباعة الإصدار |
 
 المتغيّر `VARA_HOME` يغيّر مجلد البيانات (الافتراضي `~/.vara`).
 
@@ -161,6 +161,7 @@ vara guests                                     # من دخل وماذا يست�
 | الوثيقة | متى |
 | --- | --- |
 | [docs/ar/ARCHITECTURE.md](docs/ar/ARCHITECTURE.md) | كيف يعمل كل شيء ولماذا |
+| [docs/ar/DEPLOYMENT.md](docs/ar/DEPLOYMENT.md) | تشغيل VARA على حاسوب أو VPS أو Docker أو جهاز CI (systemd وcompose ووكيل TLS) |
 | [docs/ar/DEVELOPMENT.md](docs/ar/DEVELOPMENT.md) | تعديل الكود بأمان، وفخاخ معروفة |
 | [docs/ar/ROADMAP.md](docs/ar/ROADMAP.md) | ما هو مفتوح وما تُرك عمداً |
 | [CONTRIBUTING.ar.md](CONTRIBUTING.ar.md) | قبل أول commit |

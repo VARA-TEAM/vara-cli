@@ -33,13 +33,15 @@ Usage:
                                        headless run (no TUI), prints events
   vara ui [--lan] [--port N]           open VARA in your browser (local web interface)
   vara update [--check] [--rollback]   update this install from the latest GitHub release (SHA-256 verified)
-  vara serve [--lan] [--port N]        run the host without opening a browser
+  vara serve [--port N] [--bind ADDR] [--public-host NAME] [--cwd DIR] [--token-file F] [--rotate-token] [--trust-proxy] [--log text|json|journal]
+                                       run VARA as a headless service (VPS, Docker, CI); also configured by VARA_PORT, VARA_BIND,
+                                       VARA_PUBLIC_HOST, VARA_CWD, VARA_OWNER_TOKEN[_FILE], VARA_LOG, VARA_TRUST_PROXY. See docs/DEPLOYMENT.md
   vara ui --share [--share-via cloudflared|ssh] [--share-minutes N] [--share-preset viewer|participant|collaborator]
                                        temporary PUBLIC link through a tunnel you already have (no VARA relay)
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
   vara connectors [list|add <id>|remove <id>]   ready-made MCP connectors (GitHub, Notion, Sentry, Supabase…)
-  vara doctor                          check the install (interface, provider, git, ripgrep)
+  vara doctor [--server]               check the install (interface, provider, git, ripgrep); --server also checks a service setup
   vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)
   vara providers                       list providers, key status and model health
@@ -67,7 +69,7 @@ async function main(): Promise<void> {
     return
   }
   if (cmd === 'doctor') {
-    await doctorCommand()
+    await doctorCommand(args.slice(1))
     return
   }
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') {

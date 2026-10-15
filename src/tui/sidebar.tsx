@@ -10,6 +10,8 @@ import { activeProviderName } from '../config/providers.js'
 import { percentBar } from './format.js'
 import { truncate } from './entries.js'
 import { glyph, theme } from './theme.js'
+import { AgentsSection } from './agents-view.js'
+import type { SwarmView } from './agents.js'
 
 /** Total columns the sidebar occupies (App subtracts this from the transcript). */
 export const SIDEBAR_WIDTH = 34
@@ -40,7 +42,7 @@ export function changedFiles(session: Session): Array<{ path: string; op: 'new' 
 
 function Section({ title, children }: { title: string; children: React.ReactNode }): React.ReactElement {
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1} flexShrink={0}>
       <Text color={theme.muted} bold>
         {title.toUpperCase()}
       </Text>
@@ -64,6 +66,8 @@ export function Sidebar({
   skillNames,
   think,
   mcpReady = 0,
+  agents = [],
+  now = 0,
 }: {
   session: Session
   config: VaraConfig
@@ -73,6 +77,9 @@ export function Sidebar({
   skillNames: string[]
   think?: string
   mcpReady?: number
+  /** Sub-agent swarms of this session (see tui/agents.ts); the latest is shown. */
+  agents?: SwarmView[]
+  now?: number
 }): React.ReactElement {
   const inner = SIDEBAR_WIDTH - 4
   const ctxPercent = Math.min(100, Math.round((usedTokens / Math.max(1, ctx.requestBudgetTokens)) * 100))
@@ -141,6 +148,8 @@ export function Sidebar({
           {requirements.length > 5 ? <Text color={theme.muted}>… {requirements.length - 5} more</Text> : null}
         </Section>
       ) : null}
+
+      {sections.agents && agents.length ? <AgentsSection view={agents[agents.length - 1]!} width={inner} now={now || Date.now()} /> : null}
 
       {sections.files && files.length ? (
         <Section title={`Files ${files.length}`}>

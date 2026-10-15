@@ -140,7 +140,10 @@ export interface SwarmRun {
   limits: SwarmLimits
   /** Run one task. `deps` are the reports of the tasks it depends on; `peers` is the shared task list. */
   run: (task: SwarmTask, ctx: { peers: string; deps: Record<string, string>; callsLeft: number }) => Promise<TaskOutcome>
-  onStatus?: (task: SwarmTask, status: TaskStatus, detail?: string) => void
+  /** `outcome` is set when a task finishes (done / failed): its report, calls and cost. */
+  onStatus?: (task: SwarmTask, status: TaskStatus, detail?: string, outcome?: TaskOutcome) => void
+  /** Return a reason to stop starting tasks (the user cancelled the swarm); null to go on. */
+  shouldStop?: () => string | null
 }
 
 /** The shared task list every sub-agent sees, so peers do not duplicate each other. */
@@ -162,9 +165,11 @@ export async function runSwarm(opts: SwarmRun): Promise<{ results: TaskResult[];
 
   const finish = (task: SwarmTask, status: TaskResult['status'], report: string, o?: TaskOutcome): void => {
     results.set(task.id, { task, status, report, modelCalls: o?.modelCalls ?? 0, costUsd: o?.costUsd ?? null })
-    opts.onStatus?.(task, status, status === 'skipped' ? report : undefined)
+    opts.onStatus?.(task, status, status === 'skipped' ? report : undefined, o)
   }
   const budgetReason = (): string | null => {
+    const stop = opts.shouldStop?.()
+    if (stop) return stop
     if (calls >= limits.maxModelCalls) return `swarm budget spent (${calls} of ${limits.maxModelCalls} model calls)`
     if (limits.maxCostUsd !== null && anyCost && knownCost >= limits.maxCostUsd) return `swarm budget spent ($${knownCost.toFixed(4)} of $${limits.maxCostUsd})`
     return null

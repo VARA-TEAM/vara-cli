@@ -115,14 +115,14 @@ In any message, `@src/app.ts` attaches that file (inside the working folder only
 | `vara resume <id>` · `vara sessions [--all]` | Resume a saved session · list sessions (this folder, or all) |
 | `vara setup` · `vara providers` | Set up providers · show their status |
 | `vara run "<task>" [--goal] [--plan] [--cwd dir] [--verify "npm test"] [--publish] [--provider p] [--model m]` | Headless run; prints events |
-| `vara ui` · `vara serve` | Browser interface · run the host without opening a browser |
+| `vara ui` · `vara serve` | Browser interface · run VARA as a headless service (VPS, Docker, CI) — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | `vara ui --share` | Temporary **public** link through `cloudflared` or `ssh` — see below |
 | `vara update [--check] [--rollback]` | Update this install from the latest release (SHA-256 verified) · go back |
 | `vara invite` · `vara guests` | Invite someone · list and revoke guests |
 | `vara secret set\|list\|delete <NAME>` | The encrypted vault |
 | `vara config init\|show` | Write the default config · print it (secrets never shown) |
 | `vara connectors [list\|add <id>\|remove <id>]` | Ready-made connectors (GitHub, Notion, Sentry, Supabase…); tokens go to the vault |
-| `vara doctor` · `vara --version` | Check the install · print the version |
+| `vara doctor [--server]` · `vara --version` | Check the install (`--server`: also a service setup) · print the version |
 
 `VARA_HOME` overrides the data folder (default `~/.vara`).
 
@@ -161,6 +161,7 @@ English is the default; Arabic versions are in `docs/ar/` and the `*.ar.md` file
 | Document | When |
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How everything works and why |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Running VARA on a PC, a VPS, Docker or a CI box (systemd, compose, TLS proxy) |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Changing the code safely; known traps |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is open, what is deliberately not done |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Before your first commit |

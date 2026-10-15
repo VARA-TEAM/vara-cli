@@ -78,6 +78,8 @@ export const SidebarSectionsSchema = z.object({
   cost: z.boolean().default(true),
   budget: z.boolean().default(false),
   skills: z.boolean().default(false),
+  /** Sub-agents / swarm: who is working on what, live. Only shows while there is something to show. */
+  agents: z.boolean().default(true),
 })
 export type SidebarSections = z.infer<typeof SidebarSectionsSchema>
 
