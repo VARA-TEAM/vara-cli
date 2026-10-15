@@ -436,6 +436,19 @@ const en = {
   a_browserHelp: 'Lets the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Every site must be approved, passwords are never typed, and risky clicks ask you first.',
   a_desktop: 'Desktop control',
   a_desktopHelp: 'Lets the agent see the screen and use the mouse and keyboard. It asks you once per session, never acts in password, bank or sign-in windows, and stops the moment you pause. Only use it on a computer you can watch.',
+  t_connectors: 'Connectors',
+  cn_sub: 'Ready-made links to the services you work with. Each one is an MCP server added for you, with its token kept in the encrypted vault — you can switch it off in any session.',
+  cn_add: 'Connect',
+  cn_connect_title: 'Connect {n}',
+  cn_nosecret: 'No token needed.',
+  cn_stored: 'Already in the vault — leave empty to keep it.',
+  cn_note: 'Only connectors whose package or endpoint was checked are listed. Services that need a browser sign-in (OAuth) are not listed yet.',
+  cn_cat_code: 'code',
+  cn_cat_knowledge: 'knowledge',
+  cn_cat_ops: 'operations',
+  cn_cat_data: 'data',
+  cn_cat_web: 'web',
+  cn_cat_files: 'files',
 } as const
 
 export type Key = keyof typeof en
@@ -869,6 +882,19 @@ const ar: Record<Key, string> = {
   a_browserHelp: 'تتيح للوكيل قيادة متصفح معزول (يلزم تثبيت Chrome أو Edge أو Chromium). كل موقع يحتاج موافقتك، ولا تُكتب كلمات المرور أبداً، والنقرات الخطرة تسألك أولاً.',
   a_desktop: 'التحكم بسطح المكتب',
   a_desktopHelp: 'يتيح للوكيل رؤية الشاشة واستعمال الفأرة ولوحة المفاتيح. يسألك مرة لكل جلسة، ولا يتصرف أبداً في نوافذ كلمات المرور أو البنوك أو تسجيل الدخول، ويتوقف فور الإيقاف المؤقت. استعمله على جهاز تستطيع مراقبته فقط.',
+  t_connectors: 'الموصّلات',
+  cn_sub: 'روابط جاهزة للخدمات التي تعمل بها. كل موصّل هو خادم MCP يُضاف لك ورمزه محفوظ في الخزنة المشفّرة، ويمكنك إيقافه في أي جلسة.',
+  cn_add: 'ربط',
+  cn_connect_title: 'ربط {n}',
+  cn_nosecret: 'لا يلزم رمز.',
+  cn_stored: 'موجود في الخزنة — اتركه فارغاً للإبقاء عليه.',
+  cn_note: 'لا تُدرج إلا الموصّلات التي فُحصت حزمتها أو عنوانها. الخدمات التي تحتاج تسجيل دخول عبر المتصفح (OAuth) لم تُدرج بعد.',
+  cn_cat_code: 'برمجة',
+  cn_cat_knowledge: 'معرفة',
+  cn_cat_ops: 'عمليات',
+  cn_cat_data: 'بيانات',
+  cn_cat_web: 'ويب',
+  cn_cat_files: 'ملفات',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

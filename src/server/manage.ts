@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import type { McpServerConfig } from '../mcp/client.js'
 import { MCP_PRESETS, type McpHub } from '../mcp/hub.js'
 import { serverFromInput } from '../mcp/input.js'
+import { CONNECTORS, connectorServer, findConnector } from '../mcp/connectors.js'
 import type { VaraConfig, ProviderEntry } from '../config/config.js'
 import {
   activate,
@@ -46,6 +47,8 @@ export interface ManagerDeps {
   endpoint(entry: ProviderEntry): Promise<Endpoint>
   saveKey(name: string, value: string): Promise<void>
   deleteKey(name: string): Promise<boolean>
+  /** Names of the secrets already in the vault (never their values). */
+  secretNames(): Promise<string[]>
   keyState(entry: ProviderEntry): Promise<'vault' | 'env' | 'none' | 'not needed'>
   mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]>
 }
@@ -484,6 +487,46 @@ export class Manager {
     return r.ok ? good(this.modes()) : r
   }
 
+  /* ---------------- connectors ---------------- */
+
+  async connectors(): Promise<unknown> {
+    const have = new Set(await this.d.secretNames().catch(() => [] as string[]))
+    const servers = this.d.config().mcp.servers as Record<string, McpServerConfig>
+    const views = new Map(this.d.hub.view(servers).map((v) => [v.name, v]))
+    return CONNECTORS.map((c) => {
+      const v = views.get(c.id)
+      return {
+        id: c.id,
+        name: c.name,
+        category: c.category,
+        description: c.description,
+        checked: c.checked,
+        secrets: c.secrets.map((s) => ({ ...s, stored: have.has(s.name) })),
+        added: !!servers[c.id],
+        enabled: !!v && v.config.enabled !== false,
+        status: v?.status ?? null,
+        tools: v?.tools ?? 0,
+        error: v ? scrubAll(v.error) : '',
+      }
+    })
+  }
+
+  /** Add a connector: store the secrets it needs (values go only into the vault), then add its MCP server. */
+  async addConnector(body: Record<string, unknown>): Promise<MResult<unknown>> {
+    const c = findConnector(text(body['id'], 40))
+    if (!c) return bad('Unknown connector.', 404)
+    if (this.d.config().mcp.servers[c.id]) return bad(`"${c.name}" is already connected.`, 409)
+    const given = (body['secrets'] ?? {}) as Record<string, unknown>
+    const have = new Set(await this.d.secretNames().catch(() => [] as string[]))
+    for (const s of c.secrets) {
+      const v = typeof given[s.name] === 'string' ? String(given[s.name]).trim() : ''
+      if (v) await this.d.saveKey(s.name, v)
+      else if (!have.has(s.name)) return bad(`${s.label} is needed. ${s.help}`)
+    }
+    const r = await this.guard(() => this.update((cfg) => ({ ...cfg, mcp: { ...cfg.mcp, servers: { ...cfg.mcp.servers, [c.id]: connectorServer(c) as never } } })))
+    return r.ok ? good(await this.connectors()) : r
+  }
+
   /* ---------------- routing ---------------- */
 
   /** `parts` = path segments after /api/manage. */
@@ -522,6 +565,10 @@ export class Manager {
       if (!b && method === 'GET') return good(this.modes())
       if (b && !c && method === 'PUT') return this.putMode(dec(b), body)
       if (b && !c && method === 'DELETE') return this.deleteMode(dec(b))
+    }
+    if (a === 'connectors') {
+      if (!b && method === 'GET') return good(await this.connectors())
+      if (!b && method === 'POST') return this.addConnector(body)
     }
     if (a === 'mcp') {
       if (!b && method === 'GET') return good(this.mcp())

@@ -120,6 +120,7 @@ const manager = new Manager({
   endpoint: async (entry) => ({ type: entry.type, baseUrl: entry.baseUrl, apiKey: 'dev' }),
   saveKey: async (name, value) => void keys.set(name, value),
   deleteKey: async (name) => keys.delete(name),
+  secretNames: async () => [...keys.keys()],
   keyState: async (entry) => (entry.keyless ? 'not needed' : keys.has(entry.apiKeySecret) ? 'vault' : 'none'),
   mapLimit: async (items, _limit, fn) => Promise.all(items.map(fn)),
 })

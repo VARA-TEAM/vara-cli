@@ -11,6 +11,7 @@ import { VERSION } from './version.js'
 import { doctorCommand } from './doctor.js'
 import { updateCommand } from './update/command.js'
 import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
+import { connectorsCommand } from './mcp/connectors-cli.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
 import { buildProvider } from './runtime.js'
@@ -37,6 +38,7 @@ Usage:
                                        temporary PUBLIC link through a tunnel you already have (no VARA relay)
   vara invite --preset viewer|participant|collaborator [...]   invite someone into your host
   vara guests [revoke <id>]            who has access, what they use
+  vara connectors [list|add <id>|remove <id>]   ready-made MCP connectors (GitHub, Notion, Sentry, Supabase…)
   vara doctor                          check the install (interface, provider, git, ripgrep)
   vara --version                       print the version
   vara setup                           add providers, fetch & test their models, pick one (TUI)
@@ -117,6 +119,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'guests') {
     await guestsCommand(args.slice(1))
+    return
+  }
+  if (cmd === 'connectors') {
+    await connectorsCommand(args.slice(1))
     return
   }
   if (cmd === 'setup') {

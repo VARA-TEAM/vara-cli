@@ -8,7 +8,7 @@ import { hostDir } from '../config/paths.js'
 import { ensureStore } from '../core/store.js'
 import { buildProvider, keySource, resolveApiKey } from '../runtime.js'
 import { checkModel, discoverModels, mapLimit } from '../llm/discovery.js'
-import { deleteSecret, setSecret } from '../security/vault.js'
+import { deleteSecret, listSecrets, setSecret } from '../security/vault.js'
 import { registerSecret } from '../security/redact.js'
 import type { Provider } from '../llm/provider.js'
 import { sweepStaging } from '../core/attachments.js'
@@ -118,6 +118,7 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
       registerSecret(value, name)
     },
     deleteKey: (name) => deleteSecret(name),
+    secretNames: async () => (await listSecrets()).map((s) => s.name),
     keyState: (entry) => keySource(entry),
     mapLimit,
   })

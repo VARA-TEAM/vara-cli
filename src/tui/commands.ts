@@ -24,6 +24,7 @@ export const COMMANDS: CommandDef[] = [
   { name: '/settings', description: 'Theme, side panel, budgets, context, skills…', hint: 'Ctrl+O' },
   { name: '/theme', args: '<name>', description: 'Switch the color theme', needsArgs: true },
   { name: '/mcp', description: 'Connect MCP servers (external tools for the agent)' },
+  { name: '/connectors', args: '[add <id>]', description: 'Ready-made connectors (GitHub, Notion, Sentry…); add one with its token' },
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
   { name: '/cost', description: 'What this session cost — and what VARA saved you' },
   { name: '/attach', args: '<file>', description: 'Attach an image, PDF or text file to your next message (or type @path)', needsArgs: true },

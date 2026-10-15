@@ -49,6 +49,7 @@ const deps = (): ManagerDeps => ({
   endpoint: async (entry) => ({ type: entry.type, baseUrl: entry.baseUrl, apiKey: 'k' }),
   saveKey: async (name, value) => void keys.set(name, value),
   deleteKey: async (name) => keys.delete(name),
+  secretNames: async () => [...keys.keys()],
   keyState: async (entry) => (entry.keyless ? 'not needed' : keys.has(entry.apiKeySecret) ? 'vault' : 'none'),
   mapLimit: async (items, _limit, fn) => Promise.all(items.map(fn)),
 })
@@ -353,5 +354,46 @@ describe('working folder', () => {
     expect((await call('/api/folder', guest, 'POST', { path: work })).status).toBe(403)
     expect((await call('/api/folder/browse?path=/', guest)).status).toBe(403)
     expect((await call('/api/sessions?all=1', guest)).status).toBe(200)
+  })
+})
+
+describe('connectors', () => {
+  it('the catalogue is well formed: unique ids, every one has a command or a URL, secrets are named', async () => {
+    const { CONNECTORS } = await import('../src/mcp/connectors.js')
+    expect(new Set(CONNECTORS.map((c) => c.id)).size).toBe(CONNECTORS.length)
+    for (const c of CONNECTORS) {
+      expect(Boolean(c.config.command) !== Boolean(c.config.url), c.id).toBe(true)
+      expect(c.checked.length, c.id).toBeGreaterThan(10)
+      for (const s of c.secrets) expect(s.name).toMatch(/^[A-Z][A-Z0-9_]+$/)
+      // a remote connector names its bearer secret; a local one lists the env secrets it injects
+      if (c.config.url) expect(c.secrets.map((s) => s.name)).toContain(c.config.bearerSecret)
+      else expect(c.config.secretEnv ?? []).toEqual(c.secrets.map((s) => s.name))
+    }
+  })
+
+  it('adds a connector: needs its token, stores it in the vault only, then adds the MCP server', async () => {
+    const rows = (await call('/api/manage/connectors', ownerToken)).body as Array<{ id: string; added: boolean; secrets: Array<{ name: string; stored: boolean }> }>
+    expect(rows.find((r) => r.id === 'notion')?.added).toBe(false)
+    const missing = await call('/api/manage/connectors', ownerToken, 'POST', { id: 'notion' })
+    expect(missing.status).toBe(400)
+    expect(missing.body.error).toContain('Notion integration token')
+    const ok = await call('/api/manage/connectors', ownerToken, 'POST', { id: 'notion', secrets: { NOTION_TOKEN: 'ntn_super_secret_value_123' } })
+    expect(ok.status).toBe(200)
+    expect(JSON.stringify(ok.body)).not.toContain('ntn_super_secret_value')
+    expect(keys.get('NOTION_TOKEN')).toBe('ntn_super_secret_value_123')
+    expect(config.mcp.servers['notion']).toMatchObject({ command: 'npx', secretEnv: ['NOTION_TOKEN'], enabled: true })
+    expect((ok.body as Array<{ id: string; added: boolean }>).find((r) => r.id === 'notion')?.added).toBe(true)
+    expect((await call('/api/manage/connectors', ownerToken, 'POST', { id: 'notion' })).status).toBe(409)
+    expect((await call('/api/manage/connectors', ownerToken, 'POST', { id: 'nope' })).status).toBe(404)
+  })
+
+  it('a token already in the vault is reused, and a guest cannot add connectors', async () => {
+    keys.set('GITHUB_PERSONAL_ACCESS_TOKEN', 'ghp_already_here_123456')
+    const r = await call('/api/manage/connectors', ownerToken, 'POST', { id: 'github' })
+    expect(r.status).toBe(200)
+    expect(config.mcp.servers['github']).toMatchObject({ url: 'https://api.githubcopilot.com/mcp/', bearerSecret: 'GITHUB_PERSONAL_ACCESS_TOKEN' })
+    const mk = await call('/api/admin/invites', ownerToken, 'POST', { preset: 'collaborator' })
+    const guest = (await call('/api/join', null, 'POST', { invite: mk.body.token, name: 'Rami' })).body.accessToken as string
+    expect((await call('/api/manage/connectors', guest, 'POST', { id: 'sentry', secrets: { SENTRY_ACCESS_TOKEN: 'x' } })).status).toBe(403)
   })
 })

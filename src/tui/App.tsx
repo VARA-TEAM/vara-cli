@@ -43,6 +43,8 @@ import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { Markdown } from './markdown.js'
 import { keySource } from '../runtime.js'
+import { CONNECTORS, connectorServer, findConnector } from '../mcp/connectors.js'
+import { listSecrets } from '../security/vault.js'
 import { resolveKey, type Overlay } from './keymap.js'
 
 interface Props {
@@ -903,6 +905,26 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       case 'mcp':
         setOverlay('mcp')
         return
+      case 'connectors': {
+        void (async () => {
+          const have = new Set((await listSecrets()).map((s) => s.name))
+          const servers = configRef.current.mcp.servers
+          if (rest[0] === 'add') {
+            const c = findConnector(rest[1] ?? '')
+            if (!c) return push({ kind: 'note', text: `unknown connector "${rest[1] ?? ''}" — /connectors lists them`, color: 'red' })
+            if (servers[c.id]) return push({ kind: 'note', text: `${c.name} is already connected`, color: 'gray' })
+            const missing = c.secrets.filter((s) => !have.has(s.name))
+            if (missing.length) {
+              return push({ kind: 'note', text: `${c.name} needs ${missing.map((s) => s.name).join(', ')} in the vault. Run: vara connectors add ${c.id}  (it asks for the value without showing it)`, color: 'yellow' })
+            }
+            onProvidersChange({ ...configRef.current, mcp: { ...configRef.current.mcp, servers: { ...servers, [c.id]: connectorServer(c) as never } } })
+            return push({ kind: 'note', text: `${c.name} added — connecting…`, color: 'green' })
+          }
+          const lines = CONNECTORS.map((c) => `${servers[c.id] ? (servers[c.id]!.enabled === false ? 'off' : 'on ') : '   '}  ${c.id.padEnd(20)} ${c.description}`)
+          push({ kind: 'note', text: ['Connectors (on = connected):', ...lines, '', 'Add one: /connectors add <id> · tokens: vara connectors add <id>'].join('\n'), color: 'gray' })
+        })()
+        return
+      }
       case 'think': {
         const m = configRef.current.provider.model
         const { support, level } = thinkingFor(configRef.current, m)

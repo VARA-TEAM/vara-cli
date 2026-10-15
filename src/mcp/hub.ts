@@ -16,7 +16,7 @@ export const MCP_PRESETS: McpPreset[] = [
   { name: 'fetch', label: 'Fetch (web pages)', config: { command: 'uvx', args: ['mcp-server-fetch'] }, note: 'download a URL as text — needs uv' },
   { name: 'memory', label: 'Memory (knowledge graph)', config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] }, note: 'remember facts between sessions' },
   { name: 'playwright', label: 'Playwright (browser)', config: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] }, note: 'drive a real browser' },
-  { name: 'github', label: 'GitHub', config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], secretEnv: ['GITHUB_PERSONAL_ACCESS_TOKEN'] }, note: 'needs vault secret GITHUB_PERSONAL_ACCESS_TOKEN' },
+  { name: 'github', label: 'GitHub', config: { url: 'https://api.githubcopilot.com/mcp/', bearerSecret: 'GITHUB_PERSONAL_ACCESS_TOKEN' }, note: "GitHub's own remote server; needs vault secret GITHUB_PERSONAL_ACCESS_TOKEN" },
   { name: 'context7', label: 'Context7 (library docs)', config: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] }, note: 'up-to-date library documentation' },
 ]
 
