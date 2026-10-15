@@ -2,8 +2,10 @@ import type { EngineEvent, Session } from '../core/types.js'
 import type { Provider } from '../llm/provider.js'
 import type { VaraConfig } from '../config/config.js'
 import { activeProviderName } from '../config/providers.js'
+import { existsSync, statSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { createSession, CreateSessionInput } from '../core/session.js'
 import { contextStatus, estimateSessionTokens } from '../core/context.js'
 import { contextSettingsFor } from '../config/providers.js'
@@ -91,7 +93,64 @@ function refOf(s: Pick<Session, 'id' | 'participant' | 'shared'>): SessionRef {
 export class VaraHost {
   private live = new Map<string, Live>()
 
-  constructor(private readonly opts: HostOptions) {}
+  /** The folder new sessions work in. The owner can change it while the host runs. */
+  private folder: string
+
+  constructor(private readonly opts: HostOptions) {
+    this.folder = resolve(opts.cwd)
+  }
+
+  private sameFolder(a: string, b: string): boolean {
+    const n = (x: string): string => (process.platform === 'win32' ? x.replace(/[\/]+$/, '').toLowerCase() : x.replace(/\/+$/, ''))
+    return n(a) === n(b)
+  }
+
+  /** Owner: the working folder, and the other folders that have sessions. */
+  async folderInfo(p: Principal): Promise<Result<{ current: string; recent: string[] }>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const seen = new Set<string>()
+    const recent: string[] = []
+    for (const r of await this.summaries()) {
+      const k = process.platform === 'win32' ? r.cwd.toLowerCase() : r.cwd
+      if (!seen.has(k) && !this.sameFolder(r.cwd, this.folder) && existsSync(r.cwd)) (seen.add(k), recent.push(r.cwd))
+      if (recent.length >= 8) break
+    }
+    return { ok: true, value: { current: this.folder, recent } }
+  }
+
+  /** Owner: switch the working folder for NEW sessions (existing sessions keep theirs). */
+  async setFolder(p: Principal, path: string): Promise<Result<{ current: string }>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const target = resolve(path.trim())
+    let ok = false
+    try {
+      ok = statSync(target).isDirectory()
+    } catch {
+      ok = false
+    }
+    if (!ok) return fail(400, 'that folder does not exist')
+    this.folder = target
+    this.fileCache = null
+    return { ok: true, value: { current: target } }
+  }
+
+  /** Owner: list sub-folders of a folder, so the interface can offer a folder picker. */
+  async browse(p: Principal, path: string): Promise<Result<{ path: string; parent: string | null; dirs: string[] }>> {
+    const d = authorize(p, 'admin')
+    if (!d.ok) return fail(403, d.reason)
+    const at = resolve(path.trim() || this.folder || homedir())
+    let entries
+    try {
+      entries = await readdir(at, { withFileTypes: true })
+    } catch {
+      return fail(400, 'cannot open that folder')
+    }
+    const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules').map((e) => e.name).sort((a, b) => a.localeCompare(b)).slice(0, 300)
+    const up = dirname(at)
+    return { ok: true, value: { path: at, parent: up === at ? null : up, dirs } }
+  }
 
   get access(): AccessStore {
     return this.opts.access
@@ -191,10 +250,12 @@ export class VaraHost {
 
   /* ---------- queries ---------- */
 
-  async list(p: Principal): Promise<Result<SessionSummary[]>> {
+  /** Sessions of the current folder; the owner may ask for every folder. */
+  async list(p: Principal, everyFolder = false): Promise<Result<SessionSummary[]>> {
     const d = authorize(p, 'session.list')
     if (!d.ok) return fail(403, d.reason)
-    const all = await this.summaries()
+    const every = everyFolder && p.kind === 'owner'
+    const all = (await this.summaries()).filter((r) => every || this.sameFolder(r.cwd, this.folder))
     const rows = all.filter((r) => authorize(p, 'session.read', { id: r.id, ...(r.participant ? { participantId: r.participant.id } : {}), shared: r.shared }).ok)
     return { ok: true, value: rows.map((r) => ({ ...r, objective: cleanTitle(scrubAll(r.objective)) })) }
   }
@@ -256,7 +317,7 @@ export class VaraHost {
   /** What the page header shows: version, folder name (not the full path for guests), provider. */
   info(_p: Principal): { version: string; folder: string; provider: string; model: string } {
     const cfg = this.opts.config()
-    const folder = this.opts.cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    const folder = this.folder.split(/[\\/]/).filter(Boolean).pop() ?? ''
     return { version: VERSION, folder, provider: activeProviderName(cfg), model: cfg.provider.model }
   }
 
@@ -275,7 +336,7 @@ export class VaraHost {
     const typed = input.message.trim()
     if (!typed) return fail(400, 'write a message first')
     // Only the owner may pull host files into a prompt with @path.
-    const text = p.kind === 'owner' ? (await expandMentions(typed, this.opts.cwd)).text : typed
+    const text = p.kind === 'owner' ? (await expandMentions(typed, this.folder)).text : typed
     const cfg = this.opts.config()
     // A guest limited to a model list starts on the first allowed model, not the owner's pick.
     const model = input.model ?? (p.kind === 'guest' && p.grant.modelPolicy === 'list' ? p.grant.allowedModels[0] : undefined) ?? cfg.provider.model
@@ -290,7 +351,7 @@ export class VaraHost {
       kind: auto ? 'task' : input.kind,
       mode: wantMode,
       objective: text,
-      cwd: this.opts.cwd,
+      cwd: this.folder,
       verifyCommand: cfg.defaultVerifyCommand || undefined,
       model,
       auto,
@@ -319,7 +380,7 @@ export class VaraHost {
     if (!typed) return fail(400, 'write a message first')
     const d = authorize(p, 'session.send', ref, await this.usageOf(p))
     if (!d.ok) return fail(403, d.reason)
-    const message = p.kind === 'owner' ? (await expandMentions(typed, this.opts.cwd)).text : typed
+    const message = p.kind === 'owner' ? (await expandMentions(typed, this.folder)).text : typed
     this.refresh(live)
 
     if (p.kind === 'guest') this.enforceGrant(live, p)
@@ -619,7 +680,7 @@ export class VaraHost {
           } else if (e.isFile()) out.push(`${rel}${e.name}`)
         }
       }
-      await walk(this.opts.cwd, '', 0)
+      await walk(this.folder, '', 0)
       this.fileCache = { at: Date.now(), files: out }
     }
     const q = query.trim().toLowerCase().slice(0, 100)

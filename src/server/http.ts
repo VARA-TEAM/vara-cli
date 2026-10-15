@@ -234,7 +234,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     /* ---- sessions ---- */
     if (a === 'sessions') {
-      if (!b && method === 'GET') return reply(await host.list(p))
+      if (!b && method === 'GET') return reply(await host.list(p, url.searchParams.get('all') === '1'))
       if (!b && method === 'POST') {
         const body = await readBody(req)
         const kind = body['kind'] === 'task' || body['kind'] === 'goal' || body['kind'] === 'auto' ? body['kind'] : undefined
@@ -260,6 +260,13 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })
         return reply(await host.setKind(p, b, kind))
       }
+    }
+
+    /* ---- the working folder (owner) ---- */
+    if (a === 'folder') {
+      if (!b && method === 'GET') return reply(await host.folderInfo(p))
+      if (!b && method === 'POST') return reply(await host.setFolder(p, str((await readBody(req))['path'], 1000)))
+      if (b === 'browse' && method === 'GET') return reply(await host.browse(p, url.searchParams.get('path') ?? ''))
     }
 
     /* ---- project files for @-mentions (owner) ---- */

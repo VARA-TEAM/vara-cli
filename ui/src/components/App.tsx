@@ -8,6 +8,7 @@ import { THEMES, applyTheme, savedTheme, type Theme } from '../theme'
 import type { ModelsInfo } from '../types'
 import { Team } from './Admin'
 import { Home } from './Home'
+import { FolderDialog, type FolderInfo } from './Folder'
 import { Join, SignIn } from './Misc'
 import { Palette } from './Palette'
 import { SessionPage } from './SessionPage'
@@ -159,7 +160,13 @@ function Shell({
   const t = useT()
   const { lang, setLang } = useContext(LangContext)
   const [palette, setPalette] = useState(false)
+  const [folder, setFolder] = useState<FolderInfo | null>(null)
+  const [pickFolder, setPickFolder] = useState(false)
   const owner = me?.role === 'owner'
+  const loadFolder = useCallback(() => {
+    if (owner) api<FolderInfo>('GET', '/api/folder').then(setFolder).catch(() => {})
+  }, [owner])
+  useEffect(loadFolder, [loadFolder])
   const open = useCallback((id: string) => setRoute({ page: 'session', id }), [setRoute])
 
   // Commands that exist everywhere: places to go, appearance.
@@ -212,11 +219,12 @@ function Shell({
   const page = route.page === 'team' && me.role !== 'owner' ? ({ page: 'home' } as Route) : route
   return (
     <div className="app">
-      <Sidebar me={me} host={me.host} sessions={sessions} route={page} onRoute={setRoute} onSignOut={signOut} open={navOpen} onClose={() => setNavOpen(false)} onPalette={() => setPalette(true)} />
+      <Sidebar me={me} host={me.host} sessions={sessions} route={page} onRoute={setRoute} onSignOut={signOut} open={navOpen} onClose={() => setNavOpen(false)} onPalette={() => setPalette(true)} {...(owner && folder ? { folder: folder.current, onFolder: () => (loadFolder(), setPickFolder(true)) } : {})} />
       {page.page === 'home' ? <Home me={me} models={models} sessions={sessions} commands={globals} go={setRoute} onOpen={(id) => (reloadSessions(), open(id))} onToggleSidebar={toggle} /> : null}
       {page.page === 'session' ? <SessionPage key={page.id} id={page.id} me={me} models={models} onChanged={reloadSessions} onToggleSidebar={toggle} go={setRoute} /> : null}
       {page.page === 'team' ? <Team models={models} onOpenSession={open} onToggleSidebar={toggle} /> : null}
       {page.page === 'settings' ? <Settings me={me} tab={page.tab ?? (owner ? 'models' : 'look')} onTab={(tab) => setRoute({ page: 'settings', tab })} theme={theme} onTheme={setTheme} onToggleSidebar={toggle} /> : null}
+      {pickFolder && folder ? <FolderDialog info={folder} onClose={() => setPickFolder(false)} onChanged={() => (loadFolder(), reloadSessions(), setRoute({ page: 'home' }))} /> : null}
       {palette ? <Palette onClose={() => setPalette(false)} sessions={sessions} onOpen={open} /> : null}
     </div>
   )

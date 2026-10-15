@@ -34,6 +34,8 @@ export function Sidebar({
   open,
   onClose,
   onPalette,
+  folder,
+  onFolder,
 }: {
   me: Me
   host: { folder: string; version: string } | null
@@ -44,6 +46,9 @@ export function Sidebar({
   open: boolean
   onClose: () => void
   onPalette: () => void
+  /** Full path of the working folder (owner can change it). */
+  folder?: string
+  onFolder?: () => void
 }) {
   const t = useT()
   const activeId = route.page === 'session' ? route.id : null
@@ -66,7 +71,13 @@ export function Sidebar({
           </svg>
           <div>
             <strong>VARA</strong>
-            {host ? <span className="muted brand-sub" dir="ltr">{host.folder}</span> : null}
+            {onFolder ? (
+              <button className="folder-btn muted brand-sub" dir="ltr" onClick={onFolder} title={`${folder ?? ''} — ${t('f_change')}`}>
+                {(folder ?? host?.folder ?? '').split(/[\/]/).filter(Boolean).pop() ?? ''} <Icon name="chevron" size={11} className="chev open" />
+              </button>
+            ) : host ? (
+              <span className="muted brand-sub" dir="ltr">{host.folder}</span>
+            ) : null}
           </div>
         </div>
 

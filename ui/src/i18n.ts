@@ -364,6 +364,16 @@ const en = {
   ctx_src_detected: 'detected',
   ctx_src_fallback: 'estimated — model unknown',
   files_none: 'No files changed yet.',
+  f_title: 'Working folder',
+  f_help: 'New sessions work in this folder, and the list shows only its sessions. Sessions already started keep theirs.',
+  f_recent: 'Folders you used',
+  f_browse: 'Browse this computer',
+  f_path: 'Folder path',
+  f_go: 'Open',
+  f_empty: 'No sub-folders here.',
+  f_use: 'Work in this folder',
+  f_changed: 'Working folder changed',
+  f_change: 'change folder',
 } as const
 
 export type Key = keyof typeof en
@@ -725,6 +735,16 @@ const ar: Record<Key, string> = {
   ctx_src_detected: 'مكتشفة',
   ctx_src_fallback: 'تقدير — نموذج غير معروف',
   files_none: 'لم تتغيّر ملفات بعد.',
+  f_title: 'مجلد العمل',
+  f_help: 'الجلسات الجديدة تعمل في هذا المجلد، وتعرض القائمة جلساته فقط. الجلسات التي بدأت سابقاً تحتفظ بمجلدها.',
+  f_recent: 'مجلدات استعملتها',
+  f_browse: 'تصفّح هذا الجهاز',
+  f_path: 'مسار المجلد',
+  f_go: 'فتح',
+  f_empty: 'لا مجلدات فرعية هنا.',
+  f_use: 'العمل في هذا المجلد',
+  f_changed: 'تم تغيير مجلد العمل',
+  f_change: 'تغيير المجلد',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

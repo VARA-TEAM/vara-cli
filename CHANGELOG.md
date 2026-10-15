@@ -6,6 +6,11 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## Unreleased
+
+- **Working folder in the browser interface:** the session list shows only the current folder's sessions (the owner can ask for every folder); the owner can change the working folder from the sidebar — pick a recent one or browse the machine — and new sessions work there. Sessions already started keep theirs. Guests cannot change or browse folders.
+- **Installer:** `install.ps1` no longer fails on Windows accounts whose user PATH is unset.
+
 ## 2026-10-14 · v0.3.0 — the browser interface with every terminal feature
 
 - **Providers and models from the browser:** add a provider (presets or a custom endpoint), store the key encrypted (never shown again), fetch the model list, test models for real (green/red dot), context window and output reserve, thinking level per model, choose the default. A change applies at once with no restart, and a change that cannot work (e.g. a missing key) is refused before it is saved.

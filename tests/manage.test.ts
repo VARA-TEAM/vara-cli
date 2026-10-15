@@ -305,3 +305,44 @@ describe('session extras', () => {
     expect((await call(`/api/sessions/${created.body.id}/kind`, guest, 'POST', { kind: 'goal' })).status).toBe(403)
   })
 })
+
+describe('working folder', () => {
+  it('sessions are listed per folder; the owner can switch folder, browse, and see all', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'vara-other-'))
+    await mkdir(join(other, 'child'), { recursive: true })
+    try {
+      const here = (await call('/api/sessions', ownerToken)).body as Array<{ cwd: string }>
+      expect(here.every((s) => s.cwd === work)).toBe(true)
+      const before = here.length
+
+      expect((await call('/api/folder', ownerToken, 'POST', { path: join(other, 'missing') })).status).toBe(400)
+      expect((await call('/api/folder', ownerToken, 'POST', { path: other })).body.current).toBe(other)
+
+      expect(((await call('/api/sessions', ownerToken)).body as unknown[]).length).toBe(0)
+      const made = await call('/api/sessions', ownerToken, 'POST', { message: 'hello in the other folder' })
+      expect(made.status).toBe(200)
+      expect(((await call('/api/sessions', ownerToken)).body as Array<{ cwd: string }>).every((s) => s.cwd === other)).toBe(true)
+      expect(((await call('/api/sessions?all=1', ownerToken)).body as unknown[]).length).toBeGreaterThanOrEqual(before + 1)
+
+      const info = (await call('/api/folder', ownerToken)).body as { current: string; recent: string[] }
+      expect(info.current).toBe(other)
+      expect(info.recent).toContain(work)
+      const b = (await call(`/api/folder/browse?path=${encodeURIComponent(other)}`, ownerToken)).body as { dirs: string[]; parent: string | null }
+      expect(b.dirs).toEqual(['child'])
+      expect(b.parent).not.toBeNull()
+      await call('/api/folder', ownerToken, 'POST', { path: work })
+    } finally {
+      await new Promise((r) => setTimeout(r, 200))
+      await rm(other, { recursive: true, force: true })
+    }
+  })
+
+  it('a guest can neither change nor browse folders, nor list every folder', async () => {
+    const mk = await call('/api/admin/invites', ownerToken, 'POST', { preset: 'collaborator' })
+    const guest = (await call('/api/join', null, 'POST', { invite: mk.body.token, name: 'Lina' })).body.accessToken as string
+    expect((await call('/api/folder', guest)).status).toBe(403)
+    expect((await call('/api/folder', guest, 'POST', { path: work })).status).toBe(403)
+    expect((await call('/api/folder/browse?path=/', guest)).status).toBe(403)
+    expect((await call('/api/sessions?all=1', guest)).status).toBe(200)
+  })
+})

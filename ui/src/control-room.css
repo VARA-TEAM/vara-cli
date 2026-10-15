@@ -212,3 +212,11 @@ input[aria-invalid="true"] { border-color: var(--err); }
   .share-btn { font-size: 0; gap: 0; padding-inline: 9px; }
   .big-number { font-size: 34px; }
 }
+
+/* ---------- folder picker ---------- */
+.folder-btn { background: none; border: 0; padding: 0; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.folder-btn:hover { color: var(--text); }
+.folder-list { list-style: none; margin: 8px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 260px; overflow-y: auto; }
+.folder-list button { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: 0; padding: 6px 8px; border-radius: 6px; text-align: start; }
+.folder-list button:hover { background: var(--surface-2); }
+.folder-list .up { transform: rotate(180deg); }
