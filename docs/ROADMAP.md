@@ -76,6 +76,19 @@ Proof: tests are written first; `npm run check` green before every push.
 - **Agent evals** — an offline harness of scripted scenarios (refuses false completion, recovers after a failing tool, does not write in plan mode) beyond the unit tests that exist.
 - **R4 (parallel read tools), R5 (cheap-model summaries), R6 (provider per session)** remain open above.
 
+### R11 · System-aware agent, visible sub-agents, run anywhere — design note for the protected file (`engine.ts`)
+
+Written *before* touching `engine.ts`. `permissions.ts` and `vault.ts` are **not** touched.
+
+**`src/core/engine.ts` — what changes (all additive, no permission logic)**
+- The `subagent` event gains optional fields: `swarm` (a counter, so a UI can group one `delegate` call), `kind`, `steps` (tool calls so far), `calls`, `costUsd` (`null` = unknown), `report` (the sub-agent's final text, scrubbed, ≤ 2 000 chars) and `cancelled`. A new event `swarm_report` carries the merged report and the totals. Why in the engine: only `spawnSubagents` knows the child engines; nothing else can produce these facts.
+- `Engine.cancelSubagents(id?)` stops one child (or all) and makes the swarm stop starting new ones. It only calls `child.stop()`, which already exists; a cancelled task reports `failed` with the reason "cancelled", so its dependants are skipped by the existing rule. `SessionRunner` exposes it.
+- `core/swarm.ts` passes the outcome to `onStatus` and accepts an optional `shouldStop` hook; limits and ceilings (4 tasks, 3 parallel, no nesting, ephemeral children) are unchanged.
+
+**Why it is safe:** the new fields are display data; no tool, mode or approval decision reads them. The approval flow, `authorize()`, the custom-mode policy and the "no approver means denied" rule are untouched. Existing swarm and engine tests stay and new ones are added first.
+
+**The system-aware agent** lives in new files (`src/core/systeminfo.ts`, `src/tools/system-tools.ts`) and extends `AdminPort`; every change still goes through `ctx.approve()`, and the read side never returns secrets (names and presence only, `scrubAll` on everything, sessions of other folders only through the owner's admin port).
+
 ## 3. Under study (do not implement before agreeing)
 
 | Item | Open question |
@@ -97,3 +110,22 @@ A new feature before what exists is stable. If you see a real need, raise an **i
 | A development mechanism, or a new trap | `docs/DEVELOPMENT.md` and `docs/ar/DEVELOPMENT.md` |
 | You took an idea or code from an outside project | `THIRD_PARTY_NOTICES.md` and `.ar.md` (source / version / licence / changes) |
 | Anything that reached `main` | `CHANGELOG.md` and `CHANGELOG.ar.md` (same batch) |
+
+---
+
+## 6. R11 · Cost engine v2 — design note for the protected file (`engine.ts`)
+
+Goal: the same work in far fewer limit-units, with no change in what the user types and no lowering of quality. Written **before** touching `engine.ts` (the rule). `permissions.ts` and `vault.ts` are **not** touched; no defence-line test is edited.
+
+**What changes in `src/core/engine.ts` (all additive, each behind an option that is absent by default, so behaviour without the new options is byte-identical to v0.4.0):**
+- `EngineOptions.router` (a getter): the per-turn model choice moves out of the engine into the pure `src/core/router.ts`. The engine only calls `decideRoute()` and emits a `route` event with the visible reason. A user-set quality floor is enforced inside `decideRoute()`, never in prompts.
+- `EngineOptions.meter`: every model call is also appended to the usage meter (`src/core/usage-meter.ts`) together with an estimate of what the same call would have cost with no technique ("naive baseline"). The engine reads `meter.status()` for soft warnings and the opt-in eco mode.
+- Tool-output handling: one call to `compressToolOutput()` (new file) replaces the blind 12 000-character cut; the full output is stored on disk and the model can ask for more with the new read-only `tool_output` tool. Identical repeated outputs are replaced by a pointer.
+- Summaries of old turns (ROADMAP R5) through `src/core/summarize.ts`: old messages are *marked* (`summarized`), never deleted from the transcript, so the interfaces keep the full history; the summary message is created once, in one batch, so the cached prefix stays stable.
+- Runaway loops: a hard stop after 5 identical calls in a row (the 3rd already warns).
+- Re-verification is skipped only when no mutating tool succeeded since the last verification (shell counts as mutating).
+- Read-only tools of one turn run in parallel (R4); results are appended in call order.
+
+**Why it is safe:** `authorize()` still runs before every execution, in the same place and order; the prefetch for parallel reads happens only after `authorize()` allowed the call. Verification evidence is still written by the engine only. Escalation to a stronger model can only *raise* the tier; the floor can only be raised by the user.
+
+**Proof:** tests are written with the code (`tests/router.test.ts`, `tests/cost-v2-engine.test.ts`, `tests/usage-meter.test.ts`, …) and the measured numbers come from `scripts/cost-bench.ts` (see `docs/COST.md`).
