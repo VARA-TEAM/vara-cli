@@ -55,7 +55,7 @@ vara           # start
 vara doctor    # check that everything works
 ```
 
-The installer verifies the download's SHA-256 before running anything and needs no administrator rights. To update, run the same command again.
+The installer verifies the download's SHA-256 before running anything and needs no administrator rights. To update, run `vara update` (it verifies the download, keeps the old version for `vara update --rollback`, and tells you when a new release exists — switch the notice off in Settings).
 
 Manual downloads are on the [Releases](https://github.com/VARA-TEAM/vara-cli/releases) page: `vara-win-x64.zip`, `vara-macos-arm64.tar.gz`, `vara-linux-x64.tar.gz`, with `SHA256SUMS.txt`. macOS on Intel and ARM builds for Windows/Linux are not published yet — use the source install below.
 
@@ -114,6 +114,8 @@ In any message, `@src/app.ts` attaches that file (inside the working folder only
 | `vara setup` · `vara providers` | Set up providers · show their status |
 | `vara run "<task>" [--goal] [--plan] [--cwd dir] [--verify "npm test"] [--publish] [--provider p] [--model m]` | Headless run; prints events |
 | `vara ui` · `vara serve` | Browser interface · run the host without opening a browser |
+| `vara ui --share` | Temporary **public** link through `cloudflared` or `ssh` — see below |
+| `vara update [--check] [--rollback]` | Update this install from the latest release (SHA-256 verified) · go back |
 | `vara invite` · `vara guests` | Invite someone · list and revoke guests |
 | `vara secret set\|list\|delete <NAME>` | The encrypted vault |
 | `vara config init\|show` | Write the default config · print it (secrets never shown) |
@@ -131,6 +133,12 @@ vara ui --lan                                   # let devices on your network jo
 vara invite --preset collaborator --label Sam   # an invite link with the powers you set
 vara guests                                     # who joined, what they use · vara guests revoke <id>
 ```
+
+**Files, images and the running app**
+
+- **Attach:** drag a file onto the message box, paste a screenshot, or click the paper-clip (terminal: `/attach <file>`, `@path`, or drag onto the terminal). Images are sent as images to models that can see them (otherwise the agent is only told one was attached); text files up to 120 KB and PDFs (text only) are attached as text. 6 files per message, images up to 5 MB.
+- **Live preview:** ask the agent to start your dev server (or `/preview start npm run dev`); the app appears in the side panel's *Preview* tab. The server must read the `PORT` variable. Owner only.
+- **Public link:** `vara ui --share` (needs `cloudflared` or `ssh`; `--share-via`, `--share-minutes N`, `--share-preset`). It prints a read-only invite on a public address and closes when the time is up or you stop the host. **Anyone with an invite can reach this host from the internet, through a third-party tunnel provider. A guest with Build power runs commands on your machine — keep guests on Plan unless you trust them completely.**
 
 `vara ui` opens a full app with everything the terminal has:
 

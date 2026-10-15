@@ -45,6 +45,7 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 - A session stores the model name, not the provider; storing `providerName` would stop a model name being sent to a provider that does not know it when a session is resumed.
 
 ### R7 · Host without a tunnel
+- **Partly done:** `vara ui --share` opens a temporary tunnel for the owner (cloudflared or ssh, no VARA relay). What is still open is a way to reach a host with **no** third-party tunnel at all.
 - **Idea:** let remote guests reach a host without the owner running a tunnel. **Constraint:** there is deliberately no relay server today; any design must keep keys and execution on the owner's machine.
 
 ### R8 · Agent self-control — DONE; design note for the protected files (kept as the record)

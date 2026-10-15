@@ -233,6 +233,8 @@ Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `m
 
 **API surface:** `GET /api/me`, `/api/models`, `/api/files?q=` (owner); `/api/sessions` (list, create), `/api/sessions/:id` (get), `…/messages`, `…/pause`, `…/mode`, `…/model`, `…/share`, `…/kind`, `…/stop`, `…/events` (SSE), `…/insights`, `…/export`; `/api/admin/*` (overview, invites, guests — owner only); `/api/manage/*` (providers, settings, skills, MCP — owner only).
 
+**Also:** `POST /api/uploads` (raw bytes, `x-file-name`; returns an id to send as `attachments:[…]` with a message), `GET /api/sessions/:id/attachments/:file` (whoever can read the session), `GET|POST|DELETE /api/sessions/:id/preview` (owner only).
+
 **Roles:** the owner (everything) · a guest with a `Grant`: `watch` (see the shared session), `sendShared` (write in it — the model receives it prefixed `[from <name>]`), `ownSession` (their own session in the same folder), `modelPolicy` (`locked` | `list` | `any`), `mode` as a power ceiling (`plan` = read-only | `build`) and `canChangeMode`, `canInterrupt`, caps `maxModelCalls`/`maxCostUsd`, and an expiry. Presets: `viewer` · `participant` · `collaborator`. The owner can edit or revoke a grant and it takes effect on the guest's **next request** (their agents are stopped within seconds).
 
 **Rules that are never broken:**
@@ -245,7 +247,19 @@ Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `m
 
 **Hardening:** binds to `127.0.0.1` unless `--lan` is given; a secret token on every call (the owner's is random per run and travels in the URL fragment, so it is never sent to the server); `Host` check (blocks DNS rebinding — on a LAN only private IP addresses are accepted, not domain names) and `Origin` check (blocks cross-site requests); rate limits on failed attempts and invite guessing; a body size limit; security headers (strict CSP, no framing, no sniffing); internal errors are never leaked to the client.
 
-> **Core warning:** a guest with `build` power is an agent running commands on **your machine**. The default is `plan` (read-only); the owner must raise it explicitly, and the tool warns when the invite is created. Remote access (outside your network) goes through a tunnel you run yourself (`--public-host`); there is no relay server.
+> **Core warning:** a guest with `build` power is an agent running commands on **your machine**. The default is `plan` (read-only); the owner must raise it explicitly, and the tool warns when the invite is created. Remote access (outside your network) goes through a tunnel — one you run yourself (`--public-host`) or the temporary one VARA opens for you (`--share`, §7.7); VARA has no relay server of its own.
+
+---
+
+## 7.7 Attachments, live preview, public link, updates
+
+| Piece | Where | The rule that matters |
+| --- | --- | --- |
+| **Attachments** | `core/attachments.ts`, `server/uploads.ts`, `tui/mentions.ts` | A file is judged by its **bytes** (PNG/JPEG/GIF/WebP, PDF, text; SVG and binaries refused). An image waits in staging (`~/.vara/uploads`, bound to who uploaded it, expires in 1 h), is moved into `sessions/<id>/attachments/` when its message is sent, and the transcript holds only `<image id="…"/>`. The id must match a fixed pattern and is resolved **inside that session's folder only**; typed text is `neutralize()`d so nobody can forge a marker. |
+| **Vision** | `llm/capabilities.ts` (`visionSupport`), engine `toModelMessages` | Detected from the model id or the provider's list (`models[].vision` overrides). With vision the marker becomes an image block (OpenAI `image_url` data URL / Anthropic `image` base64); without, a one-line honest note. Each image counts ~1,600 tokens against the context budget. |
+| **Live preview** | `preview/manager.ts`, `tools/preview-tool.ts` | The dev server runs with `PORT` set; VARA fronts it with a reverse proxy on **127.0.0.1 and its own port** (own origin, websockets relayed, `Host` checked, framing limited to the host page). The web UI frames it with `sandbox`. The tool is build-mode only and obeys the same command policy as `shell`. API `/api/sessions/:id/preview` is **owner-only** (404 for guests). |
+| **Public link** | `server/tunnel.ts`, `server/share.ts` | A tunnel *provider* is a recipe (binary, arguments, how to spot the public URL): cloudflared quick tunnel, or an ssh reverse tunnel. On a request whose `Host` is the tunnel's: the **owner token is refused**, rate limits use the forwarded client address in their own namespace (so strangers cannot lock the owner out), `/api/me` tells the owner the link is live. Torn down on expiry, tunnel death or host close. |
+| **Updates** | `update/updater.ts` | Latest stable release → archive for this OS → SHA-256 against `SHA256SUMS.txt` → unpack → run the new `--version` and require the release's version → swap entry by entry (atomic renames; unchanged launchers untouched) with the old files kept in `<install>.prev`; any failure restores. Only for the packaged install. The notice checks once a day, never throws, and is off with `updates.check=false` or `VARA_NO_UPDATE_CHECK`. Network, extraction and process execution are injected for tests. |
 
 ---
 
@@ -312,4 +326,6 @@ These are **deliberate decisions**, not omissions:
 - **Pricing is limited to the registry** — an unregistered model has cost `null` by design (more correct than guessing).
 - **The provider is chosen per session, not per turn** — a session stores the model name, not the provider, so reopening an old session after switching provider may send a model name the new provider does not know.
 - **Stall detection is simple** (counting empty turns) — a finer detector is deferred.
-- **Remote guests need a tunnel you run** — there is no relay.
+- **Remote guests need a tunnel** — one you run (`--public-host`) or `--share`, which uses cloudflared or ssh; there is no VARA relay. The preview is never offered to guests.
+- **A PDF is attached as its extracted text** (simple text PDFs; scanned or encrypted ones are refused with a reason) — no layout, no images.
+- **`vara update`'s checksum list comes from the same release as the archive**, so it detects corruption and wrong files, not a compromised release.
