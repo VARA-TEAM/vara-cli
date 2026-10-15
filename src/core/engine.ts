@@ -25,7 +25,7 @@ import { authorize } from '../tools/permissions.js'
 import { findTool, toolDefinitions, toolsFor } from '../tools/registry.js'
 import type { Tool } from '../tools/types.js'
 import { createSession, CreateSessionInput } from './session.js'
-import { mapLimit } from '../llm/discovery.js'
+import { clampLimits, planSwarm, runSwarm, type SwarmLimits, type SwarmTask, type SwarmTaskInput, type TaskStatus as SwarmStatus } from './swarm.js'
 import { stat } from 'node:fs/promises'
 import { resolve as resolvePath } from 'node:path'
 import type { ThinkLevel } from '../llm/capabilities.js'
@@ -123,7 +123,6 @@ const MAX_FAILED_CLAIMS = 3
 const KEEP_RECENT_MESSAGES = 8
 /** Tool outputs shorter than this are not worth compacting. */
 const COMPACT_THRESHOLD_CHARS = 1_200
-const MAX_PARALLEL_AGENTS = 3
 /** Rough context cost of one attached image (providers charge ~1-2k tokens). */
 const IMAGE_TOKENS = 1_600
 
@@ -145,6 +144,8 @@ export interface EngineOptions {
   modePolicy?: () => ModePolicy | undefined
   /** Whether a model can view images; without it attached images are described as not viewable. */
   vision?: (model: string) => boolean
+  /** Swarm limits from the user's config (read live; can only lower the built-in ceilings). */
+  swarm?: () => Partial<SwarmLimits> | undefined
   /** The agent may change its own setup through this port, after the user approves each change. */
   admin?: AdminPort
   /** A person is watching and can answer approval requests (false for headless runs). */
@@ -1006,58 +1007,77 @@ export class Engine {
   }
 
   /**
-   * Run up to 4 sub-agents in parallel (3 at a time). Each gets a fresh,
-   * ephemeral session: its own context, the parent's mode, a small budget, the
-   * cheaper routed model, and no right to delegate. Their model calls are
-   * merged into the parent's ledger so cost totals stay true.
+   * Run a swarm of sub-agents (see swarm.ts): named roles, a shared task list
+   * with dependencies, a cap on concurrency and on model calls / cost, and one
+   * merged report. Each agent is an ephemeral session with the parent's mode
+   * AND custom-mode policy, the cheaper routed model, and no right to delegate.
+   * Their model calls are merged into the parent's ledger so cost stays true.
    */
-  private async spawnSubagents(tasks: Array<{ title: string; prompt: string; kind: 'explore' | 'work' }>): Promise<string> {
+  private async spawnSubagents(inputs: SwarmTaskInput[]): Promise<string> {
+    const limits = clampLimits(this.options.swarm?.())
     const parentMode = this.session.config.mode
-    const results = await mapLimit(tasks.slice(0, 4), MAX_PARALLEL_AGENTS, async (task) => {
-      const id = randomUUID().slice(0, 6)
-      const kind = parentMode === 'plan' ? 'explore' : task.kind
-      this.emit({ type: 'subagent', id, title: task.title, status: 'running' })
-      const child = createSession(
-        CreateSessionInput.parse({ kind: 'task', mode: parentMode, objective: task.prompt, cwd: this.session.config.cwd, auto: false }),
-        DEFAULT_CONFIG,
-      )
-      child.config.budget = { maxTurns: kind === 'work' ? 25 : 12, maxDurationMs: 10 * 60_000, maxModelCalls: 60 }
-      const childModel = this.routeModel?.('subagent') || this.model || this.session.config.model
-      child.config.model = childModel
-      let lastTool = ''
-      const engine = new Engine({
-        ...this.options,
-        session: child,
-        model: childModel,
-        ephemeral: true,
-        depth: this.depth + 1,
-        forceIntent: kind === 'explore' ? 'question' : 'task',
-        routeModel: undefined,
-        onEvent: (e) => {
-          if (e.type === 'tool_start' && e.name !== lastTool) {
-            lastTool = e.name
-            this.emit({ type: 'subagent', id, title: task.title, status: 'running', detail: e.name })
-          }
-        },
-      })
-      this.children.push(engine)
-      try {
-        await engine.run()
-      } finally {
-        this.children = this.children.filter((c) => c !== engine)
-      }
-      // Cost: the child's calls belong to this session's bill.
-      this.session.modelCalls ??= []
-      for (const rec of child.modelCalls ?? []) this.session.modelCalls.push({ ...rec, turn: this.session.usage.turns + 1 })
-      this.applyUsageTotals(aggregateModelCalls(this.session.modelCalls))
-      this.savings().subagents += 1
-      const lastText = [...child.transcript].reverse().find((m) => m.role === 'assistant' && m.content.trim())?.content.trim()
-      const report = child.completionClaim?.summary ?? lastText ?? '(the sub-agent produced no report)'
-      const failed = child.state === 'failed' || (child.state !== 'ready' && child.state !== 'completed' && !lastText)
-      this.emit({ type: 'subagent', id, title: task.title, status: failed ? 'failed' : 'done' })
-      return `### ${task.title} — ${failed ? `FAILED (${child.stateReason ?? child.state})` : 'done'}\n${report.slice(0, 6000)}`
+    const planned = planSwarm(inputs, limits, { readOnly: parentMode === 'plan' })
+    if (!planned.ok) return `Swarm plan rejected: ${planned.error}`
+    const view = (t: SwarmTask, status: SwarmStatus, extra: { detail?: string } = {}): void =>
+      this.emit({ type: 'subagent', id: t.id, title: t.title, status, ...(t.role ? { role: t.role } : {}), ...(t.dependsOn.length ? { dependsOn: t.dependsOn } : {}), ...extra })
+    const out = await runSwarm({
+      tasks: planned.tasks,
+      limits,
+      onStatus: (t, status, detail) => view(t, status, detail ? { detail } : {}),
+      run: async (task, ctx) => {
+        const child = createSession(
+          CreateSessionInput.parse({ kind: 'task', mode: parentMode, objective: task.prompt, cwd: this.session.config.cwd, auto: false }),
+          DEFAULT_CONFIG,
+        )
+        if (this.session.config.customMode) child.config.customMode = this.session.config.customMode
+        child.config.disabledSkills = this.session.config.disabledSkills
+        child.config.disabledMcp = this.session.config.disabledMcp
+        // The sub-agent sees the shared plan and what the tasks it waits for found.
+        const deps = Object.entries(ctx.deps).map(([id, r]) => `## Report of ${id}\n${r.slice(0, 3000)}`).join('\n\n')
+        child.config.objective = [task.roleNote, `Team plan (you are ${task.id}):\n${ctx.peers}`, deps, `Your task: ${task.prompt}`].filter(Boolean).join('\n\n')
+        child.config.budget = { maxTurns: task.kind === 'work' ? 25 : 12, maxDurationMs: 10 * 60_000, maxModelCalls: Math.min(60, ctx.callsLeft) }
+        const childModel = this.routeModel?.('subagent') || this.model || this.session.config.model
+        child.config.model = childModel
+        let lastTool = ''
+        const engine = new Engine({
+          ...this.options,
+          session: child,
+          model: childModel,
+          ephemeral: true,
+          depth: this.depth + 1,
+          forceIntent: task.kind === 'explore' ? 'question' : 'task',
+          routeModel: undefined,
+          onEvent: (e) => {
+            if (e.type === 'tool_start' && e.name !== lastTool) {
+              lastTool = e.name
+              view(task, 'running', { detail: e.name })
+            }
+          },
+        })
+        this.children.push(engine)
+        try {
+          await engine.run()
+        } finally {
+          this.children = this.children.filter((c) => c !== engine)
+        }
+        // Cost: the child's calls belong to this session's bill.
+        this.session.modelCalls ??= []
+        for (const rec of child.modelCalls ?? []) this.session.modelCalls.push({ ...rec, turn: this.session.usage.turns + 1 })
+        this.applyUsageTotals(aggregateModelCalls(this.session.modelCalls))
+        this.savings().subagents += 1
+        const lastText = [...child.transcript].reverse().find((m) => m.role === 'assistant' && m.content.trim())?.content.trim()
+        const failed = child.state === 'failed' || (child.state !== 'ready' && child.state !== 'completed' && !lastText)
+        const own = aggregateModelCalls(child.modelCalls ?? [])
+        const report = child.completionClaim?.summary ?? lastText ?? '(the sub-agent produced no report)'
+        return {
+          report: failed ? `FAILED (${child.stateReason ?? child.state})\n${report}` : report,
+          failed,
+          modelCalls: child.usage.modelCalls,
+          costUsd: own.costPartial || own.unpricedCalls > 0 ? null : own.costUsd,
+        }
+      },
     })
-    return results.join('\n\n')
+    return out.merged
   }
 
   private appendToolResult(callId: string, name: string, ok: boolean, output: string): void {

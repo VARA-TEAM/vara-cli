@@ -107,6 +107,20 @@ export function AgentPanel({ state, set, models }: { state: SettingsState | null
         <Switch checked={state.allowPublish} onChange={(v) => void patch({ allowPublish: v })} label={state.allowPublish ? t('on') : t('off')} />
       </Row>
 
+      <h3 className="sec">{t('sw_title')}</h3>
+      <Row label={t('sw_tasks')} help={t('sw_tasksHelp')}>
+        <Commit kind="number" value={String(state.swarm.maxTasks)} onCommit={num((n) => ({ swarm: { maxTasks: n } }))} />
+      </Row>
+      <Row label={t('sw_parallel')} help={t('sw_parallelHelp')}>
+        <Commit kind="number" value={String(state.swarm.maxParallel)} onCommit={num((n) => ({ swarm: { maxParallel: n } }))} />
+      </Row>
+      <Row label={t('sw_calls')} help={t('sw_callsHelp')}>
+        <Commit kind="number" value={String(state.swarm.maxModelCalls)} onCommit={num((n) => ({ swarm: { maxModelCalls: n } }))} />
+      </Row>
+      <Row label={t('sw_cost')} help={t('sw_costHelp')}>
+        <Commit value={state.swarm.maxCostUsd === null ? '' : String(state.swarm.maxCostUsd)} placeholder={t('p_auto')} onCommit={(v) => patch({ swarm: { maxCostUsd: v.trim() ? Number(v.trim()) : null } })} />
+      </Row>
+
       <h3 className="sec">{t('a_taskLimits')}</h3>
       {budget('task')}
       <h3 className="sec">{t('a_goalLimits')}</h3>

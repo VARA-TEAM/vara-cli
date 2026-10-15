@@ -96,3 +96,16 @@ describe('custom modes: sessions', () => {
     }
   })
 })
+
+describe('swarm settings', () => {
+  it('can only lower the ceilings and refuses nonsense', async () => {
+    config = { ...config, swarm: { ...config.swarm } }
+    expect((await manager.patchSettings({ swarm: { maxTasks: 2, maxParallel: 1, maxModelCalls: 40, maxCostUsd: 0.5 } })).ok).toBe(true)
+    expect(config.swarm).toMatchObject({ maxTasks: 2, maxParallel: 1, maxModelCalls: 40, maxCostUsd: 0.5 })
+    expect((await manager.patchSettings({ swarm: { maxTasks: 9 } })).ok).toBe(false)
+    expect((await manager.patchSettings({ swarm: { maxParallel: 4 } })).ok).toBe(false)
+    expect((await manager.patchSettings({ swarm: { maxCostUsd: -1 } })).ok).toBe(false)
+    expect((await manager.patchSettings({ swarm: { maxCostUsd: null } })).ok).toBe(true)
+    expect(config.swarm.maxCostUsd).toBeNull()
+  })
+})

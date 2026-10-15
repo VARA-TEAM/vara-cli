@@ -228,7 +228,7 @@ function capabilityBlock(opts: PromptOptions): string {
   if (opts.mcp) parts.push(`# MCP servers (external tools you can call)\n${opts.mcp}`)
   if (!opts.subagent) {
     parts.push(
-      `# Parallel sub-agents\nFor broad research or independent pieces of work, call \`delegate\` with up to 4 self-contained tasks: they run in parallel with fresh context and report back. Prefer it over reading dozens of files yourself — it keeps this conversation small.`,
+      `# Parallel sub-agents\nFor broad research or independent pieces of work, call \`delegate\` with up to 4 self-contained tasks. Give each a \`role\` (researcher, reviewer, implementer, tester) and chain them with \`id\`/\`dependsOn\` when one needs another's result: they run in parallel where they can, see the shared task list, and come back as one merged report. Prefer it over reading dozens of files yourself — it keeps this conversation small.`,
     )
   } else parts.push(SUBAGENT_NOTE.trim())
   return parts.join('\n\n')

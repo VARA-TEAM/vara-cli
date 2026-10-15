@@ -418,6 +418,17 @@ const en = {
   st_help: 'Switch skills and connectors on or off for this conversation only. A skill change applies from your next message.',
   st_none: 'Nothing to switch.',
   st_tools: '{n} tools',
+  sw_waiting: 'waiting',
+  sw_skipped: 'skipped',
+  sw_title: 'Sub-agent swarm',
+  sw_tasks: 'Tasks per call',
+  sw_tasksHelp: 'How many sub-agents one delegate call may start (1-4).',
+  sw_parallel: 'At the same time',
+  sw_parallelHelp: 'Sub-agents running together (1-3).',
+  sw_calls: 'Model calls for the whole swarm',
+  sw_callsHelp: 'No new sub-agent starts once this many calls are spent. Works even when prices are unknown.',
+  sw_cost: 'Cost cap (USD)',
+  sw_costHelp: 'Stop starting sub-agents once the known cost reaches this. Empty = no cap.',
 } as const
 
 export type Key = keyof typeof en
@@ -833,6 +844,17 @@ const ar: Record<Key, string> = {
   st_help: 'شغّل أو أوقف المهارات والموصّلات لهذه المحادثة فقط. تغيير المهارة يسري من رسالتك التالية.',
   st_none: 'لا شيء للتبديل.',
   st_tools: '{n} أدوات',
+  sw_waiting: 'ينتظر',
+  sw_skipped: 'تم تخطيه',
+  sw_title: 'سرب الوكلاء الفرعيين',
+  sw_tasks: 'مهام في كل استدعاء',
+  sw_tasksHelp: 'كم وكيلاً فرعياً يبدأ استدعاء delegate واحد (1-4).',
+  sw_parallel: 'في الوقت نفسه',
+  sw_parallelHelp: 'وكلاء فرعيون يعملون معاً (1-3).',
+  sw_calls: 'استدعاءات النموذج للسرب كله',
+  sw_callsHelp: 'لا يبدأ وكيل فرعي جديد بعد صرف هذا العدد. يعمل حتى لو كانت الأسعار مجهولة.',
+  sw_cost: 'سقف التكلفة (دولار)',
+  sw_costHelp: 'يتوقف بدء الوكلاء الفرعيين عند بلوغ التكلفة المعروفة هذا الحد. الفارغ = بلا سقف.',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

@@ -101,6 +101,8 @@ Design rule: **the interfaces hold no business logic**, and the engine knows not
 | `gh` | ✗ | ✓ (writes need publishing enabled) |
 | `ask_user` | ✓ — pauses the session until you answer | ✓ |
 | `delegate` `skill` `escalate` | ✓ | ✓ |
+| `switch_mode` | ✓ (needs approval) | ✓ (needs approval) |
+| `skill_write` `skill_toggle` `mcp_manage` | ✗ | ✓ (each needs approval, §7.7) |
 | `complete` | — | ✓ — followed by independent verification |
 | MCP tools (`mcp__<server>__<tool>`) | only those the server marks read-only | ✓ |
 
@@ -108,9 +110,11 @@ Design rule: **the interfaces hold no business logic**, and the engine knows not
 
 1. `checkToolAllowed` — `plan` mode rejects any tool that is not `readonly`.
 2. A per-tool `guard` (injects `cwd`, checks paths…).
-3. `checkCommandAllowed`:
+3. `checkModePolicy` — the session's **custom mode** (§7.6.1) can only add refusals: tool allow/deny lists, hidden from the model as well.
+4. `checkCommandAllowed`:
    - **Always destructive:** `rm -rf /`, `mkfs`, `format C:` … → flat refusal.
    - **Publishing:** `git push`, `gh repo create/edit/delete`, `gh api POST/PATCH/DELETE`, `npm publish`, `docker push` … → refused unless `allowPublish` is on for that session.
+   - **Custom-mode command lists** (`allowCommands` / `denyCommands`), evaluated last. With an allow list, substitution and redirection (`` ` ``, `$()`, `<`, `>`) are refused because they hide a second command.
 
 ---
 
@@ -182,9 +186,17 @@ Interfaces show `unknown` honestly (with a `+` when part of the cost is unpriced
 
 Counters live in `session.savings`, shown by `/cost`, the terminal side panel and the web *Cost* tab (which also estimates dollar savings from cache and compaction when pricing is known). Sub-agent cost is added to the parent's ledger so the numbers stay honest.
 
-## 7.3 Sub-agents (`delegate`)
+## 7.3 Sub-agents and the swarm (`delegate`)
 
-The tool calls `Engine.spawnSubagents`: up to 4 tasks, 3 at a time. Each agent is an **ephemeral** session (not saved, its events not logged) with the parent's mode, a small budget (25 turns for `work`, 12 for `explore`), and no `delegate` of its own (no nesting). `explore` is read-only (a `question` intent); `work` may edit files (in PLAN mode it becomes `explore` automatically). The final report is the last text reply or the `complete` summary.
+`delegate` calls `Engine.spawnSubagents`, which validates a plan (`planSwarm` in `core/swarm.ts`) and runs it (`runSwarm`). A plan is up to 4 tasks; each may have an `id`, a **role** and `dependsOn`.
+
+- **Roles:** `researcher` and `reviewer` are read-only, `implementer` and `tester` may edit files; a role adds its instructions to the sub-agent's prompt. Your own roles go in `config.json` → `swarm.roles`. An explicit `kind` beats the role; in PLAN mode every task is read-only.
+- **Shared task list:** every sub-agent is shown the whole plan (who does what) and, for a task that depends on others, the reports of those tasks. A task starts only when its dependencies are done; if one fails, what depends on it is skipped and the rest still runs. A plan with an unknown id, a duplicate or a cycle is refused with a reason the model can act on.
+- **Limits** (`config.json` → `swarm`, also Settings → Agent): `maxTasks` ≤ 4 and `maxParallel` ≤ 3 can only be *lowered*; `maxModelCalls` (default 120) is spent by the whole swarm and no new sub-agent starts after it; `maxCostUsd` stops new sub-agents once the **known** cost reaches it. Unknown cost is never counted as zero, so the call cap is the guard that always works.
+- **One merged report:** a header (done / failed / skipped, calls, cost) and every report in plan order; if a file-editing agent ran, the parent is told to verify before claiming anything.
+- **Live:** each status change is a `subagent` event (id, title, role, dependsOn, status `waiting|running|done|failed|skipped`) shown in the terminal and as a board in the browser.
+
+Each agent is an **ephemeral** session (not saved, events not logged) with the parent's mode **and custom-mode policy**, the parent's per-session skill/MCP switches, a small budget (25 turns for `work`, 12 for `explore`), the cheaper model, and no `delegate` of its own. Its model calls are added to the parent's ledger.
 
 ## 7.4 MCP (`src/mcp`)
 
@@ -195,6 +207,16 @@ The tool calls `Engine.spawnSubagents`: up to 4 tasks, 3 at a time. Each agent i
 `discoverSkills(cwd)`: built-in → `~/.vara/skills` → `<project>/.vara/skills` (the later one wins a name clash). The index (name + description) goes in the system message; the body is loaded through the `skill` tool only when needed. Skills named in `skills.disabled` are hidden from the agent.
 
 ---
+
+## 7.6.1 Custom modes (`core/modes.ts`)
+
+`config.json` → `modes` (or Settings → Agent in the browser) defines named modes. A mode **stands on** `plan` or `build` and can only narrow it: `allowTools` / `denyTools` (wildcards like `mcp__github__*`) and `allowCommands` / `denyCommands`. The session stores the base in `config.mode` — so every existing plan/build rule still runs first — and the name in `config.customMode`. The policy reaches `authorize()` through `ToolContext.modePolicy`, is also used to hide refused tools from the model, and is inherited by sub-agents. A name that no longer exists fails **closed** (read-only). A guest can only pick a mode whose base is within their grant. Select with `/mode <name>` or `Tab` (cycles) in the terminal, or the selector next to the message box.
+
+## 7.7 Self-management with approval (`tools/self-tools.ts`, `core/selfmanage.ts`)
+
+Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `mcp_manage`, `switch_mode`. None acts alone: the tool calls `ctx.approve()`, the engine emits `approval_request` with the exact change (the full command line of an MCP server, the full text of a skill), puts the session in `waiting_user`, and waits. The owner answers with **Allow / Decline** in the browser (`POST /api/sessions/:id/approvals/:aid`) or `/approve` / `/deny` in the terminal; stopping the run declines. No approver means *denied*: headless runs, sub-agents and **guests' agents** (the host gives an admin port only to the owner's own sessions) cannot use these tools at all. The change itself goes through `AdminPort` — one implementation shared by both front ends. A custom mode that does not list a tool cannot use it; `skill_write`, `skill_toggle` and `mcp_manage` are build-only, `switch_mode` also works in plan.
+
+**Per-session switches:** `config.disabledSkills` and `config.disabledMcp` hide a skill (from the prompt, so `/skill-name` refuses it) or an MCP server (its tools and its line in the prompt) for one session only. Browser: *Tools* tab of the side panel (`POST /api/sessions/:id/toggle`); terminal: `/disable <name>` and `/enable <name>`.
 
 ## 7.6 Hosting and shared sessions (`src/server`)
 

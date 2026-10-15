@@ -159,6 +159,19 @@ const ConfigSchema = z.object({
   agent: AgentSchema.default({}),
   /** MCP servers (Model Context Protocol): extra tools from local or remote servers. */
   mcp: z.object({ servers: z.record(McpServerSchema).default({}) }).default({}),
+  /** Limits for `delegate` swarms. They can only lower the built-in ceilings (4 tasks, 3 parallel). */
+  swarm: z
+    .object({
+      maxTasks: z.number().int().min(1).max(4).default(4),
+      maxParallel: z.number().int().min(1).max(3).default(3),
+      /** Model calls the whole swarm may spend (the guard that works even when cost is unknown). */
+      maxModelCalls: z.number().int().min(1).default(120),
+      /** Stop starting sub-agents once the KNOWN cost reaches this. null = no cost cap. */
+      maxCostUsd: z.number().positive().nullable().default(null),
+      /** Your own roles: { name: { kind: 'explore' | 'work', instructions } }. */
+      roles: z.record(z.object({ kind: z.enum(['explore', 'work']), instructions: z.string().max(1000) })).default({}),
+    })
+    .default({}),
   /** Custom modes beyond plan / build, by name. */
   modes: z.record(ModeSchema).default({}),
   skills: z

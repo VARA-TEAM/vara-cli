@@ -21,7 +21,7 @@ export interface ToolContext {
   /** Skills available to this session (for the `skill` tool). */
   skills?: Array<{ name: string; description: string; body: string }>
   /** Run sub-agents in parallel (absent inside a sub-agent: no recursion). */
-  spawn?: (tasks: Array<{ title: string; prompt: string; kind: 'explore' | 'work' }>) => Promise<string>
+  spawn?: (tasks: Array<{ id?: string; title: string; prompt: string; kind?: 'explore' | 'work'; role?: string; dependsOn?: string[] }>) => Promise<string>
 }
 
 export interface ToolResult {

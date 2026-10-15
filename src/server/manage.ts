@@ -273,6 +273,7 @@ export class Manager {
       agent: { autoIntent: c.agent.autoIntent, defaultMode: c.agent.defaultMode, cheapModel: c.agent.cheapModel },
       defaultVerifyCommand: c.defaultVerifyCommand,
       allowPublish: c.allowPublish,
+      swarm: { maxTasks: c.swarm.maxTasks, maxParallel: c.swarm.maxParallel, maxModelCalls: c.swarm.maxModelCalls, maxCostUsd: c.swarm.maxCostUsd },
       budgets: { task: b('task'), goal: b('goal') },
       context: { windowTokens: c.context.windowTokens ?? null, maxOutputTokens: c.context.maxOutputTokens },
     }
@@ -291,6 +292,20 @@ export class Manager {
         }
         if (typeof body['defaultVerifyCommand'] === 'string') n = { ...n, defaultVerifyCommand: text(body['defaultVerifyCommand'], 500) }
         if (typeof body['allowPublish'] === 'boolean') n = { ...n, allowPublish: body['allowPublish'] }
+        const swarm = body['swarm'] as Record<string, unknown> | undefined
+        if (swarm) {
+          const next = { ...n.swarm }
+          if ('maxTasks' in swarm) next.maxTasks = int(swarm['maxTasks'], 1, 4) ?? (() => { throw new Error('Tasks per call: a whole number from 1 to 4.') })()
+          if ('maxParallel' in swarm) next.maxParallel = int(swarm['maxParallel'], 1, 3) ?? (() => { throw new Error('At the same time: a whole number from 1 to 3.') })()
+          if ('maxModelCalls' in swarm) next.maxModelCalls = int(swarm['maxModelCalls'], 1, 1_000_000) ?? (() => { throw new Error('Model calls: a whole number >= 1.') })()
+          if ('maxCostUsd' in swarm) {
+            const v = swarm['maxCostUsd']
+            if (v === null) next.maxCostUsd = null
+            else if (typeof v === 'number' && Number.isFinite(v) && v > 0) next.maxCostUsd = v
+            else throw new Error('Cost cap: a positive amount in USD, or empty for none.')
+          }
+          n = { ...n, swarm: next }
+        }
         const budgets = body['budgets'] as Record<string, Record<string, unknown>> | undefined
         if (budgets) {
           const next = { task: { ...n.budgets.task }, goal: { ...n.budgets.goal } }

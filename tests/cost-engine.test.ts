@@ -160,7 +160,7 @@ describe('sub-agents', () => {
     let parentCalls = 0
     const provider = new FakeProvider([], (req) => {
       if (req.system.includes('You are a sub-agent')) {
-        const goal = req.messages[0]!.content
+        const goal = req.messages[0]!.content.split('Your task: ')[1] ?? ''
         return { content: `report for ${goal.slice(0, 12)}: found things`, toolCalls: [] }
       }
       parentCalls++
@@ -185,12 +185,12 @@ describe('sub-agents', () => {
     })
     await new Engine({ session: parent, provider, onEvent: (e) => events.push(e) }).run()
     const out = parent.transcript.find((m) => m.role === 'tool' && m.toolName === 'delegate')!.content
-    expect(out).toContain('### Auth — done')
+    expect(out).toContain('t1 · Auth — DONE')
     expect(out).toContain('report for AUTH: look')
-    expect(out).toContain('### DB — done')
+    expect(out).toContain('t2 · DB — DONE')
     // Fresh context: a sub-agent sees only its own prompt.
     const childReq = provider.requests.find((r) => r.system.includes('You are a sub-agent'))!
-    expect(childReq.messages[0]!.content).toMatch(/^(AUTH|DB):/)
+    expect(childReq.messages[0]!.content).toMatch(/Your task: (AUTH|DB):/) // plus the shared team plan
     expect(childReq.messages.some((m) => m.content.includes('research the code base'))).toBe(false)
     // A sub-agent cannot delegate, and explore agents are read-only.
     const names = childReq.tools.map((t) => (t as { function: { name: string } }).function.name)

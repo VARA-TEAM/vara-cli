@@ -116,10 +116,12 @@ export function Chat({
       {subagents.length ? (
         <div className="subagents">
           {subagents.map((s) => (
-            <div key={s.id} className={`subagent sub-${s.status}`}>
+            <div key={s.id} className={`subagent sub-${s.status}`} title={s.status === 'skipped' && s.detail ? s.detail : undefined}>
               <Icon name="branch" size={14} />
               <span dir="auto">{s.title}</span>
-              {s.status === 'running' ? <span className="pulse" /> : s.status === 'done' ? <Icon name="check" size={14} /> : <Icon name="x" size={14} />}
+              {s.role ? <span className="chip" dir="ltr">{s.role}</span> : null}
+              {s.dependsOn?.length ? <span className="muted" dir="ltr">← {s.dependsOn.join(', ')}</span> : null}
+              {s.status === 'running' ? <span className="pulse" /> : s.status === 'done' ? <Icon name="check" size={14} /> : s.status === 'waiting' ? <span className="muted">{t('sw_waiting')}</span> : s.status === 'skipped' ? <span className="muted">{t('sw_skipped')}</span> : <Icon name="x" size={14} />}
               {s.detail && s.status === 'running' ? <span className="muted">{s.detail}</span> : null}
             </div>
           ))}

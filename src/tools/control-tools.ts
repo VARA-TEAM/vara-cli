@@ -107,12 +107,16 @@ export const skillTool: Tool<{ name: string }> = {
   },
 }
 
-export const delegateTool: Tool<{ tasks: Array<{ title: string; prompt: string; kind?: 'explore' | 'work' }> }> = {
+type DelegateTask = { id?: string; title: string; prompt: string; kind?: 'explore' | 'work'; role?: string; dependsOn?: string[] }
+
+export const delegateTool: Tool<{ tasks: DelegateTask[] }> = {
   name: 'delegate',
   description:
-    'Hand independent sub-tasks to sub-agents that run IN PARALLEL, each with its own fresh context, and get their reports back. ' +
-    'Use it for broad research (search several areas of the codebase at once: kind "explore", read-only) or for independent pieces of work ' +
-    '(kind "work": each sub-agent edits its own files — never give two agents the same file). Up to 4 tasks per call. ' +
+    'Run a small swarm of sub-agents, each with its own fresh context, and get ONE merged report back. ' +
+    'Use it for broad research (several areas of the codebase at once) or for independent pieces of work (never give two agents the same file). ' +
+    'Name a `role` for each task: researcher / reviewer (read-only), implementer / tester (may change files). ' +
+    'Give a task an `id` and let others list it in `dependsOn` to run them in order (the later task receives the earlier report). ' +
+    'Every sub-agent sees the whole task list, so say who does what. At most 4 tasks, 3 at a time, within a shared call budget. ' +
     'Each prompt must be self-contained: the sub-agent sees nothing of this conversation. Sub-agents cannot delegate further.',
   readonly: true,
   schema: z
@@ -120,19 +124,22 @@ export const delegateTool: Tool<{ tasks: Array<{ title: string; prompt: string; 
       tasks: z
         .array(
           z.object({
+            id: z.string().optional().describe('short id (e.g. "impl"), only needed when another task depends on it'),
             title: z.string().min(2).describe('Short label shown to the user'),
             prompt: z.string().min(10).describe('Complete, self-contained instructions, including the paths to look at and the exact report you want back'),
-            kind: z.enum(['explore', 'work']).optional().describe('explore = read-only research (default); work = may change files'),
+            role: z.string().optional().describe('researcher | reviewer | implementer | tester (or a role the user defined)'),
+            kind: z.enum(['explore', 'work']).optional().describe('explore = read-only (default); work = may change files. A role already sets this.'),
+            dependsOn: z.array(z.string()).optional().describe('ids of tasks that must finish first'),
           }),
         )
         .min(1)
         .max(4)
-        .describe('1–4 independent tasks'),
+        .describe('1-4 tasks'),
     })
-    .describe('Run sub-agents in parallel'),
+    .describe('Run a swarm of sub-agents'),
   async execute(args, ctx): Promise<ToolResult> {
     if (!ctx.spawn) return { ok: false, output: 'Sub-agents are not available here (a sub-agent cannot delegate).' }
-    const output = await ctx.spawn(args.tasks.map((t) => ({ title: t.title, prompt: t.prompt, kind: t.kind ?? 'explore' })))
-    return { ok: true, output }
+    const output = await ctx.spawn(args.tasks)
+    return { ok: !output.startsWith('Swarm plan rejected'), output }
   },
 }

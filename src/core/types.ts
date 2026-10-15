@@ -241,7 +241,7 @@ export type EngineEvent =
   | { type: 'tool_end'; id: string; name: string; ok: boolean; output: string; truncated?: boolean }
   | { type: 'turn'; turn: number }
   | { type: 'intent'; intent: SessionIntent; reason: string }
-  | { type: 'subagent'; id: string; title: string; status: 'running' | 'done' | 'failed'; detail?: string }
+  | { type: 'subagent'; id: string; title: string; status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'; detail?: string; role?: string; dependsOn?: string[] }
   | { type: 'followup_applied'; id: string; turn: number }
   | { type: 'evidence'; record: EvidenceRecord }
   | { type: 'verification'; ok: boolean; detail: string }

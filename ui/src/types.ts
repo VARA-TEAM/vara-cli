@@ -213,6 +213,7 @@ export interface SettingsState {
   agent: { autoIntent: boolean; defaultMode: 'plan' | 'build'; cheapModel: string }
   defaultVerifyCommand: string
   allowPublish: boolean
+  swarm: { maxTasks: number; maxParallel: number; maxModelCalls: number; maxCostUsd: number | null }
   budgets: { task: BudgetRow; goal: BudgetRow }
   context: { windowTokens: number | null; maxOutputTokens: number }
 }

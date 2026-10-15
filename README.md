@@ -19,7 +19,9 @@ vara setup      # add a provider, paste the key, fetch and test models
 | **Understands what you want** | Every message is classified: `chat` (answered without tools) · `question` (reads the project, answers) · `task` (does the work and proves it) · `goal` (keeps going). When unsure it picks the least powerful option, so a guess never changes your files. The model can still `escalate`. |
 | **A smaller bill** | Provider prompt caching, compaction of old tool output, no re-reading of unchanged files, a cheaper model for chat/questions/sub-agents, thinking only for real work. `/cost` shows what was saved. |
 | **Any provider** | OpenAI · Anthropic · OpenRouter · DeepSeek · Groq · Gemini · Mistral · xAI · Together · Ollama · LM Studio · any custom OpenAI-compatible or Anthropic endpoint. Every model has a tested status (works / failed / untested) and an editable context window. |
-| **Parallel sub-agents** | The `delegate` tool runs up to 4 sub-agents (3 at a time) with a clean context and the cheaper model, then returns a short report. |
+| **Sub-agent swarm** | The `delegate` tool runs up to 4 sub-agents (3 at a time) with named roles (researcher, reviewer, implementer, tester), a shared task list and dependencies, a call/cost budget, live status in the browser — and returns one merged report. |
+| **Your own modes** | Beyond plan/build: named modes with tool and command allow/deny lists. A mode can only narrow plan or build, never widen it. |
+| **The agent manages itself — with your yes** | It can write a skill, add/toggle an MCP server or switch mode, but each change is an approval card you must allow; skills and servers can be switched off per session. |
 | **MCP** | Connect any Model Context Protocol server (local command or remote URL). Its tools reach the agent directly; read-only tools also work in PLAN mode. |
 | **Skills** | `SKILL.md` playbooks the agent loads when they fit. 5 are built in (`code-review`, `debug`, `write-tests`, `explain-code`, `git-commit`); add your own for every project or for one. |
 | **Controllable thinking** | VARA detects which models support extended thinking / reasoning effort and offers only the levels they support. |
@@ -88,14 +90,16 @@ Type your message. For commands press `Ctrl+K` or type `/`.
 | `/providers` · `/models` · `/model [id]` · `/provider <name> [model]` | Providers and models. In the provider screens: `t` test a model · `a` test all · `r` fetch the model list · `c` edit context · `h` thinking level · `k` set the key · `n` add a model · `x` remove a model · `d` remove a provider |
 | `/think [off\|low\|medium\|high]` | Thinking level for the current model, if it supports it |
 | `/mcp` | MCP servers: add from a built-in list (filesystem, fetch, memory, playwright, github, context7) or any command / URL |
-| `/skills` · `/skills new <name>` · `/skill <name> [about]` | Skills |
+| `/skills` · `/skills new <name>` · `/skill <name> [about]` · `/<skill-name> [about]` | Skills |
+| `/enable <name>` · `/disable <name>` | Turn a skill or MCP server on/off for this session only |
+| `/approve` · `/deny` | Answer a change the agent asked to make to itself |
 | `/settings` (`Ctrl+O`) | Theme, side panel and its sections, intent routing, default mode, verify command, cheaper model, publishing, task/goal budgets, context, skills |
 | `/theme <name>` | 9 themes, applied instantly |
 | `/cost` | Spend and savings: cache, compaction, repeated reads, cheaper model, sub-agents |
 | `/context` · `/status` · `/evidence` · `/last` | Context window · budget and progress · recorded evidence · full output of the last tool call |
 | `/export [file]` | Save the conversation as markdown |
 | `/new` (`Ctrl+N`) · `/sessions [--all]` · `/resume <id>` | Sessions — tabs; the start screen asks for nothing |
-| `/mode plan\|build` · `/kind auto\|task\|goal` · `/pause` · `/stop` · `/quit` · `/help` | |
+| `/mode plan\|build\|<your mode>` · `/kind auto\|task\|goal` · `/pause` · `/stop` · `/quit` · `/help` | |
 
 In any message, `@src/app.ts` attaches that file (inside the working folder only, up to 120 KB, at most 6 files per message).
 

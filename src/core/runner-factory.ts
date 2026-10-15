@@ -41,6 +41,7 @@ export function makeSessionRunner(opts: {
       routeModel: () => config().agent.cheapModel || undefined,
       thinkingLevel: (m) => thinkingFor(config(), m).level,
       modePolicy: () => policyFor(config().modes, s.config.customMode),
+      swarm: () => config().swarm,
       vision: (m) => visionFor(config(), m),
       ...(opts.applyConfig ? { admin: makeAdminPort({ session: s, config, apply: opts.applyConfig }) as AdminPort, interactive: true } : {}),
       extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>],

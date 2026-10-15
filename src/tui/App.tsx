@@ -221,8 +221,8 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         case 'subagent':
           push({
             kind: 'note',
-            text: `${event.status === 'running' ? '⧉' : event.status === 'done' ? glyph.ok : glyph.fail} sub-agent · ${event.title}${event.status === 'running' ? (event.detail ? ` — ${event.detail}…` : ' — working…') : event.status === 'done' ? ' — done' : ' — failed'}`,
-            color: event.status === 'failed' ? 'red' : event.status === 'done' ? 'green' : 'cyan',
+            text: `${event.status === 'running' ? '⧉' : event.status === 'done' ? glyph.ok : event.status === 'waiting' || event.status === 'skipped' ? '○' : glyph.fail} sub-agent · ${event.title}${event.role ? ` [${event.role}]` : ''}${event.dependsOn?.length ? ` ← ${event.dependsOn.join(', ')}` : ''}${event.status === 'running' ? (event.detail ? ` — ${event.detail}…` : ' — working…') : event.status === 'done' ? ' — done' : event.status === 'waiting' ? ' — waiting' : event.status === 'skipped' ? ` — skipped${event.detail ? `: ${event.detail}` : ''}` : ' — failed'}`,
+            color: event.status === 'failed' ? 'red' : event.status === 'done' ? 'green' : event.status === 'waiting' || event.status === 'skipped' ? 'gray' : 'cyan',
             group: `sub-${event.id}`,
           })
           break

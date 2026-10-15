@@ -21,6 +21,7 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 - ~~R1 · Trim context by tokens instead of characters~~ — `toModelMessages` honours the real `requestBudgetTokens` from `context.ts` (newest to oldest, dropping the oldest tool output first, never dropping a message that carries `toolCalls`), and stall detection is unified (`noteNoProgress`).
 - ~~Multiple providers · MCP · sub-agents · the cost-saving engine · intent routing · thinking levels · skills~~
 - ~~Shared sessions (invites, roles, permissions) and the browser interface — with every terminal feature available in it~~ (see `CHANGELOG.md`)
+- ~~R8 · Agent self-control: custom modes, self-management tools with approval, per-session skill/MCP switches, sub-agent swarm~~ (see §7.3, §7.6.1, §7.7 of `ARCHITECTURE.md`)
 - ~~Self-contained releases for Windows x64, macOS arm64 and Linux x64 with one-command installers~~
 
 ## 2. Ready to do (by priority)
@@ -46,7 +47,7 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 ### R7 · Host without a tunnel
 - **Idea:** let remote guests reach a host without the owner running a tunnel. **Constraint:** there is deliberately no relay server today; any design must keep keys and execution on the owner's machine.
 
-### R8 · Agent self-control (in progress) — design note for the protected files
+### R8 · Agent self-control — DONE; design note for the protected files (kept as the record)
 
 Goal: the agent can be given named modes, and can manage its own setup (skills, MCP servers, mode) — **always through an approval the user sees, never silently**. This note is written *before* touching `permissions.ts` and `engine.ts`, as the rules require.
 

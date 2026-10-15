@@ -46,8 +46,10 @@ export function useSessions(enabled: boolean): { sessions: SessionSummary[]; rel
 export interface SubagentRow {
   id: string
   title: string
-  status: 'running' | 'done' | 'failed'
+  status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'
   detail?: string
+  role?: string
+  dependsOn?: string[]
 }
 
 export interface LiveSession {
@@ -135,7 +137,7 @@ export function useLiveSession(id: string | null): LiveSession {
         if (e.type === 'tool_start') setActiveTool(String(e['name'] ?? ''))
         if (e.type === 'tool_end') setActiveTool(null)
         if (e.type === 'subagent') {
-          const row: SubagentRow = { id: String(e['id']), title: String(e['title'] ?? ''), status: e['status'] as SubagentRow['status'], ...(e['detail'] ? { detail: String(e['detail']) } : {}) }
+          const row: SubagentRow = { id: String(e['id']), title: String(e['title'] ?? ''), status: e['status'] as SubagentRow['status'], ...(e['detail'] ? { detail: String(e['detail']) } : {}), ...(e['role'] ? { role: String(e['role']) } : {}), ...(Array.isArray(e['dependsOn']) ? { dependsOn: (e['dependsOn'] as unknown[]).map(String) } : {}) }
           setSubagents((rows) => (rows.some((r) => r.id === row.id) ? rows.map((r) => (r.id === row.id ? row : r)) : [...rows, row]))
         }
         if (e.type === 'state' && e['state'] === 'running') setSubagents([])
