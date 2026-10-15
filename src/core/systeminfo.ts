@@ -232,6 +232,7 @@ export const AGENT_SETTINGS: Record<string, SettingDef> = Object.fromEntries([
 export const OWNER_ONLY_SETTINGS: Record<string, string> = {
   allowPublish: 'it lets the agent push to remote repositories',
   'agent.browser': 'it gives the agent a browser',
+  'agent.webSearch': 'it decides which sites the agent sends your searches to',
   'agent.desktop': 'it gives the agent your screen, mouse and keyboard',
   defaultVerifyCommand: 'it is a command VARA runs',
   providers: 'providers and API keys are managed by the owner only (/providers, Settings → Models)',

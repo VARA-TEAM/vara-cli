@@ -140,6 +140,31 @@ export const LimitsSchema = z.object({
   readings: z.array(z.object({ at: z.string(), percent: z.number().min(0).max(100) })).max(200).default([]),
 })
 
+/**
+ * Live web lookup (src/web/*, tools `web_search` and `web_fetch`). Read-only, runs from THIS machine (your own IP), no paid
+ * API needed. `providers` is the order tried; the optional API ones (brave, tavily, serper) are used only if listed AND
+ * a key is stored in the vault under the name in `keyNames`.
+ */
+export const WebProviderIds = ['duckduckgo', 'mojeek', 'searxng', 'browser', 'brave', 'tavily', 'serper'] as const
+export const WebSearchSchema = z.object({
+  /** Offer `web_search` (read-only). On by default. */
+  enabled: z.boolean().default(true),
+  /** Offer `web_fetch`, which reads one page as text. On by default. */
+  fetch: z.boolean().default(true),
+  providers: z.array(z.enum(WebProviderIds)).max(7).default(['duckduckgo', 'mojeek', 'searxng', 'browser']),
+  /** SearXNG servers (ideally your own) tried by the `searxng` provider; it needs JSON output enabled. Empty = the provider is skipped. Public ones mostly refuse bots, so none is bundled. */
+  searxngInstances: z.array(z.string().url().max(200)).max(20).default([]),
+  /** Vault secret names holding the optional API keys. The keys themselves are never in this file. */
+  keyNames: z.object({ brave: z.string().max(80).default('BRAVE_API_KEY'), tavily: z.string().max(80).default('TAVILY_API_KEY'), serper: z.string().max(80).default('SERPER_API_KEY') }).default({}),
+  maxResults: z.number().int().min(1).max(20).default(8),
+  /** Most characters of one page returned to the model (about 4 per token). */
+  maxPageChars: z.number().int().min(1000).max(40000).default(12000),
+  cacheMinutes: z.number().int().min(0).max(240).default(10),
+  /** Searches allowed per minute, to stay polite to the free search sites. */
+  perMinute: z.number().int().min(1).max(120).default(20),
+})
+export type WebSearchSettings = z.infer<typeof WebSearchSchema>
+
 export const AgentSchema = z.object({
   /** Cheaper model for chat, questions and sub-agents ("provider's own id"). Empty = use the session model. */
   cheapModel: z.string().default(''),
@@ -150,6 +175,7 @@ export const AgentSchema = z.object({
   browser: z.boolean().default(false),
   /** Offer the `desktop` tool (screen, mouse and keyboard). Off until the owner turns it on; still asks once per session. */
   desktop: z.boolean().default(false),
+  webSearch: WebSearchSchema.default({}),
 })
 
 /** A user-defined mode: a named restriction of plan or build (see core/modes.ts). */

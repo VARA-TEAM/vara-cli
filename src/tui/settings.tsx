@@ -148,6 +148,8 @@ export function settingItems(skills: SkillRow[]): SettingItem[] {
       },
     },
     toggle('updates', 'Agent', 'Check for updates', 'Once a day VARA asks GitHub if a newer release exists (nothing else is sent) and tells you here. Update with: vara update.', (c) => c.updates.check, (c, v) => ({ ...c, updates: { ...c.updates, check: v } })),
+    toggle('webSearch', 'Agent', 'Web search', 'Let the agent search the live internet (from this computer, no paid API needed). Results are untrusted text. Providers and optional Brave/Tavily/Serper keys: docs/WEB-SEARCH.md.', (c) => c.agent.webSearch.enabled, (c, v) => ({ ...c, agent: { ...c.agent, webSearch: { ...c.agent.webSearch, enabled: v } } })),
+    toggle('webFetch', 'Agent', 'Read web pages', 'Let the agent read one web page as plain text. Private and local addresses are always refused.', (c) => c.agent.webSearch.fetch, (c, v) => ({ ...c, agent: { ...c.agent, webSearch: { ...c.agent.webSearch, fetch: v } } })),
     toggle('browser', 'Agent', 'Browser tool', 'Let the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Sites must be approved; passwords are never typed.', (c) => c.agent.browser, (c, v) => ({ ...c, agent: { ...c.agent, browser: v } })),
     toggle('desktop', 'Agent', 'Desktop control', 'Let the agent see the screen and use the mouse and keyboard (asks once per session; never in password or bank windows). Use only on a machine you can watch.', (c) => c.agent.desktop, (c, v) => ({ ...c, agent: { ...c.agent, desktop: v } })),
     toggle('publish', 'Agent', 'Allow publishing', 'Let the agent git push / write to GitHub. Keep off unless you trust the task.', (c) => c.allowPublish, (c, v) => ({ ...c, allowPublish: v })),

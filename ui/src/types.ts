@@ -212,7 +212,7 @@ export interface ModeRow {
 }
 
 export interface SettingsState {
-  agent: { autoIntent: boolean; defaultMode: 'plan' | 'build'; cheapModel: string; browser: boolean; desktop: boolean }
+  agent: { autoIntent: boolean; defaultMode: 'plan' | 'build'; cheapModel: string; browser: boolean; desktop: boolean; webSearch: { enabled: boolean; fetch: boolean; providers: string[] } }
   defaultVerifyCommand: string
   allowPublish: boolean
   swarm: { maxTasks: number; maxParallel: number; maxModelCalls: number; maxCostUsd: number | null }

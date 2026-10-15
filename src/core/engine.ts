@@ -780,6 +780,7 @@ export class Engine {
       skills: skillIndex(this.skills),
       mcp: this.mcpSummary?.() || undefined,
       ...(memoryText ? { memory: memoryText } : {}),
+      ...(extra.some((t) => t.name === 'web_search' || t.name === 'web_fetch') && this.intent !== 'chat' ? { web: true } : {}),
       subagent: this.depth > 0,
       ...(this.options.admin?.system && this.depth === 0 ? { selfManage: true } : {}),
       ...(policy ? { modeNote: describePolicy(policy) } : {}),

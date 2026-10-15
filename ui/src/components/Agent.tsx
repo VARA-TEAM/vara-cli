@@ -106,6 +106,12 @@ export function AgentPanel({ state, set, models }: { state: SettingsState | null
       <Row label={t('a_browser')} help={t('a_browserHelp')}>
         <Switch checked={state.agent.browser} onChange={(v) => void patch({ agent: { browser: v } })} label={state.agent.browser ? t('on') : t('off')} />
       </Row>
+      <Row label={t('a_web')} help={t('a_webHelp')}>
+        <Switch checked={state.agent.webSearch.enabled} onChange={(v) => void patch({ agent: { webSearch: { enabled: v } } })} label={state.agent.webSearch.enabled ? t('on') : t('off')} />
+      </Row>
+      <Row label={t('a_webFetch')} help={t('a_webFetchHelp')}>
+        <Switch checked={state.agent.webSearch.fetch} onChange={(v) => void patch({ agent: { webSearch: { fetch: v } } })} label={state.agent.webSearch.fetch ? t('on') : t('off')} />
+      </Row>
       <Row label={t('a_desktop')} help={t('a_desktopHelp')}>
         <Switch checked={state.agent.desktop} onChange={(v) => void patch({ agent: { desktop: v } })} label={state.agent.desktop ? t('on') : t('off')} />
       </Row>

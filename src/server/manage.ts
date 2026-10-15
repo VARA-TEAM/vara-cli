@@ -280,7 +280,7 @@ export class Manager {
     const c = this.d.config()
     const b = (k: 'task' | 'goal') => ({ maxTurns: c.budgets[k].maxTurns, maxMinutes: Math.round(c.budgets[k].maxDurationMs / MIN), maxModelCalls: c.budgets[k].maxModelCalls })
     return {
-      agent: { autoIntent: c.agent.autoIntent, defaultMode: c.agent.defaultMode, cheapModel: c.agent.cheapModel, browser: c.agent.browser, desktop: c.agent.desktop },
+      agent: { autoIntent: c.agent.autoIntent, defaultMode: c.agent.defaultMode, cheapModel: c.agent.cheapModel, browser: c.agent.browser, desktop: c.agent.desktop, webSearch: { enabled: c.agent.webSearch.enabled, fetch: c.agent.webSearch.fetch, providers: c.agent.webSearch.providers } },
       defaultVerifyCommand: c.defaultVerifyCommand,
       allowPublish: c.allowPublish,
       swarm: { maxTasks: c.swarm.maxTasks, maxParallel: c.swarm.maxParallel, maxModelCalls: c.swarm.maxModelCalls, maxCostUsd: c.swarm.maxCostUsd },
@@ -300,6 +300,12 @@ export class Manager {
           if (typeof agent['autoIntent'] === 'boolean') n.agent.autoIntent = agent['autoIntent']
           if (typeof agent['browser'] === 'boolean') n.agent.browser = agent['browser']
           if (typeof agent['desktop'] === 'boolean') n.agent.desktop = agent['desktop']
+          const ws = agent['webSearch'] as Record<string, unknown> | undefined
+          if (ws) {
+            n.agent.webSearch = { ...n.agent.webSearch }
+            if (typeof ws['enabled'] === 'boolean') n.agent.webSearch.enabled = ws['enabled']
+            if (typeof ws['fetch'] === 'boolean') n.agent.webSearch.fetch = ws['fetch']
+          }
           if (agent['defaultMode'] === 'plan' || agent['defaultMode'] === 'build') n.agent.defaultMode = agent['defaultMode']
           if (typeof agent['cheapModel'] === 'string') n.agent.cheapModel = text(agent['cheapModel'], 200)
         }

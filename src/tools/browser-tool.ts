@@ -105,7 +105,8 @@ export function makeBrowserTool(launch: BrowserLauncher = realLauncher): Tool<Ar
   }
 }
 
-async function ensure(ctx: ToolContext, launch: BrowserLauncher): Promise<{ session: BrowserSession; policy: OriginPolicy }> {
+/** The session's browser (started on first use). Shared with the web search tool's optional browser engine. */
+export async function ensure(ctx: Pick<ToolContext, 'sessionId'>, launch: BrowserLauncher = realLauncher): Promise<{ session: BrowserSession; policy: OriginPolicy }> {
   const have = open.get(ctx.sessionId)
   if (have) return { session: have.handle.session, policy: have.policy }
   const policy = new OriginPolicy()
