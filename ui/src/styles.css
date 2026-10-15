@@ -236,6 +236,7 @@ ul.plain li { display: flex; gap: 8px; align-items: center; color: var(--muted);
 .watching { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; }
 
 .panel { width: var(--panel-w); flex-shrink: 0; border-inline-start: 1px solid var(--border); background: var(--surface); overflow-y: auto; padding: 14px 16px; display: grid; gap: 18px; align-content: start; }
+.update-note { position: fixed; inset-block-end: 12px; inset-inline-end: 12px; z-index: 55; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,.18); display: flex; gap: 8px; align-items: center; }
 .share-banner { position: fixed; inset-block-start: 0; inset-inline: 0; z-index: 60; background: #8a4b00; color: #fff; padding: 6px 14px; font-size: 12.5px; text-align: center; }
 .share-banner + * { margin-block-start: 30px; }
 .panel.panel-wide { width: min(560px, 46vw); }

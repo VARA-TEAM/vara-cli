@@ -9,6 +9,7 @@ import { SetupApp } from './tui/setup.js'
 import { applyTheme } from './tui/theme.js'
 import { VERSION } from './version.js'
 import { doctorCommand } from './doctor.js'
+import { updateCommand } from './update/command.js'
 import { serveCommand, inviteCommand, guestsCommand } from './server/commands.js'
 import { ensureStore, listSessions, loadSession, saveSession } from './core/store.js'
 import { createSession, CreateSessionInput } from './core/session.js'
@@ -30,6 +31,7 @@ Usage:
   vara run "<objective>" [--goal] [--plan] [--cwd <dir>] [--verify <cmd>] [--publish] [--provider <name>] [--model <id>]
                                        headless run (no TUI), prints events
   vara ui [--lan] [--port N]           open VARA in your browser (local web interface)
+  vara update [--check] [--rollback]   update this install from the latest GitHub release (SHA-256 verified)
   vara serve [--lan] [--port N]        run the host without opening a browser
   vara ui --share [--share-via cloudflared|ssh] [--share-minutes N] [--share-preset viewer|participant|collaborator]
                                        temporary PUBLIC link through a tunnel you already have (no VARA relay)
@@ -99,6 +101,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'run') {
     await headlessRun(args.slice(1))
+    return
+  }
+  if (cmd === 'update') {
+    await updateCommand(args.slice(1))
     return
   }
   if (cmd === 'serve' || cmd === 'ui') {

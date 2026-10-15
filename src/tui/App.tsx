@@ -35,6 +35,7 @@ import { McpScreen } from './mcp.js'
 import { attachPath, cleanTitle, expandMentions } from './mentions.js'
 import { adoptStaged } from '../core/attachments.js'
 import { previews } from '../preview/manager.js'
+import { checkForUpdate } from '../update/updater.js'
 import { setModelThinking, thinkingFor, visionFor } from '../config/providers.js'
 import { nextLevel } from '../llm/capabilities.js'
 import { findModel } from '../llm/registry.js'
@@ -395,6 +396,14 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       setTick((t) => t + 1)
     })
   }, [push])
+
+  // A quiet, non-blocking "update available" note (at most one request a day; off in /settings).
+  useEffect(() => {
+    void checkForUpdate({ enabled: configRef.current.updates.check }).then((n) => {
+      if (n) push({ kind: 'note', text: `VARA ${n.latest} is available (you have ${n.current}) — quit and run: vara update`, color: 'cyan' })
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     if (autoStart && session && !['completed', 'failed', 'stopped'].includes(session.state)) {

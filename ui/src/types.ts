@@ -20,6 +20,7 @@ export interface HostInfo {
   folder: string
   provider: string
   model: string
+  update?: { current: string; latest: string; url: string }
 }
 
 export type Me =
@@ -214,6 +215,7 @@ export interface SettingsState {
   defaultVerifyCommand: string
   allowPublish: boolean
   swarm: { maxTasks: number; maxParallel: number; maxModelCalls: number; maxCostUsd: number | null }
+  updates: { check: boolean }
   budgets: { task: BudgetRow; goal: BudgetRow }
   context: { windowTokens: number | null; maxOutputTokens: number }
 }

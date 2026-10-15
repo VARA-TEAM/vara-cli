@@ -174,6 +174,8 @@ const ConfigSchema = z.object({
     .default({}),
   /** Custom modes beyond plan / build, by name. */
   modes: z.record(ModeSchema).default({}),
+  /** Automatic "update available" notice (one quiet request to GitHub per day; nothing else is sent). */
+  updates: z.object({ check: z.boolean().default(true) }).default({}),
   skills: z
     .object({
       /** Skill names the agent must not see. */

@@ -274,6 +274,7 @@ export class Manager {
       defaultVerifyCommand: c.defaultVerifyCommand,
       allowPublish: c.allowPublish,
       swarm: { maxTasks: c.swarm.maxTasks, maxParallel: c.swarm.maxParallel, maxModelCalls: c.swarm.maxModelCalls, maxCostUsd: c.swarm.maxCostUsd },
+      updates: { check: c.updates.check },
       budgets: { task: b('task'), goal: b('goal') },
       context: { windowTokens: c.context.windowTokens ?? null, maxOutputTokens: c.context.maxOutputTokens },
     }
@@ -306,6 +307,8 @@ export class Manager {
           }
           n = { ...n, swarm: next }
         }
+        const updates = body['updates'] as Record<string, unknown> | undefined
+        if (updates && typeof updates['check'] === 'boolean') n = { ...n, updates: { ...n.updates, check: updates['check'] } }
         const budgets = body['budgets'] as Record<string, Record<string, unknown>> | undefined
         if (budgets) {
           const next = { task: { ...n.budgets.task }, goal: { ...n.budgets.goal } }

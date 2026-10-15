@@ -174,6 +174,15 @@ describe('manager — providers and models', () => {
 })
 
 describe('manager — settings', () => {
+  it('the update check can be switched off and on', async () => {
+    expect((manager.settings() as { updates: { check: boolean } }).updates.check).toBe(true)
+    expect((await manager.patchSettings({ updates: { check: false } })).ok).toBe(true)
+    expect(config.updates.check).toBe(false)
+    expect((manager.settings() as { updates: { check: boolean } }).updates.check).toBe(false)
+    await manager.patchSettings({ updates: { check: true } })
+    expect(config.updates.check).toBe(true)
+  })
+
   it('reads and patches budgets, agent, verify command and context', async () => {
     const r = await manager.patchSettings({
       agent: { cheapModel: 'small-model', autoIntent: false, defaultMode: 'plan' },

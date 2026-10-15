@@ -12,6 +12,7 @@ import { deleteSecret, setSecret } from '../security/vault.js'
 import { registerSecret } from '../security/redact.js'
 import type { Provider } from '../llm/provider.js'
 import { sweepStaging } from '../core/attachments.js'
+import { checkForUpdate, type UpdateNotice } from '../update/updater.js'
 import { Manager } from './manage.js'
 import { McpHub } from '../mcp/hub.js'
 import { AccessStore, presetGrant, type Grant, type GrantPreset } from './access.js'
@@ -97,7 +98,13 @@ export async function serveCommand(args: string[], open: boolean): Promise<void>
     await persistConfig(next)
     void hub.sync(next.mcp.servers as never)
   }
-  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, providerVersion: () => providerVersion, applyConfig })
+  // One quiet request per day, in the background: the host never waits for it.
+  let updateNotice: UpdateNotice | null = null
+  void checkForUpdate({ enabled: config.updates.check }).then((n) => {
+    updateNotice = n
+    if (n) console.log(`\nA new VARA is available: ${n.latest} (you have ${n.current}). Update with: vara update`)
+  })
+  const host = new VaraHost({ config: () => config, provider: () => provider, hub, access, cwd, update: () => updateNotice ?? undefined, providerVersion: () => providerVersion, applyConfig })
   const manager = new Manager({
     config: () => config,
     apply: applyConfig,

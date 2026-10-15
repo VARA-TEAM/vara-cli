@@ -60,6 +60,8 @@ export interface HostOptions {
   access: AccessStore
   /** The folder every session (guests' included) works in. */
   cwd: string
+  /** A newer release, when the quiet check found one (owner only; never blocks anything). */
+  update?: () => { current: string; latest: string; url: string } | undefined
   /** Bumps whenever the active provider/model/key changes, so idle runners are rebuilt. */
   providerVersion?: () => number
   /** Apply and save a changed config (what the owner's settings do). Lets the owner's agent manage itself, with approval. */
@@ -340,10 +342,12 @@ export class VaraHost {
   }
 
   /** What the page header shows: version, folder name (not the full path for guests), provider. */
-  info(_p: Principal): { version: string; folder: string; provider: string; model: string } {
+  info(p: Principal): { version: string; folder: string; provider: string; model: string; update?: { current: string; latest: string; url: string } } {
     const cfg = this.opts.config()
     const folder = this.folder.split(/[\\/]/).filter(Boolean).pop() ?? ''
-    return { version: VERSION, folder, provider: activeProviderName(cfg), model: cfg.provider.model }
+    // Only the owner can act on a new version, so only the owner is told about it.
+    const update = p.kind === 'owner' && cfg.updates.check ? this.opts.update?.() : undefined
+    return { version: VERSION, folder, provider: activeProviderName(cfg), model: cfg.provider.model, ...(update ? { update } : {}) }
   }
 
   /** Models a principal may choose (names only — never keys). */

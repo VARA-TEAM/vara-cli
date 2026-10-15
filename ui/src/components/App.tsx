@@ -47,6 +47,14 @@ function bootstrap(): { invite: string | null } {
 }
 const boot = bootstrap()
 
+function hideUpdate(): void {
+  try {
+    sessionStorage.setItem('vara.update.hidden', '1')
+  } catch {
+    /* only a convenience */
+  }
+}
+
 export function App() {
   const [lang, setLangState] = useState<Lang>(savedLang)
   const [theme, setTheme] = useState<Theme>(savedTheme)
@@ -160,6 +168,13 @@ function Shell({
   const t = useT()
   const { lang, setLang } = useContext(LangContext)
   const [palette, setPalette] = useState(false)
+  const [updateHidden, setUpdateHidden] = useState(() => {
+    try {
+      return sessionStorage.getItem('vara.update.hidden') !== null
+    } catch {
+      return false
+    }
+  })
   const [folder, setFolder] = useState<FolderInfo | null>(null)
   const [pickFolder, setPickFolder] = useState(false)
   const owner = me?.role === 'owner'
@@ -219,6 +234,14 @@ function Shell({
   const page = route.page === 'team' && me.role !== 'owner' ? ({ page: 'home' } as Route) : route
   return (
     <div className="app">
+      {me.role === 'owner' && me.host.update && !updateHidden ? (
+        <div className="update-note" role="status">
+          {t('upd_available', { v: me.host.update.latest, c: me.host.update.current })} <code>vara update</code>
+          <button className="linklike" onClick={() => (setUpdateHidden(true), hideUpdate())}>
+            {t('close')}
+          </button>
+        </div>
+      ) : null}
       {me.role === 'owner' && me.share ? (
         <div className="share-banner" role="alert">
           <strong>{t('share_live')}</strong> <span dir="ltr">{me.share.url}</span>

@@ -103,6 +103,9 @@ exec "$DIR/node" "$DIR/vara.mjs" "$@"
   chmodSync(join(app, 'vara'), 0o755)
   chmodSync(join(app, nodeName), 0o755)
 }
+// The updater reads this to report what a rollback restores.
+writeFileSync(join(app, 'VERSION'), version + '
+')
 for (const f of ['README.md', 'LICENSE']) {
   try {
     copyFileSync(join(root, f), join(app, f))

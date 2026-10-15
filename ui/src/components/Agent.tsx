@@ -121,6 +121,10 @@ export function AgentPanel({ state, set, models }: { state: SettingsState | null
         <Commit value={state.swarm.maxCostUsd === null ? '' : String(state.swarm.maxCostUsd)} placeholder={t('p_auto')} onCommit={(v) => patch({ swarm: { maxCostUsd: v.trim() ? Number(v.trim()) : null } })} />
       </Row>
 
+      <Row label={t('a_updates')} help={t('a_updatesHelp')}>
+        <Switch checked={state.updates.check} onChange={(v) => void patch({ updates: { check: v } })} label={state.updates.check ? t('on') : t('off')} />
+      </Row>
+
       <h3 className="sec">{t('a_taskLimits')}</h3>
       {budget('task')}
       <h3 className="sec">{t('a_goalLimits')}</h3>
