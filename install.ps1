@@ -44,9 +44,20 @@ function Get-FromWeb {
 
 Write-Host "Downloading VARA ($version)..."
 if (-not (Get-FromGh)) {
-  try { Get-FromWeb }
-  catch {
-    throw "Could not download the release. If the repository is private, run 'gh auth login' first and try again. ($($_.Exception.Message))"
+  $done = $false
+  $lastError = ''
+  foreach ($try in 1..3) {
+    try { Get-FromWeb; $done = $true; break }
+    catch { $lastError = $_.Exception.Message; if ($try -lt 3) { Write-Host "  attempt $try failed, retrying..."; Start-Sleep -Seconds 2 } }
+  }
+  if (-not $done) {
+    if ($lastError -match 'could not be resolved|remote name|No such host|name resolution') {
+      throw ("Your computer cannot look up GitHub's download server (release-assets.githubusercontent.com). That is a DNS or network block, not a VARA problem.`n" +
+        "  Fix: set your DNS to 1.1.1.1 / 8.8.8.8 (Settings > Network > adapter > DNS), or switch network / turn a VPN on, then run this command again.`n" +
+        "  Or download vara-win-x64.zip from https://github.com/$repo/releases/latest in a browser that works, and run: tar -xf vara-win-x64.zip -C `$env:LOCALAPPDATA\vara`n" +
+        "  ($lastError)")
+    }
+    throw "Could not download the release. If the repository is private, run 'gh auth login' first and try again. ($lastError)"
   }
 }
 
