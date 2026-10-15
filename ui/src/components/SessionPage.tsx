@@ -1,41 +1,53 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from '../api'
 import { useRegisterCommands, type Cmd } from '../commands'
 import { useLiveSession, useResource, useStickToBottom } from '../hooks'
 import { useT } from '../i18n'
-import { usePrefs } from '../prefs'
-import type { Insights, McpState, Me, ModelsInfo, ProvidersState, SessionView, SkillRow, ThinkLevel } from '../types'
+import { mergeRuns, summarizeSwarm, swarmFromTranscript } from '../swarm-model'
+import { buildItems } from '../transcript'
+import type { Insights, McpState, Me, ModelsInfo, ProvidersState, SessionView, SettingsState, SkillRow, ThinkLevel } from '../types'
 import { Approvals } from './Approvals'
 import { Chat } from './Chat'
 import { Composer } from './Composer'
-import { Panel, type PanelTab } from './Panel'
+import { Dock } from './Dock'
+import { Panel } from './Panel'
 import type { Route } from './Sidebar'
 import { downloadText, useToast } from './toast'
-import { Badge, Icon, Menu, MenuItem, StateBadge } from './ui'
+import { Badge, Button, Icon, Menu, MenuItem, StateBadge } from './ui'
+import { useWorkbench } from './Workbench'
 
-/** One session: header, conversation, composer and the details panel. */
-export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: { id: string; me: Me; models: ModelsInfo | null; onChanged: () => void; onToggleSidebar: () => void; go: (r: Route) => void }) {
+/** One session: header, conversation and composer. Its side panel and dock render into the workbench slots while it is focused. */
+export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, go }: { id: string; role: 'main' | 'split'; me: Me; models: ModelsInfo | null; onChanged: () => void; onToggleSidebar: () => void; go: (r: Route) => void }) {
   const t = useT()
   const toast = useToast()
-  const { prefs } = usePrefs()
+  const wb = useWorkbench()
   const live = useLiveSession(id)
-  const [panelOpen, setPanelOpen] = useState(() => prefs.panel && (typeof window !== 'undefined' ? window.innerWidth > 1180 : true))
-  const [tab, setTab] = useState<PanelTab>('proof')
   const [error, setError] = useState<string | null>(null)
   const [insights, setInsights] = useState<Insights | null>(null)
+  const [focusLast, setFocusLast] = useState(0)
   const { view } = live
   const scroll = useStickToBottom<HTMLDivElement>(`${view?.transcript.length}:${live.stream.length}:${view?.state}`)
   const isOwner = me.role === 'owner'
+  const focused = !wb || wb.focused === id
+  const sideTab = wb?.layout.sideTab ?? 'proof'
+  const dockTab = wb?.layout.dockTab ?? 'output'
 
   // Owner-only data for the composer: thinking levels of the model in use, and the skills on offer.
   const providers = useResource<ProvidersState>(isOwner ? '/api/manage/providers' : null)
   const skills = useResource<SkillRow[]>(isOwner ? '/api/manage/skills' : null)
   const mcp = useResource<McpState>(isOwner ? '/api/manage/mcp' : null)
+  const settings = useResource<SettingsState>(isOwner ? '/api/manage/settings' : null)
+
+  // Sub-agent runs: what the saved transcript knows, plus what happened live on this page.
+  const runs = useMemo(() => (view ? mergeRuns(swarmFromTranscript(buildItems(view)), live.swarm) : live.swarm), [view, live.swarm])
+  const sum = summarizeSwarm(runs)
 
   // The proof and cost panel follows the session: refetched (debounced) when something changed.
+  const needInsights = focused && !!wb?.sideOpen && (sideTab === 'proof' || sideTab === 'cost')
   const stamp = `${view?.state}:${view?.updatedAt}:${view?.transcript.length}`
   useEffect(() => {
-    if (!view || !panelOpen) return
+    if (!view || !needInsights) return
     let alive = true
     const timer = setTimeout(() => {
       api<Insights>('GET', `/api/sessions/${encodeURIComponent(id)}/insights`)
@@ -47,13 +59,17 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, panelOpen, stamp])
+  }, [id, needInsights, stamp])
 
+  // Tell the status bar about this session.
+  const setInfo = useRef(wb?.setInfo)
+  setInfo.current = wb?.setInfo
+  const costUsd = view?.usage.costUsd ?? null
   useEffect(() => {
-    const on = (): void => setPanelOpen((o) => !o)
-    window.addEventListener('vara:panel', on)
-    return () => window.removeEventListener('vara:panel', on)
-  }, [])
+    if (!view) return
+    setInfo.current?.(id, { title: view.objective, state: view.state, ...(view.model ? { model: view.model } : {}), costUsd, costPartial: view.usage.costPartial, modelCalls: view.usage.modelCalls, agentsRunning: sum.running, agentsTotal: sum.total, connected: live.connected })
+  }, [id, view?.objective, view?.state, view?.model, costUsd, view?.usage.costPartial, view?.usage.modelCalls, sum.running, sum.total, live.connected]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => setInfo.current?.(id, null), [id])
 
   const run = async (fn: () => Promise<unknown>, ok?: string): Promise<void> => {
     setError(null)
@@ -77,6 +93,13 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
     void run(async () => providers.set(await api<ProvidersState>('POST', `/api/manage/providers/${encodeURIComponent(activeProv.name)}/model`, { action: 'thinking', id: thinkRow.id, level })), t('saved'))
   }
 
+  const cancelAgents = (taskId?: string): void => {
+    void run(async () => {
+      const r = (await post('/agents/cancel', taskId ? { id: taskId } : {})) as { cancelled?: boolean }
+      toast(r.cancelled ? t('ag_cancelSent') : t('ag_nothingToCancel'), r.cancelled ? 'ok' : 'err')
+    })
+  }
+
   const exportMd = async (): Promise<void> => {
     try {
       const r = await api<{ filename: string; markdown: string }>('GET', `/api/sessions/${encodeURIComponent(id)}/export`)
@@ -86,15 +109,16 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
     }
   }
   const sendText = (text: string, attachments: string[] = []): Promise<void> => run(() => post('/messages', { text, ...(attachments.length ? { attachments } : {}) }))
-  const openPanel = (to: PanelTab): void => (setPanelOpen(true), setTab(to))
+  const openPanel = (to: 'proof' | 'cost' | 'files' | 'agents' | 'tools'): void => wb?.openSide(to)
+  const openDock = (to: 'output' | 'preview' | 'events'): void => wb?.openDock(to)
 
-  // Everything the person may do here, as one list: slash commands, palette, menu.
+  // Everything the person may do here, as one list: slash commands, palette, menu. Only the focused pane offers them.
   const cmds: Cmd[] = useMemo(() => {
-    if (!view) return []
+    if (!view || !focused) return []
     const list: Cmd[] = []
     const add = (c: Cmd): void => void list.push(c)
     if (view.can.setMode)
-      add({ id: 'mode', slash: 'mode', args: view.modeChoices.join('|'), options: view.modeChoices, group: 'session', title: t('cmd_mode'), description: t('cmd_modeHelp'), run: (a) => (view.modeChoices.includes(a) ? run(() => post('/mode', { mode: a }), t('saved')) : toast(t('cmd_usage', { u: `/mode ${view.modeChoices.join(' | ')}` }), 'err')) })
+      add({ id: 'mode', slash: 'mode', args: view.modeChoices.join('|'), options: view.modeChoices, group: 'session', title: t('cmd_mode'), description: t('cmd_modeHelp'), shortcut: 'Alt M', run: (a) => (view.modeChoices.includes(a) ? run(() => post('/mode', { mode: a }), t('saved')) : toast(t('cmd_usage', { u: `/mode ${view.modeChoices.join(' | ')}` }), 'err')) })
     if (view.can.manage)
       add({ id: 'kind', slash: 'kind', args: 'task|goal', options: ['task', 'goal'], group: 'session', title: t('cmd_kind'), description: t('cmd_kindHelp'), run: (a) => (a === 'task' || a === 'goal' ? run(() => post('/kind', { kind: a }), t('saved')) : toast(t('cmd_usage', { u: '/kind task | goal' }), 'err')) })
     if (view.can.setModel && modelList.length > 1)
@@ -104,16 +128,42 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
       add({ id: 'think', slash: 'think', args: levels.join('|'), options: levels, group: 'session', title: t('cmd_think'), description: thinkRow.thinking.note, run: (a) => (levels.includes(a as ThinkLevel) ? setThink(a as ThinkLevel) : toast(t('cmd_usage', { u: `/think ${levels.join(' | ')}` }), 'err')) })
     }
     add({ id: 'cost', slash: 'cost', group: 'session', title: t('cmd_cost'), description: t('cmd_costHelp'), run: () => openPanel('cost') })
-    add({ id: 'context', slash: 'context', group: 'session', title: t('cmd_context'), run: () => openPanel('cost') })
-    add({ id: 'status', slash: 'status', group: 'session', title: t('cmd_status'), run: () => openPanel('proof') })
-    add({ id: 'evidence', slash: 'evidence', group: 'session', title: t('cmd_evidence'), run: () => openPanel('proof') })
-    if (isOwner) add({ id: 'preview', slash: 'preview', group: 'session', title: t('cmd_preview'), description: t('cmd_previewHelp'), run: () => openPanel('preview') })
+    add({ id: 'context', slash: 'context', group: 'session', title: t('cmd_context'), description: t('cmd_contextHelp'), run: () => openPanel('cost') })
+    add({ id: 'status', slash: 'status', group: 'session', title: t('cmd_status'), description: t('cmd_statusHelp'), run: () => openPanel('proof') })
+    add({ id: 'evidence', slash: 'evidence', group: 'session', title: t('cmd_evidence'), description: t('cmd_evidenceHelp'), run: () => openPanel('proof') })
+    add({ id: 'last', slash: 'last', group: 'session', title: t('cmd_last'), description: t('cmd_lastHelp'), run: () => (openDock('output'), setFocusLast((n) => n + 1)) })
+    if (isOwner)
+      add({
+        id: 'preview',
+        slash: 'preview',
+        args: '[start <command> | stop | logs]',
+        options: ['start', 'stop', 'logs'],
+        group: 'session',
+        title: t('cmd_preview'),
+        description: t('cmd_previewHelp'),
+        run: (a) => {
+          const [sub = '', ...rest] = a.trim().split(/\s+/)
+          if (sub === 'start' && rest.length) return run(() => api('POST', `/api/sessions/${encodeURIComponent(id)}/preview`, { command: rest.join(' ') }).then(() => openDock('preview')))
+          if (sub === 'stop') return run(() => api('DELETE', `/api/sessions/${encodeURIComponent(id)}/preview`), t('cmd_previewStopped'))
+          openDock('preview')
+        },
+      })
     add({ id: 'export', slash: 'export', group: 'session', title: t('cmd_export'), description: t('cmd_exportHelp'), run: () => void exportMd() })
     if (view.can.pause) {
       if (busy) add({ id: 'pause', slash: 'pause', group: 'session', title: t('pause'), description: t('cmd_pauseHelp'), run: () => run(() => post('/pause')) })
       add({ id: 'stop', slash: 'stop', group: 'session', title: t('cmd_stop'), description: t('cmd_stopHelp'), run: () => run(() => post('/stop'), t('stopped')) })
     }
     if (view.can.manage) add({ id: 'share', slash: 'share', group: 'session', title: view.shared ? t('unshare') : t('share'), run: () => run(() => post('/share', { shared: !view.shared })) })
+    if (view.can.send) add({ id: 'attach', slash: 'attach', group: 'session', title: t('cmd_attach'), description: t('cmd_attachHelp'), run: () => void window.dispatchEvent(new CustomEvent('vara:attach', { detail: { id } })) })
+    if (isOwner && view.pendingApprovals.length) {
+      const pick = (a: string): string | undefined => (a ? view.pendingApprovals.find((p) => p.id.startsWith(a))?.id : view.pendingApprovals[0]?.id)
+      const answer = (approved: boolean) => (a: string): void | Promise<void> => {
+        const aid = pick(a.trim())
+        return aid ? run(() => post(`/approvals/${encodeURIComponent(aid)}`, { approved })) : toast(t('cmd_noApproval'), 'err')
+      }
+      add({ id: 'approve', slash: 'approve', args: '[id]', options: view.pendingApprovals.map((p) => p.id.slice(0, 8)), group: 'session', title: t('cmd_approve'), description: view.pendingApprovals[0]?.title, run: answer(true) })
+      add({ id: 'deny', slash: 'deny', args: '[id]', options: view.pendingApprovals.map((p) => p.id.slice(0, 8)), group: 'session', title: t('cmd_deny'), description: view.pendingApprovals[0]?.title, run: answer(false) })
+    }
     if (view.can.manage && skills.data) {
       const on = skills.data.filter((s) => s.enabled && !view.disabledSkills.includes(s.name))
       add({
@@ -133,34 +183,105 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
       })
       for (const s of on) add({ id: `skill:${s.name}`, slash: s.name, args: '[about]', group: 'skill', title: t('cmd_useSkill', { n: s.name }), description: s.description, run: (a) => sendText(`Use the "${s.name}" skill${a ? `: ${a}` : ' on the current work.'}`) })
     }
+    if (view.can.manage && (skills.data || mcp.data)) {
+      // /enable and /disable: this session only, for a skill or an MCP server.
+      const toggle = (enabled: boolean) => (a: string): void | Promise<void> => {
+        const name = a.trim().toLowerCase()
+        const sk = skills.data?.find((s) => s.name === name)
+        const sv = mcp.data?.servers.find((s) => s.name.toLowerCase() === name)
+        if (sk) return run(() => post('/toggle', { kind: 'skill', name: sk.name, enabled }), t('saved'))
+        if (sv) return run(() => post('/toggle', { kind: 'mcp', name: sv.name, enabled }), t('saved'))
+        return toast(t('cmd_noTool', { n: name || '…' }), 'err')
+      }
+      const names = [...(skills.data ?? []).map((s) => s.name), ...(mcp.data?.servers ?? []).map((s) => s.name)]
+      add({ id: 'enable', slash: 'enable', args: '<skill|server>', options: names, group: 'session', title: t('cmd_enable'), description: t('cmd_enableHelp'), run: toggle(true) })
+      add({ id: 'disable', slash: 'disable', args: '<skill|server>', options: names, group: 'session', title: t('cmd_disable'), description: t('cmd_disableHelp'), run: toggle(false) })
+    }
     add({ id: 'new', slash: 'new', group: 'go', title: t('newSession'), shortcut: 'Ctrl Shift O', run: () => go({ page: 'home' }) })
-    add({ id: 'help', slash: 'help', group: 'go', title: t('cmd_help'), run: () => go({ page: 'settings', tab: 'about' }) })
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, t, busy, skills.data, thinkRow, modelList.join('|'), id])
-  useRegisterCommands('session', cmds)
+  }, [view, t, busy, skills.data, mcp.data, thinkRow, modelList.join('|'), id, focused])
+  useRegisterCommands(`session:${id}`, cmds)
+
+  // Terminal keys that survive in the browser: Alt+M flips plan/build, Ctrl+G jumps to the latest message.
+  useEffect(() => {
+    if (!focused || !view) return
+    const on = (e: KeyboardEvent): void => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'm' && view.can.setMode && view.modeChoices.includes('plan') && view.modeChoices.includes('build')) {
+        e.preventDefault()
+        void run(() => post('/mode', { mode: view.mode === 'plan' ? 'build' : 'plan' }), t('saved'))
+      } else if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        scroll.jump()
+      }
+    }
+    window.addEventListener('keydown', on)
+    return () => window.removeEventListener('keydown', on)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, view?.mode, view?.can.setMode, view?.modeChoices.join('|')])
 
   if (live.error && !view) {
     return (
-      <main className="session">
+      <main className="session" aria-label={t('sessions')}>
         <div className="empty-state">
           <Icon name="alert" size={28} />
-          <p>{live.error === 'revoked' ? t('error') : live.error}</p>
+          <h2>{live.error === 'revoked' ? t('error') : t('s_unavailable')}</h2>
+          <p className="muted" dir="auto">{live.error === 'revoked' ? t('s_revoked') : live.error}</p>
+          <div className="row">
+            <Button onClick={() => go({ page: 'home' })} icon="plus">
+              {t('newSession')}
+            </Button>
+            {wb ? (
+              <Button kind="ghost" onClick={() => wb.closeTab(id)}>
+                {t('wb_closeTab')}
+              </Button>
+            ) : null}
+          </div>
         </div>
       </main>
     )
   }
   if (!view) {
     return (
-      <main className="session">
-        <div className="empty-state muted">{t('loading')}</div>
+      <main className="session" aria-busy="true">
+        <div className="skeleton" aria-label={t('loading')}>
+          <i />
+          <i />
+          <i />
+        </div>
       </main>
     )
   }
 
   const finished = view.state === 'stopped'
+  const sidePanel =
+    wb && focused && wb.sideOpen && wb.sideSlot
+      ? createPortal(
+          <Panel
+            view={view}
+            insights={insights}
+            tab={sideTab}
+            onTab={(x) => wb.setSideTab(x)}
+            onClose={() => wb.closeSide()}
+            owner={isOwner}
+            swarm={runs}
+            swarmLimits={settings.data?.swarm ?? null}
+            busy={!!busy}
+            onPause={() => void run(() => post('/pause'))}
+            onStop={() => void run(() => post('/stop'), t('stopped'))}
+            onCancelAgents={cancelAgents}
+            tools={isOwner && skills.data && mcp.data ? { skills: skills.data, servers: mcp.data.servers, onToggle: (kind, name, enabled) => void run(() => post('/toggle', { kind, name, enabled })) } : undefined}
+          />,
+          wb.sideSlot,
+        )
+      : null
+  const dock =
+    wb && focused && wb.dockOpen && wb.dockSlot
+      ? createPortal(<Dock view={view} events={live.events} activeTool={live.activeTool} owner={isOwner} tab={dockTab} onTab={(x) => wb.setDockTab(x)} onClose={() => wb.closeDock()} focusLast={focusLast} />, wb.dockSlot)
+      : null
+
   return (
-    <main className="session">
+    <main className="session" aria-label={view.objective}>
       <header className="session-head">
         <button className="icon-btn only-narrow" onClick={onToggleSidebar} aria-label={t('sessions')}>
           <Icon name="menu" />
@@ -184,6 +305,14 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             {!live.connected ? <span className="muted">{t('connecting')}</span> : null}
           </div>
         </div>
+        <div className="session-actions">
+        {sum.total > 0 ? (
+          <button className={`agents-chip${sum.live ? ' live' : ''}`} onClick={() => wb?.openSide('agents', wb.sideOpen && sideTab === 'agents')} aria-pressed={!!wb?.sideOpen && sideTab === 'agents'} title={`${t('ag_open')} (Ctrl Shift A)`}>
+            <Icon name="branch" size={14} />
+            {sum.live ? <span className="pulse" aria-hidden="true" /> : null}
+            <span className="num">{sum.live ? t('ag_status', { n: sum.running, total: sum.total }) : t('ag_chipDone', { n: sum.done, total: sum.total })}</span>
+          </button>
+        ) : null}
         {view.can.manage ? (
           <button className={`share-btn${view.shared ? ' on' : ''}`} onClick={() => void run(() => post('/share', { shared: !view.shared }))} aria-pressed={view.shared}>
             <Icon name="users" size={15} /> {view.shared ? t('sharedBadge') : t('share')}
@@ -194,6 +323,9 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             <>
               <MenuItem icon="download" onClick={() => (close(), void exportMd())}>
                 {t('cmd_export')}
+              </MenuItem>
+              <MenuItem icon="terminal" onClick={() => (close(), wb?.openDock('output', true))}>
+                {t('wb_dock')}
               </MenuItem>
               {view.can.pause && busy ? (
                 <MenuItem icon="pause" onClick={() => (close(), void run(() => post('/pause')))}>
@@ -213,15 +345,22 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             </>
           )}
         </Menu>
-        <button className="icon-btn" onClick={() => setPanelOpen((o) => !o)} aria-label={t('details')} title={`${t('details')} (Ctrl .)`} aria-pressed={panelOpen}>
-          <Icon name="panel" />
-        </button>
+        {role === 'split' && wb ? (
+          <button className="icon-btn" onClick={() => wb.closeTab(id)} aria-label={t('wb_closeTab')} title={t('wb_closeTab')}>
+            <Icon name="x" />
+          </button>
+        ) : (
+          <button className="icon-btn" onClick={() => wb?.openSide(sideTab, true)} aria-label={t('details')} title={`${t('details')} (Ctrl .)`} aria-pressed={!!wb?.sideOpen}>
+            <Icon name="panel" />
+          </button>
+        )}
+        </div>
       </header>
 
       <div className="session-body">
         <div className="session-main">
-          <div className="scroller" ref={scroll.ref}>
-            <Chat view={view} stream={live.stream} thinking={live.thinking} activeTool={live.activeTool} subagents={live.subagents} isOwner={isOwner} />
+          <div className="scroller" ref={scroll.ref} tabIndex={0} role="region" aria-label={t("s_conversation")}>
+            <Chat view={view} stream={live.stream} thinking={live.thinking} activeTool={live.activeTool} swarm={runs} onOpenAgents={() => wb?.openSide('agents')} isOwner={isOwner} />
           </div>
           {!scroll.atBottom ? (
             <button className="jump" onClick={scroll.jump}>
@@ -282,8 +421,9 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             />
           </div>
         </div>
-        {panelOpen ? <Panel view={view} insights={insights} tab={tab} onTab={setTab} owner={isOwner} tools={isOwner && skills.data && mcp.data ? { skills: skills.data, servers: mcp.data.servers, onToggle: (kind, name, enabled) => void run(() => post('/toggle', { kind, name, enabled })) } : undefined} /> : null}
       </div>
+      {sidePanel}
+      {dock}
     </main>
   )
 }

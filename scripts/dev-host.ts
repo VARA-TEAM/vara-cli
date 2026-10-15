@@ -65,7 +65,37 @@ class FakeProvider implements Provider {
       }
     }
     let turn: AssistantTurn
-    if (last?.role === 'tool') {
+    // A sub-agent of the demo swarm: it takes a few seconds, looks at the folder once, then reports.
+    const isChild = userText.includes('team plan (you are')
+    if (isChild && last?.role !== 'tool') {
+      await sleep(1200 + Math.floor(Math.random() * 1800))
+      turn = { content: '', toolCalls: [{ id: `l${Date.now()}${Math.floor(Math.random() * 1000)}`, name: 'list_dir', arguments: JSON.stringify({ path: '.' }) }] }
+    } else if (isChild) {
+      await sleep(900)
+      const text = 'Finding: the folder holds README.md and notes.txt. Nothing is broken.'
+      yield* say(text)
+      turn = { content: text, toolCalls: [] }
+    } else if (/swarm|parallel|بالتوازي|sub-?agents/.test(userText) && !req.messages.some((m) => m.toolCalls?.some((c) => c.name === 'delegate'))) {
+      const text = "I'll split this across four sub-agents and merge what they find."
+      yield* say(text)
+      turn = {
+        content: text,
+        toolCalls: [
+          {
+            id: `d${Date.now()}`,
+            name: 'delegate',
+            arguments: JSON.stringify({
+              tasks: [
+                { id: 'scan', title: 'Scan the project layout', role: 'researcher', prompt: 'List the files in the project folder and say what each one is for.' },
+                { id: 'notes', title: 'Look for notes and TODOs', role: 'researcher', prompt: 'Search the project folder for notes, TODO markers or loose files.' },
+                { id: 'review', title: 'Review the README', role: 'reviewer', dependsOn: ['scan'], prompt: 'Read the README and report anything unclear or out of date.' },
+                { id: 'wrap', title: 'Write the summary', role: 'reviewer', dependsOn: ['review', 'notes'], prompt: 'Summarise what the earlier agents found in three sentences.' },
+              ],
+            }),
+          },
+        ],
+      }
+    } else if (last?.role === 'tool') {
       const name = req.messages.findLast?.((m) => m.role === 'assistant' && m.toolCalls?.length)?.toolCalls?.[0]?.name
       if (name === 'write_file') {
         yield* say('Created and checked the file. Marking the work as done.')

@@ -32,6 +32,13 @@ const PATHS: Record<string, string> = {
   stop: 'M6 6h12v12H6z',
   goal: 'M12 22a10 10 0 100-20 10 10 0 000 20zM12 18a6 6 0 100-12 6 6 0 000 12zM12 14a2 2 0 100-4 2 2 0 000 4z',
   command: 'M18 3a3 3 0 00-3 3v12a3 3 0 103-3H6a3 3 0 103 3V6a3 3 0 10-3 3h12a3 3 0 000-6z',
+  dock: 'M3 4h18v16H3zM3 14h18',
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  trace: 'M3 6h8M7 12h10M13 18h8',
+  columns: 'M3 4h18v16H3zM12 4v16',
+  help: 'M12 22a10 10 0 100-20 10 10 0 000 20zM9.1 9a3 3 0 015.8 1c0 2-3 2.5-3 4.5M12 17.5h.01',
+  folder: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z',
+  keyboard: 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10',
   alert: 'M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z',
 }
 
@@ -178,7 +185,7 @@ export function Field({ label, children, hint }: { label: ReactNode; children: R
 }
 
 /** A small pop-over menu: opens under its button, closes on outside click or Escape. */
-export function Menu({ label, icon = 'more', children }: { label: string; icon?: string; children: (close: () => void) => ReactNode }) {
+export function Menu({ label, icon = 'more', up, children }: { label: string; icon?: string; /** Open upward (for menus at the bottom of the window). */ up?: boolean; children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -187,8 +194,16 @@ export function Menu({ label, icon = 'more', children }: { label: string; icon?:
       if (!ref.current?.contains(e.target as Node)) setOpen(false)
     }
     const key = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') (setOpen(false), ref.current?.querySelector<HTMLElement>('button')?.focus())
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role=menuitem]:not(:disabled)') ?? [])]
+        if (!items.length) return
+        e.preventDefault()
+        const at = items.indexOf(document.activeElement as HTMLElement)
+        items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+      }
     }
+    ref.current?.querySelector<HTMLElement>('[role=menuitem]')?.focus()
     window.addEventListener('mousedown', down)
     window.addEventListener('keydown', key)
     return () => {
@@ -202,7 +217,7 @@ export function Menu({ label, icon = 'more', children }: { label: string; icon?:
         <Icon name={icon} />
       </button>
       {open ? (
-        <div className="pop" role="menu">
+        <div className={`pop${up ? " up" : ""}`} role="menu" aria-label={label}>
           {children(() => setOpen(false))}
         </div>
       ) : null}

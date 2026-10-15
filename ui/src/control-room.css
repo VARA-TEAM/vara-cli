@@ -189,7 +189,6 @@ input[aria-invalid="true"] { border-color: var(--err); }
 .ev-main pre { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 
 /* ---------- responsive additions ---------- */
-@media (max-width: 1100px) { .panel { display: none; } }
 @media (max-width: 860px) {
   .page.settings { padding-inline: 12px; }
   .settings-layout, .prov-layout { grid-template-columns: 1fr; gap: 14px; }

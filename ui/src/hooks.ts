@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, streamEvents } from './api'
+import { EMPTY_SWARM, reduceSwarm, type SwarmRunModel, type SwarmState } from './swarm-model'
 import type { HostEvent, Me, SessionSummary, SessionView } from './types'
 
 export function useMe(authed: boolean): { me: Me | null; error: string | null; reload: () => void } {
@@ -23,17 +24,17 @@ export function useMe(authed: boolean): { me: Me | null; error: string | null; r
 }
 
 /** The session list, refreshed every few seconds and on demand. */
-export function useSessions(enabled: boolean): { sessions: SessionSummary[]; reload: () => void; loaded: boolean } {
+export function useSessions(enabled: boolean, all = false): { sessions: SessionSummary[]; reload: () => void; loaded: boolean } {
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [loaded, setLoaded] = useState(false)
   const reload = useCallback(() => {
-    api<SessionSummary[]>('GET', '/api/sessions')
+    api<SessionSummary[]>('GET', all ? '/api/sessions?all=1' : '/api/sessions')
       .then((s) => {
         setSessions(s)
         setLoaded(true)
       })
       .catch(() => {})
-  }, [])
+  }, [all])
   useEffect(() => {
     if (!enabled) return
     reload()
@@ -43,15 +44,6 @@ export function useSessions(enabled: boolean): { sessions: SessionSummary[]; rel
   return { sessions, reload, loaded }
 }
 
-export interface SubagentRow {
-  id: string
-  title: string
-  status: 'waiting' | 'running' | 'done' | 'failed' | 'skipped'
-  detail?: string
-  role?: string
-  dependsOn?: string[]
-}
-
 export interface LiveSession {
   view: SessionView | null
   /** Text the model is writing right now (not yet in the saved transcript). */
@@ -59,14 +51,48 @@ export interface LiveSession {
   /** The model's private reasoning stream (owner only; the host never sends it to guests). */
   thinking: string
   activeTool: string | null
-  subagents: SubagentRow[]
+  /** Sub-agent runs seen live since this page opened (the saved transcript supplies the rest). */
+  swarm: SwarmRunModel[]
+  /** The last events as they arrived, newest last (for the Events log). */
+  events: LiveEvent[]
   connected: boolean
   error: string | null
   reload: () => void
 }
 
+export interface LiveEvent {
+  at: number
+  type: string
+  text: string
+}
+
+const EVENT_LOG = 300
+
+/** One short line per event for the log; the model's text and reasoning streams are left out (they would flood it). */
+export function eventLine(e: HostEvent): string {
+  const s = (k: string): string => (typeof e[k] === 'string' ? (e[k] as string) : '')
+  switch (e.type) {
+    case 'tool_start':
+      return `${s('name')} ${s('args').slice(0, 140)}`
+    case 'tool_end':
+      return `${s('name')} ${e['ok'] === false ? 'failed' : 'ok'}`
+    case 'subagent':
+      return `${s('id')} ${s('status')}${s('detail') ? ` ${s('detail')}` : ''}`
+    case 'state':
+      return `${s('state')}${s('reason') ? ` ${s('reason')}` : ''}`
+    case 'intent':
+      return `${s('intent')} ${s('reason')}`.trim()
+    case 'verification':
+      return `${e['ok'] === false ? 'not verified' : 'verified'} ${s('detail').slice(0, 140)}`
+    case 'error':
+      return s('message') || s('error') || 'error'
+    default:
+      return Object.entries(e).filter(([k]) => k !== 'type' && k !== 'at').map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 60) : JSON.stringify(v)?.slice(0, 60)}`).join(' ')
+  }
+}
+
 /** Events that mean the saved transcript changed: refetch it (debounced). */
-const REFRESH_ON = new Set(['state', 'tool_start', 'tool_end', 'intent', 'completed', 'session_summary', 'message', 'followup_applied', 'subagent', 'error', 'verification', 'waiting', 'budget_warning', 'budget_exhausted', 'approval_request', 'approval_resolved'])
+const REFRESH_ON = new Set(['state', 'tool_start', 'tool_end', 'intent', 'completed', 'session_summary', 'message', 'followup_applied', 'subagent', 'swarm_report', 'error', 'verification', 'waiting', 'budget_warning', 'usage_limit', 'route', 'budget_exhausted', 'approval_request', 'approval_resolved'])
 
 /**
  * One session, kept fresh: a snapshot from the host, plus its live event stream. The text the
@@ -78,7 +104,8 @@ export function useLiveSession(id: string | null): LiveSession {
   const [stream, setStream] = useState('')
   const [thinking, setThinking] = useState('')
   const [activeTool, setActiveTool] = useState<string | null>(null)
-  const [subagents, setSubagents] = useState<SubagentRow[]>([])
+  const [swarm, setSwarm] = useState<SwarmState>(EMPTY_SWARM)
+  const [events, setEvents] = useState<LiveEvent[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const sealed = useRef(false)
@@ -115,7 +142,8 @@ export function useLiveSession(id: string | null): LiveSession {
     setStream('')
     setThinking('')
     setActiveTool(null)
-    setSubagents([])
+    setSwarm(EMPTY_SWARM)
+    setEvents([])
     setError(null)
     sealed.current = false
     if (!id) return
@@ -134,13 +162,12 @@ export function useLiveSession(id: string | null): LiveSession {
           setThinking((t) => (t + String(e['text'] ?? '')).slice(-4000))
           return
         }
+        // Timestamps come from the host, so a replayed stream (after a reload) keeps the real timeline.
+        const stamp = typeof e.at === 'string' && Number.isFinite(Date.parse(e.at)) ? Date.parse(e.at) : Date.now()
+        if (e.type !== 'turn') setEvents((list) => [...list, { at: stamp, type: e.type, text: eventLine(e) }].slice(-EVENT_LOG))
         if (e.type === 'tool_start') setActiveTool(String(e['name'] ?? ''))
         if (e.type === 'tool_end') setActiveTool(null)
-        if (e.type === 'subagent') {
-          const row: SubagentRow = { id: String(e['id']), title: String(e['title'] ?? ''), status: e['status'] as SubagentRow['status'], ...(e['detail'] ? { detail: String(e['detail']) } : {}), ...(e['role'] ? { role: String(e['role']) } : {}), ...(Array.isArray(e['dependsOn']) ? { dependsOn: (e['dependsOn'] as unknown[]).map(String) } : {}) }
-          setSubagents((rows) => (rows.some((r) => r.id === row.id) ? rows.map((r) => (r.id === row.id ? row : r)) : [...rows, row]))
-        }
-        if (e.type === 'state' && e['state'] === 'running') setSubagents([])
+        if (e.type === 'tool_start' || e.type === 'tool_end' || e.type === 'subagent' || e.type === 'swarm_report' || e.type === 'state') setSwarm((st) => reduceSwarm(st, e, stamp))
         if (e.type === 'revoked') setError('revoked')
         if (REFRESH_ON.has(e.type)) {
           sealed.current = true
@@ -155,7 +182,7 @@ export function useLiveSession(id: string | null): LiveSession {
     }
   }, [id, load, schedule])
 
-  return { view, stream, thinking, activeTool, subagents, connected, error, reload: load }
+  return { view, stream, thinking, activeTool, swarm: swarm.runs, events, connected, error, reload: load }
 }
 
 /** Stick to the bottom while new content arrives, unless the reader scrolled up. */

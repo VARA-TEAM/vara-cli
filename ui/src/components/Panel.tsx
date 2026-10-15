@@ -3,9 +3,11 @@ import { changedFiles, formatCost, formatTokens, relativeTime } from '../transcr
 import type { Insights, McpServerRow, SessionView, SkillRow } from '../types'
 import { SessionTools } from './SessionTools'
 import { Icon } from './ui'
-import { Preview } from './Preview'
+import { AgentsPanel, type SwarmLimitsView } from './AgentsPanel'
+import type { SideTab } from '../layout'
+import type { SwarmRunModel } from '../swarm-model'
 
-export type PanelTab = 'proof' | 'cost' | 'files' | 'preview' | 'tools'
+export type PanelTab = SideTab
 
 function Gauge({ value, max, label, tone }: { value: number; max: number; label: string; tone?: 'warn' | 'err' }) {
   const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((value / max) * 100))) : 0
@@ -105,6 +107,13 @@ function Proof({ view, insights }: { view: SessionView; insights: Insights | nul
           <h3>{t('limits')}</h3>
           <Gauge value={b.turns} max={b.maxTurns} label={t('a_turns')} />
           <Gauge value={b.modelCalls} max={b.maxModelCalls} label={t('calls')} />
+          <Gauge value={insights.context.usedTokens} max={insights.context.requestBudgetTokens} label={t('contextTitle')} />
+          <dl className="kv">
+            <dt>{t('st_minutes')}</dt>
+            <dd className="num">{b.maxMinutes}</dd>
+            <dt>{t('evidence')}</dt>
+            <dd className="num">{b.evidence}</dd>
+          </dl>
         </section>
       ) : null}
     </>
@@ -202,33 +211,71 @@ function Files({ view }: { view: SessionView }) {
   )
 }
 
-export function Panel({ view, insights, tab, onTab, owner, tools }: { view: SessionView; insights: Insights | null; tab: PanelTab; onTab: (t: PanelTab) => void; owner?: boolean; /** Owner only: per-session switches. */ tools?: { skills: SkillRow[]; servers: McpServerRow[]; onToggle: (kind: 'skill' | 'mcp', name: string, enabled: boolean) => void } }) {
+export interface PanelProps {
+  view: SessionView
+  insights: Insights | null
+  tab: PanelTab
+  onTab: (t: PanelTab) => void
+  owner?: boolean
+  onClose?: () => void
+  swarm: SwarmRunModel[]
+  swarmLimits?: SwarmLimitsView | null
+  busy: boolean
+  onPause: () => void
+  onStop: () => void
+  onCancelAgents: (id?: string) => void
+  /** Owner only: per-session switches. */
+  tools?: { skills: SkillRow[]; servers: McpServerRow[]; onToggle: (kind: 'skill' | 'mcp', name: string, enabled: boolean) => void }
+}
+
+/** The side panel of the focused session: proof, cost, agents, files and tools. */
+export function Panel({ view, insights, tab, onTab, owner, tools, swarm, swarmLimits, busy, onPause, onStop, onCancelAgents, onClose }: PanelProps) {
   const t = useT()
   const files = changedFiles(view).length
+  const live = swarm.some((r) => r.live)
+  const agentsN = swarm.length ? swarm[swarm.length - 1]!.agents.length : 0
   const tabs: Array<[PanelTab, Key]> = [
     ['proof', 'tab_proof'],
     ['cost', 'tab_cost'],
+    ['agents', 'tab_agents'],
     ['files', 'tab_files'],
-    ...(owner ? [['preview', 'tab_preview'] as [PanelTab, Key]] : []),
     ...(tools ? ([['tools', 'tab_tools']] as Array<[PanelTab, Key]>) : []),
   ]
+  const cur = tabs.some(([id]) => id === tab) ? tab : 'proof'
+  const onKey = (e: React.KeyboardEvent): void => {
+    const rtl = document.documentElement.dir === 'rtl'
+    const d = e.key === 'ArrowRight' ? (rtl ? -1 : 1) : e.key === 'ArrowLeft' ? (rtl ? 1 : -1) : 0
+    const i = tabs.findIndex(([id]) => id === cur)
+    if (d) {
+      e.preventDefault()
+      const next = tabs[(i + d + tabs.length) % tabs.length]![0]
+      onTab(next)
+      setTimeout(() => document.getElementById(`ptab-${next}`)?.focus(), 0)
+    }
+  }
   return (
-    <aside className={`panel${tab === 'preview' ? ' panel-wide' : ''}`} aria-label={t('details')}>
-      <div className="panel-tabs" role="tablist">
+    <div className="panel">
+      <div className="panel-tabs" role="tablist" aria-label={t('details')} onKeyDown={onKey}>
         {tabs.map(([id, label]) => (
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => onTab(id)}>
+          <button key={id} role="tab" id={`ptab-${id}`} aria-controls={`ppane-${id}`} aria-selected={cur === id} tabIndex={cur === id ? 0 : -1} className={cur === id ? 'on' : ''} onClick={() => onTab(id)}>
             {t(label)}
             {id === 'files' && files ? <span className="count">{files}</span> : null}
+            {id === 'agents' && agentsN ? <span className={`count${live ? ' count-live' : ''}`}>{agentsN}</span> : null}
           </button>
         ))}
+        {onClose ? (
+          <button className="icon-btn panel-close" onClick={onClose} aria-label={t('close')} title={t('close')}>
+            <Icon name="x" size={16} />
+          </button>
+        ) : null}
       </div>
-      <div className="panel-body" role="tabpanel">
-        {tab === 'proof' ? <Proof view={view} insights={insights} /> : null}
-        {tab === 'cost' ? <Cost view={view} insights={insights} /> : null}
-        {tab === 'files' ? <Files view={view} /> : null}
-        {tab === 'preview' && owner ? <Preview sessionId={view.id} /> : null}
-        {tab === 'tools' && tools ? <SessionTools view={view} skills={tools.skills} servers={tools.servers} onToggle={tools.onToggle} /> : null}
+      <div className="panel-body" role="tabpanel" id={`ppane-${cur}`} aria-labelledby={`ptab-${cur}`}>
+        {cur === 'proof' ? <Proof view={view} insights={insights} /> : null}
+        {cur === 'cost' ? <Cost view={view} insights={insights} /> : null}
+        {cur === 'agents' ? <AgentsPanel runs={swarm} limits={swarmLimits ?? null} canControl={view.can.pause} busy={busy} onPause={onPause} onStop={onStop} onCancel={onCancelAgents} /> : null}
+        {cur === 'files' ? <Files view={view} /> : null}
+        {cur === 'tools' && tools ? <SessionTools view={view} skills={tools.skills} servers={tools.servers} onToggle={tools.onToggle} /> : null}
       </div>
-    </aside>
+    </div>
   )
 }

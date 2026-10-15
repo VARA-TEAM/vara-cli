@@ -83,6 +83,18 @@ export function Composer({
   const [dismissed, setDismissed] = useState(false)
   const [found, setFound] = useState<string[]>([])
   const ref = useRef<HTMLTextAreaElement>(null)
+  const escArmed = useRef(false)
+  const [armed, setArmed] = useState(false)
+
+  // `/attach` (from the command list) opens the file picker of the composer it was meant for.
+  useEffect(() => {
+    if (!draftKey) return
+    const on = (e: Event): void => {
+      if ((e as CustomEvent<{ id?: string }>).detail?.id === draftKey) fileInput.current?.click()
+    }
+    window.addEventListener('vara:attach', on)
+    return () => window.removeEventListener('vara:attach', on)
+  }, [draftKey])
 
   const setText = (v: string): void => {
     setTextState(v)
@@ -271,6 +283,27 @@ export function Composer({
               return choose(item)
             }
           }
+          // Esc twice pauses a running agent (the terminal's interrupt): the first press only arms it.
+          if (e.key === 'Escape' && busy && canPause && onPause) {
+            e.preventDefault()
+            if (escArmed.current) (escArmed.current = false, setArmed(false), onPause())
+            else {
+              escArmed.current = true
+              setArmed(true)
+              setTimeout(() => ((escArmed.current = false), setArmed(false)), 2500)
+            }
+            return
+          }
+          // Ctrl+J adds a line, as in the terminal.
+          if (e.key.toLowerCase() === 'j' && e.ctrlKey && !e.altKey && !e.metaKey) {
+            e.preventDefault()
+            const el = e.currentTarget
+            const next = `${text.slice(0, el.selectionStart)}\n${text.slice(el.selectionEnd)}`
+            const pos = el.selectionStart + 1
+            setText(next)
+            requestAnimationFrame(() => (el.setSelectionRange(pos, pos), setCaret(pos)))
+            return
+          }
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             void submit()
@@ -290,6 +323,7 @@ export function Composer({
           {controls}
         </div>
         <div className="composer-actions">
+          {armed ? <span className="muted small" role="status">{t('c_escAgain')}</span> : null}
           {busy && canPause && onPause ? (
             <Button kind="ghost" icon="pause" onClick={onPause} title={t('pause')}>
               {t('pause')}

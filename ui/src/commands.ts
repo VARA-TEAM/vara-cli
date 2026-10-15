@@ -15,7 +15,7 @@ export interface Cmd {
   args?: string
   /** Offered values for the argument (shown as the palette's completions). */
   options?: string[]
-  group: 'session' | 'go' | 'settings' | 'skill' | 'theme'
+  group: 'session' | 'go' | 'settings' | 'skill' | 'theme' | 'layout'
   shortcut?: string
   run: (arg: string) => void | Promise<void>
 }

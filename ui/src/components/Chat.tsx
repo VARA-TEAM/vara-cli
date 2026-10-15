@@ -3,7 +3,8 @@ import { buildItems, toolSummary, type ChatItem } from '../transcript'
 import { useT } from '../i18n'
 import { usePrefs } from '../prefs'
 import type { SessionView } from '../types'
-import type { SubagentRow } from '../hooks'
+import { countStatus, runStatus, type SwarmRunModel } from '../swarm-model'
+import { AgentStatusIcon, costText } from './AgentsPanel'
 import { Badge, Icon } from './ui'
 import { Markdown } from './Markdown'
 import { AttachedImage } from './Attached'
@@ -57,19 +58,52 @@ function ToolCard({ item, running }: { item: Extract<ChatItem, { kind: 'tool' }>
   )
 }
 
+/** A delegate call, drawn as what it is: a small team, with live status per agent. */
+function SwarmInline({ run, onOpen }: { run: SwarmRunModel; onOpen: () => void }) {
+  const t = useT()
+  const c = countStatus(run)
+  const st = runStatus(run)
+  const cost = costText(run, t('unknown'))
+  return (
+    <section className={`swarm-inline run-${st}`} aria-label={t('ag_title')}>
+      <header>
+        <Icon name="branch" size={15} />
+        <strong>{t('ag_title')}</strong>
+        <span className="muted small num">{t('ag_progress', { done: c.done + c.failed + c.skipped, total: run.agents.length })}</span>
+        {run.modelCalls !== undefined ? <span className="muted small num">{run.modelCalls} {t('calls')}{cost ? ` · ${cost}` : ''}</span> : null}
+        <button className="linklike" onClick={onOpen}>{t('ag_open')}</button>
+      </header>
+      {run.rejected ? <div className="inline-error" role="alert">{t('ag_rejected')}: {run.rejected}</div> : null}
+      <ul>
+        {run.agents.map((a) => (
+          <li key={a.id} className={`st-${a.status}`}>
+            <span className="agent-mark"><AgentStatusIcon status={a.status} size={13} /></span>
+            <span className="agent-title clip" dir="auto">{a.title}</span>
+            {a.role ? <span className="chip" dir="ltr">{a.role}</span> : null}
+            {a.dependsOn.length ? <span className="muted small" dir="ltr">← {a.dependsOn.join(', ')}</span> : null}
+            <span className="muted small agent-now" dir="auto">{a.status === 'running' ? a.detail ?? t('ag_running') : a.status === 'skipped' ? a.detail ?? t('sw_skipped') : a.status === 'waiting' ? t('sw_waiting') : ''}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 export function Chat({
   view,
   stream,
   thinking,
   activeTool,
-  subagents,
+  swarm,
+  onOpenAgents,
   isOwner,
 }: {
   view: SessionView
   stream: string
   thinking: string
   activeTool: string | null
-  subagents: SubagentRow[]
+  swarm: SwarmRunModel[]
+  onOpenAgents: () => void
   isOwner: boolean
 }) {
   const t = useT()
@@ -110,23 +144,14 @@ export function Chat({
             </div>
           )
         }
+        const run = item.name === 'delegate' ? swarm.find((r) => r.key === item.id) : undefined
+        if (run) return <SwarmInline key={item.id} run={run} onOpen={onOpenAgents} />
         return <ToolCard key={item.id} item={item} running={running && (i === lastToolIndex || activeTool === item.name)} />
       })}
 
-      {subagents.length ? (
-        <div className="subagents">
-          {subagents.map((s) => (
-            <div key={s.id} className={`subagent sub-${s.status}`} title={s.status === 'skipped' && s.detail ? s.detail : undefined}>
-              <Icon name="branch" size={14} />
-              <span dir="auto">{s.title}</span>
-              {s.role ? <span className="chip" dir="ltr">{s.role}</span> : null}
-              {s.dependsOn?.length ? <span className="muted" dir="ltr">← {s.dependsOn.join(', ')}</span> : null}
-              {s.status === 'running' ? <span className="pulse" /> : s.status === 'done' ? <Icon name="check" size={14} /> : s.status === 'waiting' ? <span className="muted">{t('sw_waiting')}</span> : s.status === 'skipped' ? <span className="muted">{t('sw_skipped')}</span> : <Icon name="x" size={14} />}
-              {s.detail && s.status === 'running' ? <span className="muted">{s.detail}</span> : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
+      {swarm.filter((r) => r.live && !items.some((i) => i.kind === 'tool' && i.id === r.key)).map((r) => (
+        <SwarmInline key={r.key} run={r} onOpen={onOpenAgents} />
+      ))}
 
       {isOwner && prefs.showThinking && thinking && running ? (
         <details className="thinking">

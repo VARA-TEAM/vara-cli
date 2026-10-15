@@ -191,6 +191,8 @@ function ProviderDetail({ p, onState, onRemoved }: { p: ProviderRow; onState: (s
   const [newModel, setNewModel] = useState('')
   const [ctx, setCtx] = useState<ModelRow | null>(null)
   const [confirm, setConfirm] = useState(false)
+  const [filter, setFilter] = useState('')
+  const shownModels = p.models.filter((m) => m.id.toLowerCase().includes(filter.trim().toLowerCase()))
   const url = `${BASE}/${encodeURIComponent(p.name)}`
   const post = <T,>(label: string, path: string, body: unknown, ok?: string) =>
     act(label, async () => {
@@ -273,6 +275,9 @@ function ProviderDetail({ p, onState, onRemoved }: { p: ProviderRow; onState: (s
       </div>
 
       <h3 className="sec">{t('p_models')}</h3>
+      {p.models.length > 6 ? (
+        <input type="search" className="model-filter" value={filter} onChange={(e) => setFilter(e.target.value)} dir="ltr" placeholder={t('p_filter')} aria-label={t('p_filter')} />
+      ) : null}
       {p.models.length ? (
         <>
           <div className="model-head" aria-hidden="true">
@@ -283,7 +288,7 @@ function ProviderDetail({ p, onState, onRemoved }: { p: ProviderRow; onState: (s
             <span />
           </div>
           <ul className="model-list">
-            {p.models.map((m) => (
+            {shownModels.map((m) => (
               <ModelLine
                 key={m.id}
                 m={m}
@@ -296,6 +301,7 @@ function ProviderDetail({ p, onState, onRemoved }: { p: ProviderRow; onState: (s
               />
             ))}
           </ul>
+          {shownModels.length === 0 ? <p className="muted pad">{t('sb_noMatch', { q: filter })}</p> : null}
         </>
       ) : (
         <p className="muted pad">{t('p_noModels')}</p>

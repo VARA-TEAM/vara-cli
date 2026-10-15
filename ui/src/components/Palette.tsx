@@ -17,7 +17,7 @@ interface Item {
   fill?: string
 }
 
-const GROUP_ORDER = ['session', 'go', 'skill', 'settings', 'theme', 'open']
+const GROUP_ORDER = ['session', 'go', 'skill', 'layout', 'settings', 'theme', 'open']
 
 /** Ctrl K: every command and every session in one search box. `/command arg` works here too. */
 export function Palette({ onClose, sessions, onOpen }: { onClose: () => void; sessions: SessionSummary[]; onOpen: (id: string) => void }) {
