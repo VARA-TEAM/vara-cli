@@ -82,7 +82,10 @@ describe('PreviewManager', () => {
     await m.stop('s1')
     expect(m.get('s1')).toBeNull()
     await expect(get(info.url!)).rejects.toThrow()
-    await new Promise((r) => setTimeout(r, 600))
+    // The dev server is a child process: how long it takes to die depends on how busy the machine is, so wait for
+    // it (up to 10 s) instead of guessing 600 ms.
+    const gone = async (): Promise<boolean> => get(`http://127.0.0.1:${info.port}/`).then(() => false, () => true)
+    for (let i = 0; i < 100 && !(await gone()); i++) await new Promise((r) => setTimeout(r, 100))
     await expect(get(`http://127.0.0.1:${info.port}/`)).rejects.toThrow()
   })
 
