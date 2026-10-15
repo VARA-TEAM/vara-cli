@@ -140,13 +140,14 @@ vara guests                                     # who joined, what they use · v
 **Files, images and the running app**
 
 - **Attach:** drag a file onto the message box, paste a screenshot, or click the paper-clip (terminal: `/attach <file>`, `@path`, or drag onto the terminal). Images are sent as images to models that can see them (otherwise the agent is only told one was attached); text files up to 120 KB and PDFs (text only) are attached as text. 6 files per message, images up to 5 MB.
-- **Live preview:** ask the agent to start your dev server (or `/preview start npm run dev`); the app appears in the side panel's *Preview* tab. The server must read the `PORT` variable. Owner only.
+- **Live preview:** ask the agent to start your dev server (or `/preview start npm run dev`); the app appears in the bottom panel's *Preview* tab. The server must read the `PORT` variable. Owner only.
 - **Public link:** `vara ui --share` (needs `cloudflared` or `ssh`; `--share-via`, `--share-minutes N`, `--share-preset`). It prints a read-only invite on a public address and closes when the time is up or you stop the host. **Anyone with an invite can reach this host from the internet, through a third-party tunnel provider. A guest with Build power runs commands on your machine — keep guests on Plan unless you trust them completely.**
 
 `vara ui` opens a full app with everything the terminal has:
 
-- **Conversation:** live streaming, markdown with tables and code, tool cards, a sub-agent list, `@file` attachments, `/` commands, a command palette (`Ctrl K`), drafts kept per session.
-- **Side panel (per session):** *Proof* (requirements, recorded evidence, limits) · *Cost* (spend, tokens, what VARA saved, context-window gauge) · *Files* changed. Export as markdown, pause, stop for good, switch task ↔ goal.
+- **Conversation:** live streaming, markdown with tables and code, tool cards, sub-agents drawn as a team, `@file` attachments, `/` commands, a command palette (`Ctrl K`), drafts kept per session.
+- **A workbench:** sidebar, session tabs (drag to reorder; two sessions side by side), side panel and a bottom dock, all with drag handles that also work from the keyboard (double-click resets one); four layout presets; remembered per browser. On a phone the panels become drawers.
+- **Side panel (per session):** *Proof* (requirements, recorded evidence, limits, context) · *Cost* (spend, tokens, what VARA saved, context-window gauge) · *Agents* (every sub-agent run live: roles, status, a trace of who ran when and who waited for whom, calls and cost, reports, cancel one or all) · *Files* changed · *Tools*. **Bottom dock:** *Output* (what ran and what came back), *Preview*, *Events*. Export as markdown, pause, stop for good, switch task ↔ goal.
 - **Settings (owner):** providers, keys, model lists, testing, context, thinking level · agent behaviour, budgets, context · skills (view, create, edit, switch off) · MCP servers · look and feel (9 themes, English/Arabic with right-to-left, mobile layout).
 - **Team (owner):** invite by link or QR, edit or revoke a guest's powers, see who is working and what they use.
 
