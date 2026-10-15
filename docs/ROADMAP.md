@@ -46,6 +46,23 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 ### R7 · Host without a tunnel
 - **Idea:** let remote guests reach a host without the owner running a tunnel. **Constraint:** there is deliberately no relay server today; any design must keep keys and execution on the owner's machine.
 
+### R8 · Agent self-control (in progress) — design note for the protected files
+
+Goal: the agent can be given named modes, and can manage its own setup (skills, MCP servers, mode) — **always through an approval the user sees, never silently**. This note is written *before* touching `permissions.ts` and `engine.ts`, as the rules require.
+
+**`src/tools/permissions.ts` — what changes and what must not**
+- `ToolContext` gains an optional `modePolicy` (from a user-defined mode: `allowTools`, `denyTools`, `allowCommands`, `denyCommands`).
+- `authorize()` gets one more check **after** the existing plan/build check and guard; `checkCommandAllowed()` gets the command lists **after** the forbidden and publishing checks.
+- **A policy can only narrow.** A custom mode names a base (`plan` or `build`); the base's rules still run first and unchanged, so a custom mode can never allow what plan/build refuse. A mode whose base is `build` is refused for a guest whose grant ceiling is `plan`.
+- No existing rule is removed or reordered; every existing defence-line test stays and new tests are added first (`tests/modes.test.ts`).
+
+**`src/core/engine.ts` — what changes**
+- The engine receives the active policy through `EngineOptions` (a getter, read every turn) and passes it to the tool context and to the tool-list filter, so a forbidden tool is also hidden from the model. Sub-agents inherit it (they copy `options`).
+- An optional approval hook (`EngineOptions.approve`) is exposed to tools as `ctx.approve()`. A tool that changes the agent's own setup must call it; **no hook (headless run, sub-agent) means denied**, never auto-approved. The engine emits `approval_request` / `approval_resolved` and keeps the session in `waiting_user` while it waits; `stop()` denies everything pending.
+- The sub-agent runner is generalised (roles, a shared task list, limits) in a new file `src/core/swarm.ts`; `engine.ts` only wires it. The existing caps (4 tasks, 3 parallel, ephemeral, no nesting) stay as the hard ceiling.
+
+Proof: tests are written first; `npm run check` green before every push.
+
 ## 3. Under study (do not implement before agreeing)
 
 | Item | Open question |
