@@ -434,6 +434,8 @@ const en = {
   sw_costHelp: 'Stop starting sub-agents once the known cost reaches this. Empty = no cap.',
   a_browser: 'Browser tool',
   a_browserHelp: 'Lets the agent drive an isolated browser (needs Chrome, Edge or Chromium installed). Every site must be approved, passwords are never typed, and risky clicks ask you first.',
+  a_desktop: 'Desktop control',
+  a_desktopHelp: 'Lets the agent see the screen and use the mouse and keyboard. It asks you once per session, never acts in password, bank or sign-in windows, and stops the moment you pause. Only use it on a computer you can watch.',
 } as const
 
 export type Key = keyof typeof en
@@ -865,6 +867,8 @@ const ar: Record<Key, string> = {
   sw_costHelp: 'يتوقف بدء الوكلاء الفرعيين عند بلوغ التكلفة المعروفة هذا الحد. الفارغ = بلا سقف.',
   a_browser: 'أداة المتصفح',
   a_browserHelp: 'تتيح للوكيل قيادة متصفح معزول (يلزم تثبيت Chrome أو Edge أو Chromium). كل موقع يحتاج موافقتك، ولا تُكتب كلمات المرور أبداً، والنقرات الخطرة تسألك أولاً.',
+  a_desktop: 'التحكم بسطح المكتب',
+  a_desktopHelp: 'يتيح للوكيل رؤية الشاشة واستعمال الفأرة ولوحة المفاتيح. يسألك مرة لكل جلسة، ولا يتصرف أبداً في نوافذ كلمات المرور أو البنوك أو تسجيل الدخول، ويتوقف فور الإيقاف المؤقت. استعمله على جهاز تستطيع مراقبته فقط.',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

@@ -3,6 +3,7 @@ import { Engine, type EngineOptions } from './engine.js'
 import type { Provider } from '../llm/provider.js'
 import { loadSession, saveSession } from './store.js'
 import type { ContextSettings } from './context.js'
+import { killDesktop } from '../tools/desktop-tool.js'
 
 /**
  * SessionRunner owns the engine lifecycle across pauses and resumes.
@@ -42,6 +43,8 @@ export class SessionRunner {
   }
 
   pause(): void {
+    // The desktop kill switch: whatever the agent was about to do on the screen is cancelled at once.
+    killDesktop(this.session.id)
     if (this.engine && this.running) {
       this.engine.stop()
       this.session.state = 'paused'

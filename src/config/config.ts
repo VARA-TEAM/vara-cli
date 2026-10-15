@@ -119,6 +119,8 @@ export const AgentSchema = z.object({
   defaultMode: z.enum(['plan', 'build']).default('build'),
   /** Offer the `browser` tool (an isolated browser the agent can drive). Off until the owner turns it on. */
   browser: z.boolean().default(false),
+  /** Offer the `desktop` tool (screen, mouse and keyboard). Off until the owner turns it on; still asks once per session. */
+  desktop: z.boolean().default(false),
 })
 
 /** A user-defined mode: a named restriction of plan or build (see core/modes.ts). */

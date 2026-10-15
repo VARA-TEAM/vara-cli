@@ -211,7 +211,7 @@ export interface ModeRow {
 }
 
 export interface SettingsState {
-  agent: { autoIntent: boolean; defaultMode: 'plan' | 'build'; cheapModel: string; browser: boolean }
+  agent: { autoIntent: boolean; defaultMode: 'plan' | 'build'; cheapModel: string; browser: boolean; desktop: boolean }
   defaultVerifyCommand: string
   allowPublish: boolean
   swarm: { maxTasks: number; maxParallel: number; maxModelCalls: number; maxCostUsd: number | null }

@@ -270,7 +270,7 @@ export class Manager {
     const c = this.d.config()
     const b = (k: 'task' | 'goal') => ({ maxTurns: c.budgets[k].maxTurns, maxMinutes: Math.round(c.budgets[k].maxDurationMs / MIN), maxModelCalls: c.budgets[k].maxModelCalls })
     return {
-      agent: { autoIntent: c.agent.autoIntent, defaultMode: c.agent.defaultMode, cheapModel: c.agent.cheapModel, browser: c.agent.browser },
+      agent: { autoIntent: c.agent.autoIntent, defaultMode: c.agent.defaultMode, cheapModel: c.agent.cheapModel, browser: c.agent.browser, desktop: c.agent.desktop },
       defaultVerifyCommand: c.defaultVerifyCommand,
       allowPublish: c.allowPublish,
       swarm: { maxTasks: c.swarm.maxTasks, maxParallel: c.swarm.maxParallel, maxModelCalls: c.swarm.maxModelCalls, maxCostUsd: c.swarm.maxCostUsd },
@@ -289,6 +289,7 @@ export class Manager {
           n = { ...n, agent: { ...n.agent } }
           if (typeof agent['autoIntent'] === 'boolean') n.agent.autoIntent = agent['autoIntent']
           if (typeof agent['browser'] === 'boolean') n.agent.browser = agent['browser']
+          if (typeof agent['desktop'] === 'boolean') n.agent.desktop = agent['desktop']
           if (agent['defaultMode'] === 'plan' || agent['defaultMode'] === 'build') n.agent.defaultMode = agent['defaultMode']
           if (typeof agent['cheapModel'] === 'string') n.agent.cheapModel = text(agent['cheapModel'], 200)
         }

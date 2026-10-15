@@ -106,6 +106,9 @@ export function AgentPanel({ state, set, models }: { state: SettingsState | null
       <Row label={t('a_browser')} help={t('a_browserHelp')}>
         <Switch checked={state.agent.browser} onChange={(v) => void patch({ agent: { browser: v } })} label={state.agent.browser ? t('on') : t('off')} />
       </Row>
+      <Row label={t('a_desktop')} help={t('a_desktopHelp')}>
+        <Switch checked={state.agent.desktop} onChange={(v) => void patch({ agent: { desktop: v } })} label={state.agent.desktop ? t('on') : t('off')} />
+      </Row>
       <Row label={t('a_publish')} help={t('a_publishHelp')}>
         <Switch checked={state.allowPublish} onChange={(v) => void patch({ allowPublish: v })} label={state.allowPublish ? t('on') : t('off')} />
       </Row>
