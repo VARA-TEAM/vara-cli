@@ -26,7 +26,7 @@ What is left, in what order, and how to do it safely. **Read this file before pr
 
 ## 2. Ready to do (by priority)
 
-### R2 · Automatic verify commands by project type
+### ~~R2 · Automatic verify commands by project type~~ — done (`core/project.ts`: detects npm/pnpm/yarn/cargo/go/pytest, nothing when unsure)
 - **Idea:** detect `package.json` / `pyproject.toml` / `Cargo.toml` and suggest the verify command (`npm test` / `pytest` / `cargo test`) instead of leaving it empty.
 - **Proof:** a test per project type, and an explicit refusal when the type is unknown (no guessing).
 
@@ -68,6 +68,13 @@ Proof: tests are written first; `npm run check` green before every push.
 ### R9 · Browser use — design note for the protected file (`engine.ts`)
 
 `engine.ts` gets one small, additive change: a tool may return `images` (image markers); after ALL tool results of a turn are recorded, the engine appends one hidden `[ENGINE]` user message carrying those markers, which the existing `resolveImages` path turns into image blocks for vision models (and an honest "cannot view images" note for the rest). Why in the engine: providers require every tool result of a turn to be consecutive before any other user message. Why it is safe: no permission logic is touched; images are only ever read from the session's own `attachments/` folder; at most 4 per turn; the message is hidden from the interfaces like other `[ENGINE]` messages. Defence-line tests are unchanged and pass. Everything else (policy, CDP, tool) lives in new files under `src/browser/` and `src/tools/browser-tool.ts`, and the tool is offered only when `agent.browser` is on.
+
+### R10 · Still open after the browser/desktop/connector work
+- **Desktop control on macOS and Linux is written but unverified** — needs a hand test on real machines (checklist in `docs/DEVELOPMENT.md`).
+- **Connectors that need OAuth** (Linear, Google Drive/Gmail/Calendar, Slack remote…) — needs an OAuth/device-flow in the MCP client; until then they are not listed.
+- **Prompt-injection residual risk in the browser** — origin/approval/secret controls limit the damage but no model-side defence is perfect; an engine-level "taint" (writes after reading untrusted pages need approval) is the next step.
+- **Agent evals** — an offline harness of scripted scenarios (refuses false completion, recovers after a failing tool, does not write in plan mode) beyond the unit tests that exist.
+- **R4 (parallel read tools), R5 (cheap-model summaries), R6 (provider per session)** remain open above.
 
 ## 3. Under study (do not implement before agreeing)
 

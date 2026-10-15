@@ -263,6 +263,24 @@ Four tools let the agent change its own setup: `skill_write`, `skill_toggle`, `m
 
 ---
 
+## 7.8 Browser use, desktop control, connectors, project instructions
+
+**Browser (`src/browser/`, `src/tools/browser-tool.ts`).** The `browser` tool drives a real Chrome/Edge/Chromium/Brave found on the machine (VARA ships no browser) through the DevTools Protocol, with no new dependency (the WebSocket built into Node 22+; the release packages bundle Node 22). Each launch uses a **fresh throw-away profile** under `~/.vara/browser`, never the user's own browser, so nothing they are signed in to is reachable. Safety is enforced in code, not by asking the model to behave:
+- `policy.ts` (pure, tested): `localhost` is always allowed; other sites need approval (once per site per session); private networks, link-local and cloud-metadata addresses are refused; a small built-in list of banking/crypto sites is always refused; every sub-request the page makes is checked too, so a page cannot send data to a host nobody approved; downloads are refused.
+- The agent never types into password or payment fields (`isSecretField`); controls that look irreversible (pay, delete, send, submit…) and pressing Enter to submit each need approval; with nobody to approve (guests, headless runs) they are refused.
+- Page text comes back inside an `UNTRUSTED_WEB_CONTENT` boundary with a reminder that it is data. This reduces, but cannot remove, prompt-injection risk — the controls above (origin, approval, no secrets) are what limit the damage.
+- A screenshot is saved in the session's `attachments/` folder and returned as an image marker; the engine appends one hidden `[ENGINE]` message with the markers after all tool results of the turn (see ROADMAP R9), so vision models see it. Off by default: `agent.browser`.
+
+**Desktop (`src/desktop/`, `src/tools/desktop-tool.ts`).** The `desktop` tool takes screenshots and moves the mouse/types like a person: PowerShell + user32 on Windows (verified on Windows 10), `screencapture` + AppleScript on macOS and `xdotool` + `scrot`/ImageMagick on Linux (written to the same interface but **not verified** in this build). Off by default (`agent.desktop`), offered only in sessions that can ask the owner, approved once per session, and never for guests, headless runs or public links. It refuses to act while a password-manager, bank, sign-in or security-prompt window is in front, never sends keys that leave the app (Win+R, Ctrl+Alt+Del, Alt+F4…), pastes non-ASCII or long text instead of typing it, keeps an action budget (40 a minute, 300 a session), returns a screenshot after every action as evidence, and has a **kill switch**: pausing or stopping the session cancels the next action at once (`killDesktop`, called from `SessionRunner.pause`). Coordinates are in the pixels of the last screenshot (downscaled to 1280 wide); `policy.ts` maps them back.
+
+**Connectors (`src/mcp/connectors.ts`).** A catalogue of ready-made MCP servers (Filesystem, Memory, Sequential thinking, Context7, Fetch, Playwright, GitHub, Notion, Sentry, Supabase). Adding one stores its token(s) in the encrypted vault and writes an ordinary MCP server entry named after the connector, so it shows in `/mcp`, can be switched off per session and its tools reach the agent like any MCP tool. Only packages/endpoints that were checked are listed (each entry says how); services that need browser OAuth are not listed because the MCP client cannot complete that flow yet. Web: Settings → Connectors; terminal: `/connectors`, `vara connectors add <id>` (asks for the token without echoing it).
+
+**Project instructions and verification (`src/core/project.ts`).** When a session is created VARA reads `VARA.md`, else `AGENTS.md`, else `CLAUDE.md`, else `.vara/instructions.md` (first found, 8,000 characters at most) and keeps it with the session, so the system prompt is identical every turn. It is labelled as repository data: guidance, never permission. If no verify command is configured, one is detected from the project (`npm`/`pnpm`/`yarn test` when a real test script exists, `cargo test`, `go test ./...`, `pytest`) — and nothing when unsure.
+
+**The visible plan.** The read-only `todo` tool keeps a checklist; the web side panel shows the newest one (and plan mode allows it).
+
+---
+
 ## 8. Security
 
 | Component | What it does |

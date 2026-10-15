@@ -26,6 +26,8 @@ vara setup      # add a provider, paste the key, fetch and test models
 | **Skills** | `SKILL.md` playbooks the agent loads when they fit. 5 are built in (`code-review`, `debug`, `write-tests`, `explain-code`, `git-commit`); add your own for every project or for one. |
 | **Controllable thinking** | VARA detects which models support extended thinking / reasoning effort and offers only the levels they support. |
 | **Proof, not claims** | Finishing goes through an independent check run by the **engine** (your verify command + git state). If it fails, the work is not complete. |
+| **Browser and desktop** | The agent can drive an isolated browser (`browser` tool) and, if you allow it, see and operate your screen (`desktop` tool). Both are off by default, ask before risky steps, never type passwords, and the desktop tool has a kill switch. |
+| **Connectors** | One-click GitHub, Notion, Sentry, Supabase and more as ready-made MCP servers, with tokens kept in the encrypted vault. |
 | **Safety** | Permissions are enforced inside the tools, not in the prompt · encrypted secret vault · every output is scrubbed of secrets · unknown cost is `null`, never `0`. |
 | **Share a session** | Invite people by link or QR into your host with exactly the powers you choose; see what they use. Your keys never leave your machine. |
 
@@ -119,6 +121,7 @@ In any message, `@src/app.ts` attaches that file (inside the working folder only
 | `vara invite` · `vara guests` | Invite someone · list and revoke guests |
 | `vara secret set\|list\|delete <NAME>` | The encrypted vault |
 | `vara config init\|show` | Write the default config · print it (secrets never shown) |
+| `vara connectors [list\|add <id>\|remove <id>]` | Ready-made connectors (GitHub, Notion, Sentry, Supabase…); tokens go to the vault |
 | `vara doctor` · `vara --version` | Check the install · print the version |
 
 `VARA_HOME` overrides the data folder (default `~/.vara`).

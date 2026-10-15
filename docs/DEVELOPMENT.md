@@ -169,6 +169,19 @@ These scripts prove what fakes cannot: real SSE behaviour, usage formats, and th
 
 ---
 
+### Manual checks for real OS and browser control (before a release)
+
+CI never drives a real desktop or browser. Run these by hand on the machines you release for:
+
+```bash
+npx tsx scripts/browser-smoke.ts     # real Chrome/Edge: open, type, click, refused password/pay/metadata, screenshot
+npx tsx scripts/desktop-smoke.ts --move   # real screen: screenshot, active window title, pointer move (never clicks or types)
+```
+
+Desktop on **macOS** (needs Accessibility and Screen Recording permission for your terminal) and **Linux** (X11 with `xdotool` and `scrot`/ImageMagick) is written but has not been verified: before claiming support, run `desktop-smoke.ts`, then a short session that opens a text editor, types a line and saves with Ctrl+S, and confirm that pausing the session stops the next action.
+
+---
+
 ## 5. Documented Ink traps (read before touching `App.tsx`)
 
 1. **Stale closure** — `useInput` is re-attached every render; a key may arrive before effects run. Rule: **ref mirrors** written every render (`overlayRef`, `escArmedRef`, `draftKindRef`, `draftModeRef`, `inputRef`); the handler and `submit` read only from them — never from closure variables.

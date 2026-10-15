@@ -6,6 +6,15 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## 2026-10-15 · v0.4.0 — browser use, desktop control, connectors, a smarter start
+
+- **Browser use:** the `browser` tool drives a real Chrome/Edge/Chromium/Brave in a throw-away profile over the DevTools Protocol (no new dependency). Origins need approval (localhost is free), private networks and metadata addresses are refused, every request the page makes is filtered, downloads refused, password/payment fields never typed, irreversible-looking clicks and submits need approval, page text is wrapped as untrusted. Screenshots reach vision models. Off by default (`agent.browser`). Verified against a real browser with `scripts/browser-smoke.ts`.
+- **Desktop control:** the `desktop` tool (screenshot, click, type, keys, scroll, drag) — off by default, approved once per session, owner-only, refuses password/bank/sign-in windows, never sends keys that leave the app, action budget, screenshot after every action, kill switch on pause/stop. Verified on Windows; macOS and Linux drivers are written but **not verified**.
+- **Connectors:** a checked catalogue (GitHub, Notion, Sentry, Supabase, Context7, Memory, Filesystem, Playwright, Fetch, Sequential thinking) with guided secrets in the vault — web Settings → Connectors, `vara connectors`, `/connectors`. The `github` MCP preset now uses GitHub's remote server (the old npm package is unsupported).
+- **Project instructions:** `VARA.md` / `AGENTS.md` / `CLAUDE.md` are read when a session starts and kept with it (cache-stable). **Verify commands** are detected from the project when none is set (ROADMAP R2).
+- **A visible plan:** the read-only `todo` tool; the web side panel shows the latest checklist.
+- Earlier in this release (see the entries below): custom modes, agent self-management with approval, per-session skill/MCP switches, the swarm, attachments with vision, live preview, temporary public links, `vara update`, the working-folder picker.
+
 ## Unreleased
 
 - **Files and images in the conversation:** drag a file onto the browser composer, paste a screenshot, or use the paper-clip; in the terminal use `/attach <file>`, `@path`, or drag a file onto the terminal. Images go to the model as real image blocks when the model can see (new vision detection, overridable per model; a model that cannot see is told an image was attached, nothing more); text files up to 120 KB and PDFs (their text, no layout) are attached as text. Images are checked by their bytes (SVG refused), limited to 5 MB and 6 per message, and stored inside the session's own folder; a name typed in a message can never make the host read another file.
