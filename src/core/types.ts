@@ -139,6 +139,8 @@ export interface EvidenceRecord {
 export interface SessionConfig {
   kind: SessionKind
   mode: Mode
+  /** Name of a user-defined mode this session runs in; `mode` is then its base. */
+  customMode?: string
   objective: string
   /** Acceptance conditions. Free text; the engine forces evidence per condition. */
   acceptance: string[]

@@ -30,6 +30,7 @@ import { ZodError } from 'zod'
 import { VERSION } from '../version.js'
 import { McpHub } from '../mcp/hub.js'
 import { makeSessionRunner } from '../core/runner-factory.js'
+import { modeLabel, modeNames, resolveModeChoice } from '../core/modes.js'
 import { McpScreen } from './mcp.js'
 import { cleanTitle, expandMentions } from './mentions.js'
 import { setModelThinking, thinkingFor } from '../config/providers.js'
@@ -766,10 +767,16 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           setDraftMode((m) => (m === 'build' ? 'plan' : 'build'))
           return
         }
-        const next: Mode = cur.config.mode === 'build' ? 'plan' : 'build'
-        cur.config.mode = next // the engine reads session.config.mode per turn
-        // Grouped note: toggling PLAN/BUILD repeatedly updates ONE line.
-        push({ kind: 'note', text: `mode → ${next.toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
+        // Tab cycles plan → build → each custom mode (config.json: `modes`).
+        const names = modeNames(configRef.current.modes)
+        const nextName = names[(names.indexOf(modeLabel(cur.config)) + 1) % names.length] ?? 'plan'
+        const choice = resolveModeChoice(configRef.current.modes, nextName)
+        if (!choice.ok) return
+        cur.config.mode = choice.mode // the engine reads session.config.mode per turn
+        if (choice.customMode) cur.config.customMode = choice.customMode
+        else delete cur.config.customMode
+        // Grouped note: toggling repeatedly updates ONE line.
+        push({ kind: 'note', text: `mode → ${nextName.toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
         void saveSession(cur)
         refresh()
         return
@@ -1015,13 +1022,16 @@ export function App({ session, provider: initialProvider, config: initialConfig,
 
     switch (cmd) {
       case 'mode': {
-        const mode = rest[0] as Mode | undefined
-        if (mode !== 'plan' && mode !== 'build') {
-          push({ kind: 'note', text: 'usage: /mode plan | /mode build', color: 'red' })
+        const names = modeNames(configRef.current.modes)
+        const choice = rest[0] ? resolveModeChoice(configRef.current.modes, rest[0]) : null
+        if (!choice || !choice.ok) {
+          push({ kind: 'note', text: `usage: /mode ${names.join(' | ')}${choice && !choice.ok ? ` — ${choice.error}` : ''}`, color: 'red' })
           return
         }
-        cur.config.mode = mode
-        push({ kind: 'note', text: `mode → ${mode.toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
+        cur.config.mode = choice.mode
+        if (choice.customMode) cur.config.customMode = choice.customMode
+        else delete cur.config.customMode
+        push({ kind: 'note', text: `mode → ${modeLabel(cur.config).toUpperCase()} (applies from the next turn)`, color: 'yellow', group: 'mode' })
         void saveSession(cur)
         refresh()
         return
@@ -1310,7 +1320,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
             </Text>
             <Text color={theme.muted}> {glyph.sep} </Text>
             <Text color={active.config.mode === 'plan' ? theme.plan : theme.build} bold>
-              {active.config.mode.toUpperCase()}
+              {modeLabel(active.config).toUpperCase()}
             </Text>
             <Text color={theme.muted}> {glyph.sep} </Text>
           </Text>

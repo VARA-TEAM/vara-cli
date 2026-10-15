@@ -72,6 +72,9 @@ export interface SessionView {
   stateReason?: string
   kind: string
   mode: 'plan' | 'build'
+  customMode?: string
+  /** Every mode this person may switch the session to. */
+  modeChoices: string[]
   model?: string
   intent?: string
   shared: boolean
@@ -184,6 +187,16 @@ export interface BudgetRow {
   maxTurns: number
   maxMinutes: number
   maxModelCalls: number
+}
+
+export interface ModeRow {
+  name: string
+  description: string
+  base: 'plan' | 'build'
+  allowTools: string[]
+  denyTools: string[]
+  allowCommands: string[]
+  denyCommands: string[]
 }
 
 export interface SettingsState {

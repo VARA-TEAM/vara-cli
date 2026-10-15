@@ -117,6 +117,16 @@ export const AgentSchema = z.object({
   defaultMode: z.enum(['plan', 'build']).default('build'),
 })
 
+/** A user-defined mode: a named restriction of plan or build (see core/modes.ts). */
+export const ModeSchema = z.object({
+  description: z.string().max(300).default(''),
+  base: z.enum(['plan', 'build']).default('build'),
+  allowTools: z.array(z.string().min(1).max(80)).max(100).default([]),
+  denyTools: z.array(z.string().min(1).max(80)).max(100).default([]),
+  allowCommands: z.array(z.string().min(1).max(200)).max(100).default([]),
+  denyCommands: z.array(z.string().min(1).max(200)).max(100).default([]),
+})
+
 const ConfigSchema = z.object({
   /** The ACTIVE provider/model. Written by `activate()`; everything else reads it. */
   provider: ProviderSchema,
@@ -147,6 +157,8 @@ const ConfigSchema = z.object({
   agent: AgentSchema.default({}),
   /** MCP servers (Model Context Protocol): extra tools from local or remote servers. */
   mcp: z.object({ servers: z.record(McpServerSchema).default({}) }).default({}),
+  /** Custom modes beyond plan / build, by name. */
+  modes: z.record(ModeSchema).default({}),
   skills: z
     .object({
       /** Skill names the agent must not see. */

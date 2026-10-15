@@ -26,6 +26,7 @@ import { PRESETS, findPreset } from '../llm/presets.js'
 import type { CheckResult, Endpoint } from '../llm/discovery.js'
 import type { FoundModel } from '../config/providers.js'
 import { discoverAllSkills, scaffoldSkill, validSkillName } from '../core/skills.js'
+import { validModeName, type ModeDef } from '../core/modes.js'
 import { THINK_ORDER, type ThinkLevel } from '../llm/capabilities.js'
 import { scrubAll } from '../security/redact.js'
 
@@ -430,6 +431,39 @@ export class Manager {
     return r.ok ? good(this.mcp()) : r
   }
 
+  /* ---------------- modes ---------------- */
+
+  modes(): unknown {
+    return Object.entries(this.d.config().modes).map(([name, m]) => ({ name, ...m }))
+  }
+
+  /** Create or replace one custom mode. A mode can only narrow its base (plan / build). */
+  async putMode(name: string, body: Record<string, unknown>): Promise<MResult<unknown>> {
+    if (!validModeName(name)) return bad('Mode name: lowercase letters, digits, "-" or "_" (max 30), not plan/build.')
+    const list = (v: unknown, max: number): string[] => (Array.isArray(v) ? v.map((x) => text(x, max)).filter(Boolean).slice(0, 100) : [])
+    const def: ModeDef = {
+      description: text(body['description'], 300),
+      base: body['base'] === 'plan' ? 'plan' : 'build',
+      allowTools: list(body['allowTools'], 80),
+      denyTools: list(body['denyTools'], 80),
+      allowCommands: list(body['allowCommands'], 200),
+      denyCommands: list(body['denyCommands'], 200),
+    }
+    const r = await this.guard(() => this.update((c) => ({ ...c, modes: { ...c.modes, [name]: def } })))
+    return r.ok ? good(this.modes()) : r
+  }
+
+  async deleteMode(name: string): Promise<MResult<unknown>> {
+    if (!this.d.config().modes[name]) return bad('No such mode.', 404)
+    const r = await this.guard(() =>
+      this.update((c) => {
+        const { [name]: _gone, ...rest } = c.modes
+        return { ...c, modes: rest }
+      }),
+    )
+    return r.ok ? good(this.modes()) : r
+  }
+
   /* ---------------- routing ---------------- */
 
   /** `parts` = path segments after /api/manage. */
@@ -463,6 +497,11 @@ export class Manager {
       if (!b && method === 'POST') return this.createSkill(body)
       if (b && c === 'source' && method === 'GET') return this.skillSource(dec(b))
       if (b && !c && method === 'PATCH') return this.patchSkill(dec(b), body)
+    }
+    if (a === 'modes') {
+      if (!b && method === 'GET') return good(this.modes())
+      if (b && !c && method === 'PUT') return this.putMode(dec(b), body)
+      if (b && !c && method === 'DELETE') return this.deleteMode(dec(b))
     }
     if (a === 'mcp') {
       if (!b && method === 'GET') return good(this.mcp())

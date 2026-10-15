@@ -4,7 +4,7 @@ import type { Cmd } from '../commands'
 import { useResource } from '../hooks'
 import { useT } from '../i18n'
 import { relativeTime } from '../transcript'
-import type { Me, ModelsInfo, ProvidersState, SessionSummary, SessionView } from '../types'
+import type { Me, ModeRow, ModelsInfo, ProvidersState, SessionSummary, SessionView } from '../types'
 import { Composer } from './Composer'
 import type { Route } from './Sidebar'
 import { useToast } from './toast'
@@ -23,7 +23,8 @@ export function Home({ me, models, sessions, commands, go, onOpen, onToggleSideb
   const [kind, setKind] = useState<'auto' | 'task' | 'goal'>('auto')
   const guest = me.role === 'guest' ? me : null
   const canCreate = !guest || guest.grant.ownSession
-  const [mode, setMode] = useState<'plan' | 'build'>(guest ? guest.grant.mode : 'build')
+  const customModes = useResource<ModeRow[]>(owner ? '/api/manage/modes' : null)
+  const [mode, setMode] = useState<string>(guest ? guest.grant.mode : 'build')
   const [model, setModel] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const canPickMode = !guest || (guest.grant.canChangeMode && guest.grant.mode === 'build')
@@ -91,13 +92,18 @@ export function Home({ me, models, sessions, commands, go, onOpen, onToggleSideb
                     <option value="goal">{t('kind_goal')}</option>
                   </select>
                   {canPickMode ? (
-                    <select value={mode} onChange={(e) => setMode(e.target.value as typeof mode)} aria-label={t('mode')}>
+                    <select value={mode} onChange={(e) => setMode(e.target.value)} aria-label={t('mode')}>
                       <option value="plan">{t('mode_plan')}</option>
                       <option value="build">{t('mode_build')}</option>
+                      {(customModes.data ?? []).map((m) => (
+                        <option key={m.name} value={m.name}>
+                          {m.name}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <span className="chip" title={t('mode')}>
-                      {mode === 'plan' ? t('mode_plan') : t('mode_build')}
+                      {mode === 'plan' ? t('mode_plan') : mode === 'build' ? t('mode_build') : mode}
                     </span>
                   )}
                   {canPickModel && modelList.length > 1 ? (

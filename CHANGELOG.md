@@ -8,6 +8,7 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ## Unreleased
 
+- **Custom modes:** name your own modes beyond plan/build (Settings → Agent in the browser, or `modes` in `config.json`). A mode stands on plan or build and can only *narrow* it with tool and shell-command lists (`allowTools`, `denyTools`, `allowCommands`, `denyCommands`); enforced in `authorize()` and hidden from the model. Pick it with `/mode <name>` or `Tab` in the terminal, or the mode selector in the browser; guests are capped by their grant. A mode that was deleted fails closed (read-only).
 - **Working folder in the browser interface:** the session list shows only the current folder's sessions (the owner can ask for every folder); the owner can change the working folder from the sidebar — pick a recent one or browse the machine — and new sessions work there. Sessions already started keep theirs. Guests cannot change or browse folders.
 - **Installer:** `install.ps1` no longer fails on Windows accounts whose user PATH is unset.
 

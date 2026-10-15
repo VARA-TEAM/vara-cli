@@ -12,6 +12,7 @@ import type {
 } from './types.js'
 import { classifyIntent, isWorkIntent } from './intent.js'
 import { skillIndex, type Skill } from './skills.js'
+import { describePolicy, type ModePolicy } from './modes.js'
 import type { ModelMessage, Provider } from '../llm/provider.js'
 import type { NormalizedUsage } from '../llm/usage.js'
 import { emptyUsage } from '../llm/usage.js'
@@ -136,6 +137,8 @@ export interface EngineOptions {
   routeModel?: (kind: 'chat' | 'question' | 'subagent') => string | undefined
   /** Reasoning level for the model about to be used; only consulted on work turns. */
   thinkingLevel?: (model: string) => ThinkLevel | undefined
+  /** Restrictions of the session's custom mode (read live each turn; only ever narrows plan/build). */
+  modePolicy?: () => ModePolicy | undefined
   /** Tools from connected MCP servers (read live each turn). */
   extraTools?: () => Tool<never>[]
   /** One line per connected MCP server, for the prompt. */
@@ -270,6 +273,7 @@ export class Engine {
       scope: `session:${this.session.id}`,
       env: this.env,
       allowPublish: this.session.config.allowPublish,
+      ...(this.options.modePolicy?.() ? { modePolicy: this.options.modePolicy() } : {}),
       skills: this.skills,
       ...(this.depth === 0 ? { spawn: (tasks) => this.spawnSubagents(tasks) } : {}),
     }
@@ -631,7 +635,8 @@ export class Engine {
     const ctx = this.toolContext()
     const hasSkills = this.skills.length > 0
     const extra = this.extraTools?.() ?? []
-    const toolSet = { hasSkills, extra, canDelegate: this.depth === 0 }
+    const policy = this.options.modePolicy?.()
+    const toolSet = { hasSkills, extra, canDelegate: this.depth === 0, ...(policy ? { policy } : {}) }
     const allowed = new Set(toolsFor(this.intent, this.session.config.mode, toolSet).map((t) => t.name))
 
     // Cost routing: conversation and research turns do not need the big model.
@@ -655,6 +660,7 @@ export class Engine {
           skills: skillIndex(this.skills),
           mcp: this.mcpSummary?.() || undefined,
           subagent: this.depth > 0,
+          ...(policy ? { modeNote: describePolicy(policy) } : {}),
         }),
         messages: this.toModelMessages(),
         tools: toolDefinitions(this.session.config.mode, this.intent, toolSet),

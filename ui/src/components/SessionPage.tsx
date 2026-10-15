@@ -92,7 +92,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
     const list: Cmd[] = []
     const add = (c: Cmd): void => void list.push(c)
     if (view.can.setMode)
-      add({ id: 'mode', slash: 'mode', args: 'plan|build', options: ['plan', 'build'], group: 'session', title: t('cmd_mode'), description: t('cmd_modeHelp'), run: (a) => (a === 'plan' || a === 'build' ? run(() => post('/mode', { mode: a }), t('saved')) : toast(t('cmd_usage', { u: '/mode plan | build' }), 'err')) })
+      add({ id: 'mode', slash: 'mode', args: view.modeChoices.join('|'), options: view.modeChoices, group: 'session', title: t('cmd_mode'), description: t('cmd_modeHelp'), run: (a) => (view.modeChoices.includes(a) ? run(() => post('/mode', { mode: a }), t('saved')) : toast(t('cmd_usage', { u: `/mode ${view.modeChoices.join(' | ')}` }), 'err')) })
     if (view.can.manage)
       add({ id: 'kind', slash: 'kind', args: 'task|goal', options: ['task', 'goal'], group: 'session', title: t('cmd_kind'), description: t('cmd_kindHelp'), run: (a) => (a === 'task' || a === 'goal' ? run(() => post('/kind', { kind: a }), t('saved')) : toast(t('cmd_usage', { u: '/kind task | goal' }), 'err')) })
     if (view.can.setModel && modelList.length > 1)
@@ -170,7 +170,7 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
             <StateBadge state={view.state} />
             {view.intent ? <Badge tone="accent">{t(`intent_${view.intent}` as 'intent_chat')}</Badge> : null}
             {view.intent === 'task' || view.intent === 'goal' ? <Badge tone="muted">{t(`kind_${view.kind === 'goal' ? 'goal' : 'task'}` as 'kind_goal')}</Badge> : null}
-            <Badge tone={view.mode === 'plan' ? 'warn' : 'ok'}>{view.mode === 'plan' ? t('mode_plan') : t('mode_build')}</Badge>
+            <Badge tone={view.mode === 'plan' ? 'warn' : 'ok'}>{view.customMode ?? (view.mode === 'plan' ? t('mode_plan') : t('mode_build'))}</Badge>
             {view.model ? <span className="muted mono">{view.model}</span> : null}
             {view.shared ? (
               <Badge tone="user" title={t('share')}>
@@ -242,9 +242,12 @@ export function SessionPage({ id, me, models, onChanged, onToggleSidebar, go }: 
               controls={
                 <>
                   {view.can.setMode ? (
-                    <select value={view.mode} onChange={(e) => void run(() => post('/mode', { mode: e.target.value }))} aria-label={t('mode')}>
-                      <option value="plan">{t('mode_plan')}</option>
-                      <option value="build">{t('mode_build')}</option>
+                    <select value={view.customMode ?? view.mode} onChange={(e) => void run(() => post('/mode', { mode: e.target.value }))} aria-label={t('mode')}>
+                      {view.modeChoices.map((m) => (
+                        <option key={m} value={m}>
+                          {m === 'plan' ? t('mode_plan') : m === 'build' ? t('mode_build') : m}
+                        </option>
+                      ))}
                     </select>
                   ) : null}
                   {view.can.setModel && modelList.length > 1 ? (

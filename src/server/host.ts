@@ -17,6 +17,7 @@ import { makeSessionRunner } from '../core/runner-factory.js'
 import type { McpHub } from '../mcp/hub.js'
 import { scrubAll } from '../security/redact.js'
 import { VERSION } from '../version.js'
+import { modeNames, resolveModeChoice } from '../core/modes.js'
 import { AccessStore, authorize, type Action, type Principal, type SessionRef, type Usage } from './access.js'
 
 /** What clients receive: engine events plus what only the host knows. */
@@ -67,6 +68,10 @@ export interface SessionView {
   stateReason?: string
   kind: string
   mode: string
+  /** Name of the custom mode, when the session runs in one (`mode` is then its base). */
+  customMode?: string
+  /** Every mode this principal may switch this session to (plan, build, custom names). */
+  modeChoices: string[]
   model?: string
   intent?: string
   shared: boolean
@@ -278,6 +283,8 @@ export class VaraHost {
       ...(s.stateReason ? { stateReason: scrubAll(s.stateReason) } : {}),
       kind: s.config.kind,
       mode: s.config.mode,
+      ...(s.config.customMode ? { customMode: s.config.customMode } : {}),
+      modeChoices: this.modeChoices(p, s),
       ...(s.config.model ? { model: s.config.model } : {}),
       ...(s.intent ? { intent: s.intent } : {}),
       shared: s.shared === true,
@@ -332,7 +339,16 @@ export class VaraHost {
 
   /* ---------- commands ---------- */
 
-  async create(p: Principal, input: { message: string; mode?: 'plan' | 'build'; kind?: 'task' | 'goal' | 'auto'; model?: string }): Promise<Result<SessionView>> {
+  /** The mode names this principal can pick: a guest never gets one whose base is above their ceiling. */
+  private modeChoices(p: Principal, s: Session): string[] {
+    const ref = refOf(s)
+    return modeNames(this.opts.config().modes).filter((n) => {
+      const c = resolveModeChoice(this.opts.config().modes, n)
+      return c.ok && authorize(p, 'session.setMode', ref, { mode: c.mode }).ok
+    })
+  }
+
+  async create(p: Principal, input: { message: string; mode?: string; kind?: 'task' | 'goal' | 'auto'; model?: string }): Promise<Result<SessionView>> {
     const typed = input.message.trim()
     if (!typed) return fail(400, 'write a message first')
     // Only the owner may pull host files into a prompt with @path.
@@ -341,7 +357,9 @@ export class VaraHost {
     // A guest limited to a model list starts on the first allowed model, not the owner's pick.
     const model = input.model ?? (p.kind === 'guest' && p.grant.modelPolicy === 'list' ? p.grant.allowedModels[0] : undefined) ?? cfg.provider.model
     // Guests: mode capped by their grant, model by policy, folder is always the host's.
-    const wantMode = input.mode ?? (p.kind === 'guest' ? p.grant.mode : cfg.agent.defaultMode)
+    const wanted = resolveModeChoice(cfg.modes, input.mode ?? (p.kind === 'guest' ? p.grant.mode : cfg.agent.defaultMode))
+    if (!wanted.ok) return fail(400, wanted.error)
+    const wantMode = wanted.mode
     const modelAsked = input.model !== undefined || (p.kind === 'guest' && p.grant.modelPolicy === 'list')
     const d = authorize(p, 'session.create', undefined, { mode: wantMode, ...(modelAsked ? { model } : {}), ...(await this.usageOf(p)) })
     if (!d.ok) return fail(403, d.reason)
@@ -358,6 +376,7 @@ export class VaraHost {
       allowPublish: p.kind === 'owner' ? undefined : false,
     })
     const session = createSession(parsed, cfg)
+    if (wanted.customMode) session.config.customMode = wanted.customMode
     if (p.kind === 'guest') session.participant = { id: p.id, name: p.name }
     await saveSession(session)
     const live = this.adopt(session)
@@ -424,7 +443,10 @@ export class VaraHost {
     return { ok: true, value: true }
   }
 
-  async setMode(p: Principal, id: string, mode: 'plan' | 'build'): Promise<Result<true>> {
+  async setMode(p: Principal, id: string, name: string): Promise<Result<true>> {
+    const choice = resolveModeChoice(this.opts.config().modes, name)
+    if (!choice.ok) return fail(400, choice.error)
+    const mode = choice.mode
     const live = await this.load(id)
     if (!live) return fail(404, 'no such session')
     const ref = refOf(live.session)
@@ -432,6 +454,8 @@ export class VaraHost {
     const d = authorize(p, 'session.setMode', ref, { mode })
     if (!d.ok) return fail(403, d.reason)
     live.session.config.mode = mode
+    if (choice.customMode) live.session.config.customMode = choice.customMode
+    else delete live.session.config.customMode
     await saveSession(live.session)
     return { ok: true, value: true }
   }

@@ -374,6 +374,21 @@ const en = {
   f_use: 'Work in this folder',
   f_changed: 'Working folder changed',
   f_change: 'change folder',
+  m_title: 'Custom modes',
+  m_help: 'A mode is a named restriction of Plan or Build. It can only narrow what the base allows, never widen it. Pick one per session next to the message box.',
+  m_new: 'New mode',
+  m_name: 'Name',
+  m_nameHelp: 'Lowercase letters, digits, - or _',
+  m_desc: 'What it is for',
+  m_base: 'Stands on',
+  m_baseHelp: 'Plan = read-only. Build = may change files. The mode can only be stricter than this.',
+  m_allowTools: 'Only these tools',
+  m_allowToolsHelp: 'One per line, * allowed (e.g. read_file, mcp__github__*). Empty = no limit.',
+  m_denyTools: 'Never these tools',
+  m_listHelp: 'One per line, * allowed.',
+  m_allowCmds: 'Only these shell commands',
+  m_allowCmdsHelp: 'One per line, e.g. npm test*. Empty = no limit. Pipes and redirections are refused when this is set.',
+  m_denyCmds: 'Never these shell commands',
 } as const
 
 export type Key = keyof typeof en
@@ -745,6 +760,21 @@ const ar: Record<Key, string> = {
   f_use: 'العمل في هذا المجلد',
   f_changed: 'تم تغيير مجلد العمل',
   f_change: 'تغيير المجلد',
+  m_title: 'أوضاع مخصّصة',
+  m_help: 'الوضع قيدٌ مسمّى على التخطيط أو التنفيذ. يستطيع أن يضيّق ما يسمح به أصله فقط، لا أن يوسّعه. اختر وضعاً لكل جلسة بجانب صندوق الرسالة.',
+  m_new: 'وضع جديد',
+  m_name: 'الاسم',
+  m_nameHelp: 'أحرف إنجليزية صغيرة وأرقام و - أو _',
+  m_desc: 'ما الغرض منه',
+  m_base: 'يقوم على',
+  m_baseHelp: 'التخطيط = قراءة فقط. التنفيذ = يعدّل الملفات. الوضع لا يكون إلا أشدّ من هذا.',
+  m_allowTools: 'هذه الأدوات فقط',
+  m_allowToolsHelp: 'واحدة في كل سطر، ويُسمح بـ * (مثل read_file و mcp__github__*). الفارغ = بلا حد.',
+  m_denyTools: 'ممنوع هذه الأدوات',
+  m_listHelp: 'واحدة في كل سطر، ويُسمح بـ *.',
+  m_allowCmds: 'أوامر الطرفية هذه فقط',
+  m_allowCmdsHelp: 'واحد في كل سطر، مثل npm test*. الفارغ = بلا حد. تُرفض الأنابيب والتحويلات عند تفعيله.',
+  m_denyCmds: 'ممنوع أوامر الطرفية هذه',
 }
 
 const dictionaries: Record<Lang, Record<Key, string>> = { en, ar }

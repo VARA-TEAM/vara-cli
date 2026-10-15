@@ -5,6 +5,7 @@ import { budgetFor } from '../config/config.js'
 import { contextSettingsFor, thinkingFor } from '../config/providers.js'
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
+import { policyFor } from './modes.js'
 import type { McpHub } from '../mcp/hub.js'
 
 /**
@@ -34,6 +35,7 @@ export function makeSessionRunner(opts: {
       budgetFor: (k) => budgetFor(k, config()),
       routeModel: () => config().agent.cheapModel || undefined,
       thinkingLevel: (m) => thinkingFor(config(), m).level,
+      modePolicy: () => policyFor(config().modes, s.config.customMode),
       extraTools: () => hub.tools(),
       mcpSummary: () => hub.summary(),
     },

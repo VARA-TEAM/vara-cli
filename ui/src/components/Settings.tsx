@@ -3,11 +3,12 @@ import { LangContext, useT, type Lang } from '../i18n'
 import { useResource } from '../hooks'
 import { usePrefs } from '../prefs'
 import { THEMES, type Theme } from '../theme'
-import type { Grant, McpState, Me, ProvidersState, SettingsState, SkillRow } from '../types'
+import type { Grant, McpState, Me, ModeRow, ProvidersState, SettingsState, SkillRow } from '../types'
 import { AgentPanel, Row } from './Agent'
 import { McpPanel } from './Mcp'
 import { Providers } from './Providers'
 import { SkillsPanel } from './Skills'
+import { ModesPanel } from './Modes'
 import { Icon, Switch } from './ui'
 
 export type SettingsTab = 'models' | 'agent' | 'skills' | 'mcp' | 'look' | 'about'
@@ -137,6 +138,7 @@ export function Settings({ me, tab, onTab, theme, onTheme, onToggleSidebar }: { 
   const active = tabs.includes(tab) ? tab : tabs[0]!
   const providers = useResource<ProvidersState>(owner && (active === 'models' || active === 'agent') ? '/api/manage/providers' : null)
   const settings = useResource<SettingsState>(owner && active === 'agent' ? '/api/manage/settings' : null)
+  const modes = useResource<ModeRow[]>(owner && active === 'agent' ? '/api/manage/modes' : null)
   const skills = useResource<SkillRow[]>(owner && active === 'skills' ? '/api/manage/skills' : null)
   const mcp = useResource<McpState>(owner && active === 'mcp' ? '/api/manage/mcp' : null)
   const modelIds = providers.data?.providers.find((p) => p.active)?.models.map((m) => m.id) ?? []
@@ -162,7 +164,12 @@ export function Settings({ me, tab, onTab, theme, onTheme, onToggleSidebar }: { 
         <div className="settings-body" role="tabpanel">
           {providers.error && owner && (active === 'models' || active === 'agent') ? <div className="inline-error">{providers.error}</div> : null}
           {active === 'models' ? <Providers state={providers.data} reload={providers.reload} set={providers.set} /> : null}
-          {active === 'agent' ? <AgentPanel state={settings.data} set={settings.set} models={modelIds} /> : null}
+          {active === 'agent' ? (
+            <>
+              <AgentPanel state={settings.data} set={settings.set} models={modelIds} />
+              <ModesPanel modes={modes.data} set={modes.set} />
+            </>
+          ) : null}
           {active === 'skills' ? <SkillsPanel skills={skills.data} set={skills.set} /> : null}
           {active === 'mcp' ? <McpPanel state={mcp.data} set={mcp.set} reload={mcp.reload} /> : null}
           {active === 'look' ? <Look theme={theme} onTheme={onTheme} owner={owner} /> : null}

@@ -15,6 +15,8 @@ export interface PromptOptions {
   mcp?: string
   /** Running as a sub-agent: report back concisely, no further delegation. */
   subagent?: boolean
+  /** Limits of the session's custom mode (see modes.ts: describePolicy). */
+  modeNote?: string
 }
 
 export function buildSystemPrompt(session: Session, opts: PromptOptions = {}): string {
@@ -114,7 +116,9 @@ ${acceptance}
 ${kindBlock}
 
 ${modeBlock}
-
+${opts.modeNote ? `
+${opts.modeNote}
+` : ''}
 ${publishBlock}
 
 ${platformBlock}
@@ -199,7 +203,8 @@ function conversationPrompt(session: Session, intent: 'chat' | 'question', opts:
 Working directory: ${config.cwd}
 Platform: ${platformLine()}
 ${modeNote}
-
+${opts.modeNote ? `${opts.modeNote}
+` : ''}
 # Your job right now
 ${job}
 

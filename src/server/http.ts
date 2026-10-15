@@ -56,6 +56,8 @@ export interface RunningServer {
 export const newOwnerToken = (): string => randomBytes(32).toString('base64url')
 
 const MAX_BODY = 1_000_000
+/** plan, build or the name of a custom mode (validated against the config by the host). */
+const MODE_NAME = /^[a-z][a-z0-9_-]{0,29}$/
 const sha = (s: string): Buffer => createHash('sha256').update(s).digest()
 
 function safeEqual(a: string, b: string): boolean {
@@ -238,7 +240,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (!b && method === 'POST') {
         const body = await readBody(req)
         const kind = body['kind'] === 'task' || body['kind'] === 'goal' || body['kind'] === 'auto' ? body['kind'] : undefined
-        const mode = body['mode'] === 'plan' || body['mode'] === 'build' ? body['mode'] : undefined
+        const mode = typeof body['mode'] === 'string' && MODE_NAME.test(body['mode']) ? body['mode'] : undefined
         return reply(await host.create(p, { message: str(body['message']), ...(mode ? { mode } : {}), ...(kind ? { kind } : {}), ...(typeof body['model'] === 'string' ? { model: str(body['model'], 200) } : {}) }))
       }
       if (b && !c && method === 'GET') return reply(await host.get(p, b))
@@ -246,7 +248,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       if (b && c === 'pause' && method === 'POST') return reply(await host.pause(p, b))
       if (b && c === 'mode' && method === 'POST') {
         const mode = (await readBody(req))['mode']
-        if (mode !== 'plan' && mode !== 'build') return json(res, 400, { error: 'mode must be plan or build' })
+        if (typeof mode !== 'string' || !MODE_NAME.test(mode)) return json(res, 400, { error: 'mode must be plan, build or the name of a custom mode' })
         return reply(await host.setMode(p, b, mode))
       }
       if (b && c === 'model' && method === 'POST') return reply(await host.setModel(p, b, str((await readBody(req))['model'], 200)))

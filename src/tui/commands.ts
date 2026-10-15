@@ -14,7 +14,7 @@ export const COMMANDS: CommandDef[] = [
   { name: '/palette', description: 'Open the command palette', hint: 'Ctrl+K' },
   { name: '/sessions', args: '[--all]', description: 'List sessions in this directory' },
   { name: '/resume', args: '<id>', description: 'Switch to a saved session', needsArgs: true },
-  { name: '/mode', args: 'plan|build', description: 'Switch the permission mode', hint: 'Tab' },
+  { name: '/mode', args: 'plan|build|<custom>', description: 'Switch the mode (your own modes: config.json → "modes", or Settings in the web UI)', hint: 'Tab' },
   { name: '/kind', args: 'auto|task|goal', description: 'auto = the agent reads each message; task/goal pins it', hint: 'Ctrl+G' },
   { name: '/providers', description: 'Add providers, fetch models, test them (green = works)' },
   { name: '/provider', args: '<name> [model]', description: 'Switch provider', needsArgs: true },

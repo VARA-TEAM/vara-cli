@@ -8,6 +8,7 @@ import { ghTool, gitCommitTool, gitDiffTool, gitLogTool, gitStatusTool } from '.
 import { askUserTool, completeTool, delegateTool, escalateTool, skillTool } from './control-tools.js'
 import { checkCommandAllowed } from './permissions.js'
 import { scrubAll } from '../security/redact.js'
+import { filterByPolicy, type ModePolicy } from '../core/modes.js'
 
 const ALL_TOOLS: Tool<never>[] = [
   readFileTool,
@@ -68,6 +69,8 @@ export interface ToolSet {
   hasSkills?: boolean
   /** Sub-agents may not delegate. */
   canDelegate?: boolean
+  /** A custom mode's restrictions: refused tools are hidden from the model. */
+  policy?: ModePolicy
 }
 
 /**
@@ -91,7 +94,7 @@ export function toolsFor(intent: ToolIntent, mode: 'plan' | 'build', set: ToolSe
     const readOnlyOnly = intent === 'question' || mode === 'plan'
     list = [...list, ...opts.extra.filter((t) => !readOnlyOnly || t.readonly)]
   }
-  return list
+  return filterByPolicy(list, opts.policy)
 }
 
 export function toolDefinitions(mode: 'plan' | 'build', intent: ToolIntent = 'task', set: ToolSet | boolean = false): Array<Record<string, unknown>> {

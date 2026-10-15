@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Mode } from '../core/types.js'
+import type { ModePolicy } from '../core/modes.js'
 
 export interface ToolContext {
   cwd: string
@@ -10,6 +11,8 @@ export interface ToolContext {
   /** Environment for spawned processes (base env + injected scoped secrets). */
   env: Record<string, string>
   allowPublish: boolean
+  /** Restrictions of the session's custom mode (only ever narrows plan/build). */
+  modePolicy?: ModePolicy
   /** Skills available to this session (for the `skill` tool). */
   skills?: Array<{ name: string; description: string; body: string }>
   /** Run sub-agents in parallel (absent inside a sub-agent: no recursion). */

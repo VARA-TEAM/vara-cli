@@ -1,5 +1,6 @@
 import type { Mode } from '../core/types.js'
 import type { Tool, ToolContext } from './types.js'
+import { commandPolicyDenial, toolPolicyDenial } from '../core/modes.js'
 
 /**
  * Permission enforcement.
@@ -32,6 +33,12 @@ export function checkToolAllowed(tool: Tool<never>, mode: Mode): Denial {
   return { denied: false, reason: '' }
 }
 
+/** A user-defined mode can only add refusals on top of plan/build — see core/modes.ts. */
+export function checkModePolicy(tool: Tool<never>, ctx: ToolContext): Denial {
+  const reason = toolPolicyDenial(tool.name, ctx.modePolicy)
+  return reason ? { denied: true, reason } : { denied: false, reason: '' }
+}
+
 /** Shell-level policy. Used by the shell tool itself and by any command runner. */
 export function checkCommandAllowed(command: string, ctx: ToolContext): Denial {
   if (FORBIDDEN_COMMANDS.test(command)) {
@@ -45,6 +52,9 @@ export function checkCommandAllowed(command: string, ctx: ToolContext): Denial {
         'Ask the user to enable publishing, or use ask_user.',
     }
   }
+  // Last, and only ever stricter: the custom mode's command lists.
+  const reason = commandPolicyDenial(command, ctx.modePolicy)
+  if (reason) return { denied: true, reason }
   return { denied: false, reason: '' }
 }
 
@@ -57,6 +67,9 @@ export interface Decision {
 export function authorize(tool: Tool<never>, args: unknown, ctx: ToolContext): Decision {
   const modeCheck = checkToolAllowed(tool, ctx.mode)
   if (modeCheck.denied) return { allowed: false, reason: modeCheck.reason }
+
+  const policyCheck = checkModePolicy(tool, ctx)
+  if (policyCheck.denied) return { allowed: false, reason: policyCheck.reason }
 
   const guard = tool.guard?.(args, ctx)
   if (guard) return { allowed: false, reason: guard }

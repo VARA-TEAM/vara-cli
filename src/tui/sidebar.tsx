@@ -4,6 +4,7 @@ import type { Session } from '../core/types.js'
 import type { VaraConfig, SidebarSections } from '../config/config.js'
 import type { ContextStatus } from '../core/context.js'
 import { formatTokens } from '../core/context.js'
+import { modeLabel } from '../core/modes.js'
 import { formatUsd } from '../llm/cost.js'
 import { activeProviderName } from '../config/providers.js'
 import { percentBar } from './format.js'
@@ -100,7 +101,7 @@ export function Sidebar({
               {intent.toUpperCase()}
             </Text>
             <Text color={theme.muted}> {glyph.sep} </Text>
-            <Text color={session.config.mode === 'plan' ? theme.plan : theme.build}>{session.config.mode.toUpperCase()}</Text>
+            <Text color={session.config.mode === 'plan' ? theme.plan : theme.build}>{modeLabel(session.config).toUpperCase()}</Text>
             <Text color={theme.muted}> {glyph.sep} turn {session.usage.turns}</Text>
           </Text>
           <Text color={theme.muted} wrap="truncate-end">
