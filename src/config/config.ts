@@ -222,6 +222,9 @@ const ConfigSchema = z.object({
       maxOutputTokens: z.number().int().positive().default(4096),
       /** Fold old turns into a cheap-model summary once they are large (needs a cheap model; see docs/COST.md). */
       summarize: z.boolean().default(true),
+      /** Fold old turns into a summary automatically once the conversation fills this share of the window (any model). */
+      autoCompact: z.boolean().default(true),
+      autoCompactAt: z.number().min(0.4).max(0.95).default(0.8),
       /** Characters of one command's output kept in the conversation; the rest stays retrievable with tool_output. */
       toolOutputChars: z.number().int().min(1000).max(12000).default(6000),
       /** Long files read without a range come back as an outline + first lines. */

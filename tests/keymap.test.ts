@@ -222,8 +222,8 @@ describe('resolveKey — mouse and arrow scrolling', () => {
     expect(resolveKey('[<65;10;5M', key(), session)).toEqual({ type: 'wheel', delta: 1 })
     // Several reports can arrive in one chunk.
     expect(resolveKey('[<65;10;5M\u001b[<65;10;5M\u001b[<65;1;1M', key(), session)).toEqual({ type: 'wheel', delta: 3 })
-    // Clicks, drags and releases are swallowed silently.
-    expect(resolveKey('[<0;10;5M', key(), session)).toEqual({ type: 'none' })
+    // Left presses are clicks (handled by the regions); releases and drags are swallowed silently.
+    expect(resolveKey('[<0;10;5M', key(), session)).toEqual({ type: 'click', x: 9, y: 4 })
     expect(resolveKey('[<0;10;5m', key(), session)).toEqual({ type: 'none' })
     expect(resolveKey('[<32;10;5M', key(), welcome)).toEqual({ type: 'none' })
     expect(resolveKey('[<64;10;5M', key(), ctx({ overlay: 'palette' }))).toEqual({ type: 'none' })

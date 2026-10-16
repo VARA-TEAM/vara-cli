@@ -591,6 +591,7 @@ export class Engine {
 
       this.injectFollowUps()
       this.checkLimits()
+      await this.autoCompact()
       await this.maybeSummarise()
       this.compactIfNeeded()
       const outcome = await this.runTurn()
@@ -1393,9 +1394,41 @@ export class Engine {
   }
 
   /** R5: fold old turns into one cheap-model summary (only when a cheaper model exists). */
-  private async maybeSummarise(): Promise<void> {
+  /**
+   * Fold the older conversation into a summary NOW, with the session's own model when no cheaper one is set up.
+   * Used by `/compact [focus]` and by auto-compact; the cost engine's quiet summaries go through the same path.
+   */
+  async compactNow(focus?: string, auto = false): Promise<{ folded: number; savedTokens: number } | null> {
+    this.compactFocus = focus?.trim() || undefined
+    try {
+      const before = this.session.summary?.foldedTokens ?? 0
+      const beforeMsgs = this.session.summary?.foldedMessages ?? 0
+      await this.maybeSummarise({ force: true, auto })
+      const s = this.session.summary
+      if (!s || (s.foldedMessages === beforeMsgs && s.foldedTokens === before)) return null
+      return { folded: s.foldedMessages, savedTokens: Math.max(0, s.foldedTokens - before) }
+    } finally {
+      this.compactFocus = undefined
+    }
+  }
+
+  /** Auto-compact: when the history nears the window, fold it before the provider has to refuse the request. */
+  private async autoCompact(): Promise<void> {
+    const cs = this.contextSettings?.()
+    if (cs?.autoCompact === false || this.depth > 0 || this.ephemeral) return
+    const budget = contextStatus(this.session, cs ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens }).requestBudgetTokens
+    let total = 0
+    for (const m of this.session.transcript) if (!m.summarized) total += estimateTokens(m.content)
+    if (total < budget * (cs?.autoCompactAt ?? 0.8)) return
+    const r = await this.compactNow(undefined, true)
+    if (r) this.emit({ type: 'compacted', folded: r.folded, savedTokens: r.savedTokens, auto: true })
+  }
+
+  private compactFocus: string | undefined
+
+  private async maybeSummarise(opts: { force?: boolean; auto?: boolean } = {}): Promise<void> {
     const cs = this.options.costSettings?.()
-    if (!cs?.summarize || this.depth > 0 || this.ephemeral) return
+    if (!opts.force && (!cs?.summarize || this.depth > 0 || this.ephemeral)) return
     const sessionModel = this.model ?? this.session.config.model ?? ''
     const d = decideRoute({
       settings: this.routerSettings(),
@@ -1412,19 +1445,22 @@ export class Engine {
       purpose: 'summary',
     })
     const provider = d.provider ? this.options.providerFor?.(d.provider) : this.provider
-    if (!provider || (d.model === sessionModel && !d.provider)) return // no cheaper model: compaction does the job
+    if (!opts.force && (!provider || (d.model === sessionModel && !d.provider))) return // no cheaper model: compaction does the job
+    const useProvider = provider ?? this.provider
     const budget = contextStatus(this.session, this.contextSettings?.() ?? { maxOutputTokens: DEFAULT_CONFIG.context.maxOutputTokens }).requestBudgetTokens
     const msgs = this.session.transcript
-    const plan = planSummary(msgs, { keepRecent: 10, minTokens: Math.min(Math.max(12_000, Math.floor(budget * 0.15)), 30_000) })
+    const plan = planSummary(msgs, opts.force ? { keepRecent: 6, minTokens: 1 } : { keepRecent: 10, minTokens: Math.min(Math.max(12_000, Math.floor(budget * 0.15)), 30_000) })
     if (!plan) return
     const previous = this.session.summary?.text
     let text = ''
     let usage: NormalizedUsage | undefined
     this.abort = new AbortController()
     try {
-      for await (const ev of provider.chat({
+      for await (const ev of useProvider.chat({
         system: SUMMARY_SYSTEM,
-        messages: [{ role: 'user', content: renderForSummary(msgs, plan, previous) }],
+        messages: [{ role: 'user', content: renderForSummary(msgs, plan, previous) + (this.compactFocus ? `
+
+The user asked to keep special attention on: ${this.compactFocus.slice(0, 300)}` : '') }],
         tools: [],
         model: d.model,
         maxTokens: 900,
@@ -1439,7 +1475,7 @@ export class Engine {
     }
     this.session.usage.modelCalls += 1
     this.lastModelUsed = d.model
-    this.currentProvider = provider
+    this.currentProvider = useProvider
     this.recordModelCall(usage, 'summary of older turns', { tier: d.tier, phase: 'summarise', overhead: true })
     const summary = scrubAll(text).trim()
     if (!summary) return

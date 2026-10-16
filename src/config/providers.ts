@@ -263,6 +263,8 @@ export function contextSettingsFor(config: VaraConfig, modelId: string): Context
   return {
     ...(windowTokens ? { windowTokens, windowOrigin: m?.contextSource === 'discovered' ? ('detected' as const) : ('configured' as const) } : {}),
     maxOutputTokens: reserve,
+    autoCompact: config.context.autoCompact,
+    autoCompactAt: config.context.autoCompactAt,
   }
 }
 

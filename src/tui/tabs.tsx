@@ -1,5 +1,6 @@
-import React from 'react'
-import { Box, Text } from 'ink'
+import React, { useRef } from 'react'
+import { Box, Text, type DOMElement } from 'ink'
+import { useClickable } from './clicks.js'
 import type { SessionState } from '../core/types.js'
 import { stateColor, theme } from './theme.js'
 
@@ -23,28 +24,24 @@ export function TabBar({
   tabs,
   activeId,
   homeActive = false,
+  onSelect,
+  onNew,
 }: {
   tabs: TabInfo[]
   activeId: string
   /** The start screen is open as a "+ New" tab. */
   homeActive?: boolean
+  /** A tab was clicked. */
+  onSelect?: (id: string) => void
+  /** The "+" was clicked. */
+  onNew?: () => void
 }): React.ReactElement {
   return (
     <Box marginBottom={0}>
-      {tabs.map((tab) => {
-        const active = !homeActive && tab.id === activeId
-        const label = truncateLabel(tab.label, 28)
-        return (
-          <Text key={tab.id} inverse={active}>
-            {' '}
-            <Text color={stateColor(tab.state)} bold>
-              ●
-            </Text>{' '}
-            <Text bold={active}>{label}</Text>{' '}
-          </Text>
-        )
-      })}
-      <Text inverse={homeActive} color={homeActive ? undefined : theme.muted}>{homeActive ? ' + New ' : ' + '}</Text>
+      {tabs.map((tab) => (
+        <Tab key={tab.id} tab={tab} active={!homeActive && tab.id === activeId} onClick={() => onSelect?.(tab.id)} />
+      ))}
+      <NewTab homeActive={homeActive} onClick={() => onNew?.()} />
     </Box>
   )
 }
@@ -55,4 +52,32 @@ export function nextTabId(tabs: TabInfo[], activeId: string, delta: number): str
   const idx = tabs.findIndex((t) => t.id === activeId)
   const next = (idx + delta + tabs.length) % tabs.length
   return tabs[next]?.id ?? activeId
+}
+
+function Tab({ tab, active, onClick }: { tab: TabInfo; active: boolean; onClick: () => void }): React.ReactElement {
+  const ref = useRef<DOMElement>(null)
+  useClickable(ref, onClick)
+  return (
+    <Box ref={ref}>
+      <Text inverse={active}>
+        {' '}
+        <Text color={stateColor(tab.state)} bold>
+          ●
+        </Text>{' '}
+        <Text bold={active}>{truncateLabel(tab.label, 28)}</Text>{' '}
+      </Text>
+    </Box>
+  )
+}
+
+function NewTab({ homeActive, onClick }: { homeActive: boolean; onClick: () => void }): React.ReactElement {
+  const ref = useRef<DOMElement>(null)
+  useClickable(ref, onClick)
+  return (
+    <Box ref={ref}>
+      <Text inverse={homeActive} color={homeActive ? undefined : theme.muted}>
+        {homeActive ? ' + New ' : ' + '}
+      </Text>
+    </Box>
+  )
 }

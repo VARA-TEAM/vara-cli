@@ -20,6 +20,9 @@ export interface ContextSettings {
   windowOrigin?: ContextSource
   /** Reserve for the model's answer; never spend it on history. */
   maxOutputTokens: number
+  /** Fold old turns into a summary on its own once the history fills `autoCompactAt` of the request budget. Default on. */
+  autoCompact?: boolean
+  autoCompactAt?: number
 }
 
 export type ContextSource = 'configured' | 'detected' | 'fallback'

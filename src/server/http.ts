@@ -333,6 +333,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const task = (await readBody(req))['id']
         return reply(await host.cancelAgents(p, b, typeof task === 'string' && task ? str(task, 40) : undefined))
       }
+      if (b && c === 'compact' && method === 'POST') {
+        const focus = (await readBody(req))['focus']
+        return reply(await host.compact(p, b, typeof focus === 'string' && focus.trim() ? str(focus, 300) : undefined))
+      }
       if (b && c === 'kind' && method === 'POST') {
         const kind = (await readBody(req))['kind']
         if (kind !== 'task' && kind !== 'goal') return json(res, 400, { error: 'kind must be task or goal' })

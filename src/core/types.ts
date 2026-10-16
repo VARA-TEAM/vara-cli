@@ -296,6 +296,7 @@ export type EngineEvent =
   | { type: 'evidence'; record: EvidenceRecord }
   | { type: 'verification'; ok: boolean; detail: string }
   | { type: 'completed'; summary: string }
+  | { type: 'compacted'; folded: number; savedTokens: number; auto: boolean }
   | {
       type: 'session_summary'
       summary: string

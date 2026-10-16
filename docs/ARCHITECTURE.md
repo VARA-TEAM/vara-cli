@@ -378,6 +378,8 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 | `/mcp` | Settings → MCP servers (add, switch, reconnect, remove) | same |
 | `/connectors` | Settings → Connectors (guided token entry) | same |
 | `/think` | Thinking menu in the message box | same |
+| `/compact` | /compact in the message box or the palette; auto-compact runs on its own | same |
+| `/autocompact` | On by default; the web switch for it is not built yet (config context.autoCompact) | planned |
 | `/cost` | Side panel → Cost, and the status bar | same |
 | `/limit` | Not in the browser yet: arrives with the cost-engine board | planned |
 | `/savings` | Not in the browser yet: the Cost tab shows this session’s savings; the 7-day and all-time view arrives with the cost-engine board | planned |
@@ -419,6 +421,7 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 | `switch-tab` | Alt ← / Alt →; Alt Shift ← / → moves a tab | same |
 | `scroll` | Page Up / Page Down in the conversation | same |
 | `scroll-line` | Arrow keys and the wheel | same |
+| `click` | Click (the browser is mouse-first) | same |
 | `wheel` | Mouse wheel and touch scrolling | same |
 | `scroll-latest` | Ctrl G, or the "New messages" button | same |
 | `toggle-mode` | Alt M (Tab stays for moving focus) | adapted |

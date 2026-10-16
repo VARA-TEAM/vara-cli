@@ -63,6 +63,16 @@ export class SessionRunner {
     }
   }
 
+  /** `/compact [focus]`: fold the older conversation into a summary now. Refused while a run is going. */
+  async compact(focus?: string): Promise<{ folded: number; savedTokens: number } | null | 'busy'> {
+    if (this.running) return 'busy'
+    const engine = new Engine({ session: this.session, provider: this.provider, model: this.model, contextSettings: this.contextSettings, ...this.extras, onEvent: this.onEvent })
+    const result = await engine.compactNow(focus)
+    await saveSession(this.session)
+    if (result) this.onEvent({ type: 'compacted', folded: result.folded, savedTokens: result.savedTokens, auto: false })
+    return result
+  }
+
   async start(): Promise<Session> {
     if (this.running) return this.session
     this.running = true

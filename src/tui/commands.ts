@@ -27,6 +27,8 @@ export const COMMANDS: CommandDef[] = [
   { name: '/agents', args: '[cancel <id|all> | report | list]', description: 'Sub-agents of this session: roles, status, cost, reports; cancel one or all' },
   { name: '/connectors', args: '[add <id>]', description: 'Ready-made connectors (GitHub, Notion, Sentry…); add one with its token' },
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
+  { name: '/compact', description: 'Fold the older conversation into a summary now (optional: what to keep: /compact keep the DB schema decisions)' },
+  { name: '/autocompact', description: 'Turn automatic compaction on or off, or set the share of the window that triggers it: /autocompact on | off | 70' },
   { name: '/cost', description: 'What this session cost — and what VARA saved you' },
   { name: '/limit', args: '[5000000 tokens per 5h | $20 per month | percent 37 | eco on|off | off]', description: 'Your limit: see how much is used and how long it lasts, or set it' },
   { name: '/savings', description: 'What VARA saved: this session, 7 days, all time (with the method)' },

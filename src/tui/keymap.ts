@@ -1,3 +1,4 @@
+import { parseClick } from './clicks.js'
 /**
  * Single authoritative keyboard-routing policy for the TUI.
  *
@@ -61,6 +62,7 @@ export type KeyAction =
   | { type: 'scroll'; dir: -1 | 1 }
   | { type: 'scroll-line'; dir: -1 | 1 }
   | { type: 'wheel'; delta: number }
+  | { type: 'click'; x: number; y: number }
   | { type: 'scroll-latest' }
   | { type: 'toggle-mode' }
   | { type: 'toggle-kind' }
@@ -109,6 +111,8 @@ export function resolveKey(raw: string, key: KeyEvent, ctx: KeyContext): KeyActi
   // 2. Mouse: the wheel scrolls the transcript; everything else is ignored.
   const wheel = parseMouse(raw)
   if (wheel !== null) {
+    const click = parseClick(raw)
+    if (click && !ctx.overlay) return { type: 'click', ...click }
     if (ctx.overlay || ctx.view !== 'session' || wheel === 0) return { type: 'none' }
     return { type: 'wheel', delta: wheel }
   }

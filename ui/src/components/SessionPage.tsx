@@ -127,6 +127,19 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
       const levels = thinkRow.thinking.levels
       add({ id: 'think', slash: 'think', args: levels.join('|'), options: levels, group: 'session', title: t('cmd_think'), description: thinkRow.thinking.note, run: (a) => (levels.includes(a as ThinkLevel) ? setThink(a as ThinkLevel) : toast(t('cmd_usage', { u: `/think ${levels.join(' | ')}` }), 'err')) })
     }
+    add({
+      id: 'compact',
+      slash: 'compact',
+      args: t('cmd_compactArgs'),
+      group: 'session',
+      title: t('cmd_compact'),
+      description: t('cmd_compactHelp'),
+      run: (a) =>
+        void run(async () => {
+          const r = (await post('/compact', a ? { focus: a } : {})) as { folded?: number; savedTokens?: number } | null
+          toast(r ? t('cmd_compactDone', { n: String(r.folded ?? 0), tokens: (r.savedTokens ?? 0).toLocaleString() }) : t('cmd_compactNothing'), r ? 'ok' : 'err')
+        }),
+    })
     add({ id: 'cost', slash: 'cost', group: 'session', title: t('cmd_cost'), description: t('cmd_costHelp'), run: () => openPanel('cost') })
     add({ id: 'context', slash: 'context', group: 'session', title: t('cmd_context'), description: t('cmd_contextHelp'), run: () => openPanel('cost') })
     add({ id: 'status', slash: 'status', group: 'session', title: t('cmd_status'), description: t('cmd_statusHelp'), run: () => openPanel('proof') })

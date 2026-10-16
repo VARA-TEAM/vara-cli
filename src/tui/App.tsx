@@ -18,6 +18,7 @@ import { EntryView, entryRows, firstLine, truncate, type Entry } from './entries
 import { appendEntry, replayTranscript, resumeBanner } from './history.js'
 import { CommandPalette } from './palette.js'
 import { SessionBrowser } from './sessions.js'
+import { dispatchClick } from './clicks.js'
 import { TabBar, nextTabId, type TabInfo } from './tabs.js'
 import { Sidebar, SIDEBAR_WIDTH } from './sidebar.js'
 import { PromptBox } from './prompt.js'
@@ -339,6 +340,9 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         case 'usage_limit':
           push({ kind: 'note', text: event.message, color: event.level === 'warn' ? 'yellow' : 'red', group: 'limit' })
           break
+        case 'compacted':
+          push({ kind: 'note', text: `${event.auto ? 'auto-compact' : 'compact'}: ${event.folded} messages folded into a summary (~${event.savedTokens.toLocaleString()} tokens fewer on every later request)`, color: 'gray', group: 'compact' })
+          break
         case 'route':
           // Every decision is in the audit log; the screen shows the ones worth reading: a tier change or an escalation.
           if (event.reason.includes('escalat') || event.reason.includes('eco')) push({ kind: 'note', text: `model: ${event.reason}`, color: 'gray', group: 'route' })
@@ -567,6 +571,22 @@ export function App({ session, provider: initialProvider, config: initialConfig,
     [attachSession, closeHome],
   )
 
+  /** A tab was clicked: the same switch the keyboard does, to that tab. */
+  const selectTab = useCallback(
+    (id: string) => {
+      if (homeOpenRef.current) closeHome()
+      if (id === activeIdRef.current) return
+      const next = tabsRef.current.find((s) => s.id === id)
+      if (!next) return
+      inputCacheRef.current[activeIdRef.current] = inputRef.current
+      void saveSession(sessionRef.current ?? next).then(() => {
+        attachSession(next)
+        setInput(inputCacheRef.current[next.id] ?? '')
+      })
+    },
+    [attachSession, closeHome],
+  )
+
   /**
    * Create a session from an entered objective AND start it — the single path
    * behind the welcome screen, Ctrl+N and `/new <objective>`. Before this,
@@ -782,6 +802,9 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         setHomeSel(Math.max(-1, next))
         return
       }
+      case 'click':
+        dispatchClick(action.x, action.y)
+        return
       case 'wheel':
       case 'scroll-line': {
         const step = action.type === 'wheel' ? -action.delta * 3 : -action.dir
@@ -1048,6 +1071,34 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         void writeFile(file, md.join('\n'), 'utf8')
           .then(() => push({ kind: 'note', text: `exported → ${file}`, color: 'green' }))
           .catch((err: Error) => push({ kind: 'note', text: `export failed: ${err.message}`, color: 'red' }))
+        return
+      }
+      case 'compact': {
+        if (!cur || !runnerRef.current) {
+          push({ kind: 'note', text: 'no session yet', color: 'gray' })
+          return
+        }
+        push({ kind: 'note', text: 'compacting…', color: 'gray', group: 'compact' })
+        void runnerRef.current.compact(rest.join(' ')).then((r) => {
+          if (r === 'busy') push({ kind: 'note', text: 'the agent is working: stop it first (Esc), then /compact', color: 'yellow' })
+          else if (!r) push({ kind: 'note', text: 'nothing worth folding yet (the conversation is still short)', color: 'gray', group: 'compact' })
+          refresh()
+        })
+        return
+      }
+      case 'autocompact': {
+        const arg = (rest[0] ?? '').toLowerCase()
+        const pct = Number(arg.replace('%', ''))
+        const next = structuredClone(config)
+        if (arg === 'on' || arg === 'off') next.context.autoCompact = arg === 'on'
+        else if (Number.isFinite(pct) && pct >= 40 && pct <= 95) (next.context.autoCompact = true), (next.context.autoCompactAt = pct / 100)
+        else {
+          push({ kind: 'note', text: `auto-compact is ${config.context.autoCompact ? `on, at ${Math.round(config.context.autoCompactAt * 100)}% of the window` : 'off'}. Use /autocompact on | off | 40-95`, color: 'gray' })
+          return
+        }
+        setConfig(next)
+        void persistConfig(next)
+        push({ kind: 'note', text: `auto-compact ${next.context.autoCompact ? `on, at ${Math.round(next.context.autoCompactAt * 100)}%` : 'off'}`, color: 'gray' })
         return
       }
       case 'cost': {
@@ -1461,7 +1512,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
     const notes = entries.slice(-3)
     return (
       <Box flexDirection="column" paddingX={1} height={frameHeight}>
-        {tabs.length > 0 ? <TabBar tabs={tabInfos} activeId={activeId} homeActive /> : null}
+        {tabs.length > 0 ? <TabBar tabs={tabInfos} activeId={activeId} homeActive onSelect={selectTab} onNew={openHome} /> : null}
         {overlays ? (
           overlays
         ) : (
@@ -1534,7 +1585,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
 
   return (
     <Box flexDirection="column" paddingX={1} height={frameHeight}>
-      {showTabs ? <TabBar tabs={tabInfos} activeId={activeId} /> : null}
+      {showTabs ? <TabBar tabs={tabInfos} activeId={activeId} onSelect={selectTab} onNew={openHome} /> : null}
       {/* Header: identity + state, always visible */}
       <Box justifyContent="space-between" flexShrink={0}>
         <Box flexShrink={1}>
