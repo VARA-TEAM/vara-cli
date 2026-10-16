@@ -30,7 +30,7 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 
 | Hermes | VARA | Note |
 | --- | --- | --- |
-| Messaging gateway (Telegram, Discord, Slack, WhatsApp, Signal) | 🟡 **new** | Telegram only, off by default, one paired private chat, approvals as buttons ([GATEWAY.md](GATEWAY.md)). Tested against a fake Telegram, **not yet the real service**. Discord and the rest: not built. |
+| Messaging gateway (Telegram, Discord, Slack, WhatsApp, Signal) | 🟡 **new** | Telegram, Discord and Slack, each optional and independent, set up from Settings → Gateways or `vara gateway <name> setup` ([GATEWAY.md](GATEWAY.md)). Tested against fakes, **not yet the real services**. WhatsApp, Signal, Matrix: not built. |
 | Terminal backends (Docker, SSH, Modal, Daytona…) | ❌ | Tools run on the host. Needed before any hosted offering. |
 | Scheduled runs that deliver to a chat | 🟡 | `vara schedule` runs and logs; no delivery. |
 | Background process registry with logs | ✅ **new** | `shell` with `background:true`, and the `process` tool (list / log / stop), per session, killed when VARA exits. |
@@ -56,5 +56,5 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 1. Measure the prompt changes and compaction with `vara eval` on one real model, and publish the table (needs a model key; not done).
 2. Lazy tool schemas (`tool_search`) (not done).
 3. A Docker backend for tool execution (not done; Docker is not installed on the development machine, so it could not be verified).
-4. Try the Telegram bridge against the real service, then Discord.
+4. Try the Telegram, Discord and Slack bridges against the real services.
 5. Delivery of scheduled results to a chat.

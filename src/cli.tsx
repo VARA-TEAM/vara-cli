@@ -148,7 +148,7 @@ async function main(): Promise<void> {
     return
   }
   if (cmd === 'gateway') {
-    const { gatewayCommand } = await import('./gateway/telegram-run.js')
+    const { gatewayCommand } = await import('./gateway/run.js')
     await gatewayCommand(args.slice(1))
     return
   }

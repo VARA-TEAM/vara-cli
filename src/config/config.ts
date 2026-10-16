@@ -282,7 +282,13 @@ const ConfigSchema = z.object({
   /** Recurring headless runs (schedule/). Off until you turn it on; only you (the local owner) can add or run jobs. */
   schedule: ScheduleSchema.default({}),
   /** Talk to VARA from a messaging app. Off until you turn it on and pair one chat (see docs/GATEWAY.md). */
-  gateway: z.object({ telegram: z.object({ enabled: z.boolean().default(false) }).default({}) }).default({}),
+  gateway: z
+    .object({
+      telegram: z.object({ enabled: z.boolean().default(false) }).default({}),
+      discord: z.object({ enabled: z.boolean().default(false) }).default({}),
+      slack: z.object({ enabled: z.boolean().default(false) }).default({}),
+    })
+    .default({}),
 })
 
 export type VaraConfig = z.infer<typeof ConfigSchema>

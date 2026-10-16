@@ -6,6 +6,9 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## 2026-10-16 · v0.5.7 — Telegram, Discord and Slack gateways, set up by you
+- **Several messaging platforms, set up by you.** Telegram, Discord and Slack are built in; each is optional and independent, with its own card in Settings → Gateways (the exact steps, its token fields, a pairing code, an on/off switch) and `vara gateway <name> setup`. Shared rules: direct messages only, one paired chat, strangers get no reply, buttons for approvals, outbound connections only. In Slack write `!` instead of `/`. Tested against fakes, not the real services. Adding a platform is one description in `src/gateway/providers.ts`.
+
 ## 2026-10-16 · v0.5.6 — set up gateways from Settings or the terminal
 - **Gateway setup in the interfaces themselves.** Settings → Gateways walks through token → pairing code → on/off with no restart (the token is checked with Telegram and kept in the vault, never shown); `vara gateway telegram setup` does the same in a terminal with a hidden prompt; `/gateway` shows the status and makes a code inside the terminal interface.
 

@@ -23,8 +23,7 @@ import { VaraHost } from './host.js'
 import { newOwnerToken, startServer } from './http.js'
 import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
 import { PROVIDERS } from './tunnel.js'
-import { makeGatewayControl } from '../gateway/controller.js'
-import { startTelegram, telegramToken } from '../gateway/telegram-run.js'
+import { hostGateway } from '../gateway/run.js'
 import { askExposure, exposureArgs, exposureDecided, publicIp } from './expose.js'
 
 /** Stands in until the owner adds a provider in the browser; every request says what to do. */
@@ -163,15 +162,7 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       openInvites: access.listInvites().filter((i) => !i.revoked && Date.parse(i.expiresAt) > Date.now() && i.uses < i.maxUses).length,
     }
   }
-  const gateway = makeGatewayControl({
-    config: () => config,
-    token: telegramToken,
-    saveToken: async (t) => {
-      await setSecret('TELEGRAM_BOT_TOKEN', t)
-      registerSecret(t, 'TELEGRAM_BOT_TOKEN')
-    },
-    start: (token) => startTelegram({ token, host, log: (l) => say(l) }),
-  })
+  const gateway = hostGateway(host, () => config, (l) => say(l))
   const manager = new Manager({
     gateway,
     config: () => config,
@@ -298,7 +289,7 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       { name: 'stop sessions', run: () => host.closeAll() },
       { name: 'close the public link', run: () => sharing?.stop() },
       { name: 'stop accepting connections', run: () => server.close() },
-      { name: 'stop the Telegram bridge', run: () => gateway.stop() },
+      { name: 'stop the messaging gateways', run: () => gateway.stop() },
       { name: 'close MCP servers', run: () => hub.closeAll() },
     ],
   })

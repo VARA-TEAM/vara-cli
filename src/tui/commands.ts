@@ -27,7 +27,7 @@ export const COMMANDS: CommandDef[] = [
   { name: '/agents', args: '[cancel <id|all> | report | list]', description: 'Sub-agents of this session: roles, status, cost, reports; cancel one or all' },
   { name: '/connectors', args: '[add <id>]', description: 'Ready-made connectors (GitHub, Notion, Sentry…); add one with its token' },
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
-  { name: '/gateway', args: '[pair|unpair]', description: 'Telegram: status, make a pairing code, or disconnect the chat (full setup: vara gateway telegram setup, or Settings → Gateways in the browser)' },
+  { name: '/gateway', args: '[telegram|discord|slack] [pair|unpair]', description: 'Messaging gateways: status, make a pairing code, or disconnect a chat (full setup: vara gateway <name> setup, or Settings → Gateways in the browser)' },
   { name: '/undo', args: '[n]', description: 'Put back the last n file changes the agent made (default 1); /checkpoints lists them' },
   { name: '/checkpoints', description: 'The file changes the agent made in this session that /undo can put back' },
   { name: '/compact', description: 'Fold the older conversation into a summary now (optional: what to keep: /compact keep the DB schema decisions)' },

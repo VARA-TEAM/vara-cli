@@ -1090,20 +1090,27 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       }
       case 'gateway': {
         void (async () => {
-          const { pairingStatus, startPairing, unpair } = await import('../gateway/telegram-bridge.js')
-          const { telegramToken } = await import('../gateway/telegram-run.js')
-          const hasToken = !!(await telegramToken())
-          if (rest[0] === 'pair') {
-            if (!hasToken) return push({ kind: 'note', text: 'No bot token yet: run  vara gateway telegram setup  in a terminal (it asks for the token without showing it).', color: 'yellow' })
-            const { code, minutes } = await startPairing()
-            return push({ kind: 'note', text: `Open your bot in Telegram and send:  /pair ${code}  (works once, expires in ${minutes} minutes; the host must be running: vara serve or vara ui)`, color: 'green' })
+          const { gatewayFile, pairingStatus, startPairing, unpair } = await import('../gateway/chat-bridge.js')
+          const { GATEWAY_PROVIDERS, findGateway } = await import('../gateway/providers.js')
+          const { gatewaySecrets } = await import('../gateway/run.js')
+          const have = await gatewaySecrets()
+          const cfg = configRef.current.gateway as Record<string, { enabled: boolean }>
+          const p = findGateway(rest[0] ?? '')
+          if (p && (rest[1] === 'pair' || rest[1] === 'unpair')) {
+            if (rest[1] === 'unpair') {
+              await unpair(gatewayFile(p.id))
+              return push({ kind: 'note', text: p.name + ' chat disconnected.', color: 'gray' })
+            }
+            if (!p.secrets.every((s) => have[s.name])) return push({ kind: 'note', text: 'No ' + p.name + ' token yet: run  vara gateway ' + p.id + ' setup  in a terminal (it asks for the token without showing it).', color: 'yellow' })
+            const { code, minutes } = await startPairing(gatewayFile(p.id))
+            return push({ kind: 'note', text: 'In a direct message to your ' + p.name + ' bot send:  pair ' + code + '  (works once, expires in ' + minutes + ' minutes; the host must be running: vara serve or vara ui)', color: 'green' })
           }
-          if (rest[0] === 'unpair') {
-            await unpair()
-            return push({ kind: 'note', text: 'Telegram chat disconnected.', color: 'gray' })
+          const lines: string[] = []
+          for (const g of GATEWAY_PROVIDERS) {
+            const ps = await pairingStatus(gatewayFile(g.id))
+            lines.push(g.id.padEnd(9) + (g.secrets.every((s) => have[s.name]) ? 'token set ' : 'no token  ') + (cfg[g.id]?.enabled ? 'on  ' : 'off ') + (ps.paired ? 'paired' : ps.code ? 'waiting for "pair ' + ps.code + '"' : 'not paired'))
           }
-          const p = await pairingStatus()
-          push({ kind: 'note', text: `Telegram — token: ${hasToken ? 'set' : 'not set'} · switched on: ${configRef.current.gateway.telegram.enabled ? 'yes' : 'no'} · chat: ${p.paired ? 'paired' : p.code ? 'waiting for /pair ' + p.code : 'not paired'}. Setup: vara gateway telegram setup (or Settings → Gateways in the browser). /gateway pair makes a code.`, color: 'gray' })
+          push({ kind: 'note', text: ['Gateways (talk to VARA from a messaging app):', ...lines, '', 'Set one up: vara gateway <telegram|discord|slack> setup, or Settings → Gateways in the browser. /gateway <id> pair makes a code.'].join(String.fromCharCode(10)), color: 'gray' })
         })()
         return
       }

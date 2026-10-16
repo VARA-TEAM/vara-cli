@@ -50,7 +50,7 @@ These are the real interface, produced by [scripts/capture-screens.ts](scripts/c
 | **Point at things** | `/skill-name` runs a skill; `@skill`, `@mcp-server`, `@agents` (parallel sub-agents), `@web`, `@browser` tell the agent what to use. Tab completes them in the terminal; the browser has the same menus. |
 | **Sign in, don't paste tokens** | OAuth sign-in for remote connectors (GitHub, Notion, Sentry, Supabase); tokens go straight into the vault. Tried only against a local test server so far — [docs/OAUTH.md](docs/OAUTH.md) says exactly what you do yourself. |
 | **Reachable from your phone** | `vara ui --public` on a server prints a link that works from anywhere; `vara ui` asks how you want to reach it. A native phone app is not built yet; the browser interface works on a phone. |
-| **From your phone, via Telegram** | Off by default: one paired private chat, replies when a turn ends, Approve / Reject buttons for anything risky. See [docs/GATEWAY.md](docs/GATEWAY.md); not yet run against the real Telegram service. |
+| **From your phone, via Telegram, Discord or Slack** | Each is optional and off by default: you set up only the ones you use (Settings → Gateways), pair one private chat, and get Approve / Reject buttons for anything risky. See [docs/GATEWAY.md](docs/GATEWAY.md); not yet run against the real services. |
 | **Safety** | Permissions are enforced inside the tools, not in the prompt · encrypted secret vault · every output is scrubbed of secrets · unknown cost is `null`, never `0`. |
 | **Share a session** | Invite people by link or QR into your host with exactly the powers you choose; see what they use. Your keys never leave your machine. |
 

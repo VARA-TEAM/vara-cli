@@ -567,44 +567,47 @@ export class Manager {
   }
 
   async gateways(): Promise<unknown> {
-    return (await this.gw()?.status()) ?? { telegram: { hasToken: false, enabled: false, running: false, paired: false } }
+    return (await this.gw()?.status()) ?? { providers: [] }
   }
 
-  /** Paste the bot token (it goes to the vault, never back), and switch Telegram on. */
-  async gatewayToken(body: Record<string, unknown>): Promise<MResult<unknown>> {
+  private setEnabled(id: string, on: boolean): Promise<unknown> {
+    return this.update((cfg) => ({ ...cfg, gateway: { ...cfg.gateway, [id]: { enabled: on } } }))
+  }
+
+  /** Paste a platform's tokens (they go to the vault, never back), and switch that platform on. */
+  async gatewaySecrets(id: string, body: Record<string, unknown>): Promise<MResult<unknown>> {
     const gw = this.gw()
     if (!gw) return bad('Messaging gateways are not available here.', 404)
-    const token = text(body['token'], 200)
-    if (!token) return bad('Paste the bot token from @BotFather.')
+    const given: Record<string, string> = {}
+    for (const [k, v] of Object.entries((body['secrets'] ?? {}) as Record<string, unknown>)) if (typeof v === 'string') given[k] = text(v, 300)
     return this.guard(async () => {
-      await gw.setToken(token)
-      await this.update((cfg) => ({ ...cfg, gateway: { ...cfg.gateway, telegram: { ...cfg.gateway.telegram, enabled: true } } }))
+      await gw.setSecrets(id, given)
+      await this.setEnabled(id, true)
       await gw.reconcile()
       return gw.status()
     })
   }
 
-  async gatewayEnable(body: Record<string, unknown>): Promise<MResult<unknown>> {
+  async gatewayEnable(id: string, body: Record<string, unknown>): Promise<MResult<unknown>> {
     const gw = this.gw()
     if (!gw) return bad('Messaging gateways are not available here.', 404)
-    const on = body['enabled'] === true
     return this.guard(async () => {
-      await this.update((cfg) => ({ ...cfg, gateway: { ...cfg.gateway, telegram: { ...cfg.gateway.telegram, enabled: on } } }))
+      await this.setEnabled(id, body['enabled'] === true)
       await gw.reconcile()
       return gw.status()
     })
   }
 
-  async gatewayPair(): Promise<MResult<unknown>> {
+  async gatewayPair(id: string): Promise<MResult<unknown>> {
     const gw = this.gw()
     if (!gw) return bad('Messaging gateways are not available here.', 404)
-    return this.guard(async () => ({ ...(await gw.pair()), status: await gw.status() }))
+    return this.guard(async () => ({ ...(await gw.pair(id)), status: await gw.status() }))
   }
 
-  async gatewayUnpair(): Promise<MResult<unknown>> {
+  async gatewayUnpair(id: string): Promise<MResult<unknown>> {
     const gw = this.gw()
     if (!gw) return bad('Messaging gateways are not available here.', 404)
-    return this.guard(async () => (await gw.unpair(), gw.status()))
+    return this.guard(async () => (await gw.unpair(id), gw.status()))
   }
 
   /* ---------------- OAuth sign-in ---------------- */
@@ -802,10 +805,10 @@ export class Manager {
     }
     if (a === 'gateways') {
       if (!b && method === 'GET') return good(await this.gateways())
-      if (b === 'telegram' && c === 'token' && method === 'POST') return this.gatewayToken(body)
-      if (b === 'telegram' && c === 'enable' && method === 'POST') return this.gatewayEnable(body)
-      if (b === 'telegram' && c === 'pair' && method === 'POST') return this.gatewayPair()
-      if (b === 'telegram' && c === 'unpair' && method === 'POST') return this.gatewayUnpair()
+      if (b && c === 'secrets' && method === 'POST') return this.gatewaySecrets(dec(b), body)
+      if (b && c === 'enable' && method === 'POST') return this.gatewayEnable(dec(b), body)
+      if (b && c === 'pair' && method === 'POST') return this.gatewayPair(dec(b))
+      if (b && c === 'unpair' && method === 'POST') return this.gatewayUnpair(dec(b))
     }
     if (a === 'connectors') {
       if (!b && method === 'GET') return good(await this.connectors())
