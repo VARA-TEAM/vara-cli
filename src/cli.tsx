@@ -237,6 +237,26 @@ Opening setup…
  * frames when scrolling the terminal) and the shell's scrollback is untouched
  * on exit. Always restored — also on crashes and signals.
  */
+/**
+ * Each frame ink draws is erase-then-rewrite; a terminal that paints in between shows a flash (Windows Terminal
+ * does, noticeably, while the agent streams). Synchronized output (DEC mode 2026) tells it to hold the screen until
+ * the whole frame has arrived; terminals that do not know the mode ignore it. Frames only: ink writes one string each.
+ */
+const SYNC_ON = String.fromCharCode(27) + '[?2026h'
+const SYNC_OFF = String.fromCharCode(27) + '[?2026l'
+
+export function syncedFrames(out: NodeJS.WriteStream): () => void {
+  const original = out.write.bind(out) as (chunk: unknown, ...rest: unknown[]) => boolean
+  const patched = ((chunk: unknown, ...rest: unknown[]): boolean => {
+    if (typeof chunk !== 'string' || chunk.length === 0) return original(chunk, ...rest)
+    return original(SYNC_ON + chunk + SYNC_OFF, ...rest)
+  }) as typeof out.write
+  out.write = patched
+  return () => {
+    out.write = original as typeof out.write
+  }
+}
+
 function enterFullscreen(fullscreen: boolean, mouse: boolean): () => void {
   if (!fullscreen || !process.stdout.isTTY) return () => {}
   const on = '\u001b[?1049h' + (mouse ? '\u001b[?1000h\u001b[?1006h' : '')
@@ -245,9 +265,11 @@ function enterFullscreen(fullscreen: boolean, mouse: boolean): () => void {
   const restore = (): void => {
     if (restored) return
     restored = true
+    unsync()
     process.stdout.write(off)
   }
   process.stdout.write(on)
+  const unsync = syncedFrames(process.stdout)
   process.on('exit', restore)
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, () => { restore(); process.exit(0) })
   return restore
