@@ -46,6 +46,11 @@ export class TelegramApi {
     return json.result as T
   }
 
+  /** Who the token belongs to (also proves the token works). */
+  getMe(): Promise<{ id: number; username?: string; first_name?: string }> {
+    return this.call('getMe', {})
+  }
+
   getUpdates(offset: number, timeoutSec: number, signal?: AbortSignal): Promise<TgUpdate[]> {
     return this.call<TgUpdate[]>('getUpdates', { offset, timeout: timeoutSec, allowed_updates: ['message', 'callback_query'] }, signal)
   }

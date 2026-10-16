@@ -67,6 +67,13 @@ export async function startPairing(file = statePath(), now: () => number = Date.
   return { code, minutes: PAIR_MINUTES }
 }
 
+/** Whether a chat is paired and whether a pairing code is waiting — for the settings screens. */
+export async function pairingStatus(file = statePath(), now: () => number = Date.now): Promise<{ paired: boolean; code?: string; expiresAt?: number }> {
+  const s = await load(file)
+  const waiting = s.pairing && s.pairing.expiresAt > now() ? { code: s.pairing.code, expiresAt: s.pairing.expiresAt } : {}
+  return { paired: s.chatId !== undefined, ...(s.chatId === undefined ? waiting : {}) }
+}
+
 export async function unpair(file = statePath()): Promise<void> {
   await save(file, {})
 }

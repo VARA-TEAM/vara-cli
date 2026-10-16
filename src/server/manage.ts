@@ -1,3 +1,4 @@
+import type { GatewayControl } from '../gateway/controller.js'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import type { McpServerConfig } from '../mcp/client.js'
@@ -56,6 +57,8 @@ export interface ManagerDeps {
   secretNames(): Promise<string[]>
   keyState(entry: ProviderEntry): Promise<'vault' | 'env' | 'none' | 'not needed'>
   mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]>
+  /** Messaging gateways (Telegram). Absent where they are not offered. */
+  gateway?: GatewayControl
 }
 
 const MODEL_RE = /^[\w.:/@+\-[\] ]{1,200}$/
@@ -557,6 +560,53 @@ export class Manager {
     return r.ok ? good(await this.connectors()) : r
   }
 
+  /* ---------------- messaging gateways ---------------- */
+
+  private gw(): GatewayControl | null {
+    return this.d.gateway ?? null
+  }
+
+  async gateways(): Promise<unknown> {
+    return (await this.gw()?.status()) ?? { telegram: { hasToken: false, enabled: false, running: false, paired: false } }
+  }
+
+  /** Paste the bot token (it goes to the vault, never back), and switch Telegram on. */
+  async gatewayToken(body: Record<string, unknown>): Promise<MResult<unknown>> {
+    const gw = this.gw()
+    if (!gw) return bad('Messaging gateways are not available here.', 404)
+    const token = text(body['token'], 200)
+    if (!token) return bad('Paste the bot token from @BotFather.')
+    return this.guard(async () => {
+      await gw.setToken(token)
+      await this.update((cfg) => ({ ...cfg, gateway: { ...cfg.gateway, telegram: { ...cfg.gateway.telegram, enabled: true } } }))
+      await gw.reconcile()
+      return gw.status()
+    })
+  }
+
+  async gatewayEnable(body: Record<string, unknown>): Promise<MResult<unknown>> {
+    const gw = this.gw()
+    if (!gw) return bad('Messaging gateways are not available here.', 404)
+    const on = body['enabled'] === true
+    return this.guard(async () => {
+      await this.update((cfg) => ({ ...cfg, gateway: { ...cfg.gateway, telegram: { ...cfg.gateway.telegram, enabled: on } } }))
+      await gw.reconcile()
+      return gw.status()
+    })
+  }
+
+  async gatewayPair(): Promise<MResult<unknown>> {
+    const gw = this.gw()
+    if (!gw) return bad('Messaging gateways are not available here.', 404)
+    return this.guard(async () => ({ ...(await gw.pair()), status: await gw.status() }))
+  }
+
+  async gatewayUnpair(): Promise<MResult<unknown>> {
+    const gw = this.gw()
+    if (!gw) return bad('Messaging gateways are not available here.', 404)
+    return this.guard(async () => (await gw.unpair(), gw.status()))
+  }
+
   /* ---------------- OAuth sign-in ---------------- */
 
   private oauthConnector(id: string): { c: Connector } | { err: MResult<never> } {
@@ -749,6 +799,13 @@ export class Manager {
       if (!b && method === 'GET') return good(this.modes())
       if (b && !c && method === 'PUT') return this.putMode(dec(b), body)
       if (b && !c && method === 'DELETE') return this.deleteMode(dec(b))
+    }
+    if (a === 'gateways') {
+      if (!b && method === 'GET') return good(await this.gateways())
+      if (b === 'telegram' && c === 'token' && method === 'POST') return this.gatewayToken(body)
+      if (b === 'telegram' && c === 'enable' && method === 'POST') return this.gatewayEnable(body)
+      if (b === 'telegram' && c === 'pair' && method === 'POST') return this.gatewayPair()
+      if (b === 'telegram' && c === 'unpair' && method === 'POST') return this.gatewayUnpair()
     }
     if (a === 'connectors') {
       if (!b && method === 'GET') return good(await this.connectors())

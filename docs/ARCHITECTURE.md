@@ -378,6 +378,7 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 | `/mcp` | Settings → MCP servers (add, switch, reconnect, remove) | same |
 | `/connectors` | Settings → Connectors (guided token entry) | same |
 | `/think` | Thinking menu in the message box | same |
+| `/gateway` | /gateway opens Settings → Gateways: the whole setup (token, pairing code, on/off) on one page | same |
 | `/undo` | /undo in the message box or the palette | same |
 | `/checkpoints` | The list is not shown in the browser yet; /undo works | planned |
 | `/compact` | /compact in the message box or the palette; auto-compact runs on its own | same |

@@ -222,6 +222,7 @@ function Shell({
       add({ id: 'g:team', slash: 'team', group: 'go', title: t('admin'), description: t('cmd_teamHelp'), run: () => setRoute({ page: 'team' }) })
       add({ id: 'g:providers', slash: 'providers', group: 'settings', title: t('t_models'), description: t('cmd_providersHelp'), run: () => setRoute({ page: 'settings', tab: 'models' }) })
       add({ id: 'g:agent', slash: 'agent', group: 'settings', title: t('t_agent'), description: t('cmd_agentHelp'), run: () => setRoute({ page: 'settings', tab: 'agent' }) })
+      add({ id: 'g:gateway', slash: 'gateway', group: 'settings', title: t('t_gateways'), description: t('cmd_gatewayHelp'), run: () => setRoute({ page: 'settings', tab: 'gateways' }) })
       add({ id: 'g:skills', slash: 'skills', group: 'settings', title: t('t_skills'), description: t('cmd_skillsHelp'), run: () => setRoute({ page: 'settings', tab: 'skills' }) })
       add({ id: 'g:memory', slash: 'memory', group: 'settings', title: t('t_memory'), description: t('cmd_memoryHelp'), run: () => setRoute({ page: 'settings', tab: 'memory' }) })
       add({ id: 'g:models', slash: 'models', group: 'settings', title: t('cmd_models'), description: t('cmd_modelsHelp'), run: () => setRoute({ page: 'settings', tab: 'models' }) })

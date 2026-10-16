@@ -37,6 +37,7 @@ export const COMMAND_PARITY: CommandParity[] = [
   { tui: '/mcp', slash: 'mcp', status: 'same', web: 'Settings → MCP servers (add, switch, reconnect, remove)' },
   { tui: '/connectors', slash: 'connectors', status: 'same', web: 'Settings → Connectors (guided token entry)' },
   { tui: '/think', slash: 'think', status: 'same', web: 'Thinking menu in the message box' },
+  { tui: '/gateway', slash: 'gateway', status: 'same', web: '/gateway opens Settings → Gateways: the whole setup (token, pairing code, on/off) on one page' },
   { tui: '/undo', slash: 'undo', status: 'same', web: '/undo in the message box or the palette' },
   { tui: '/checkpoints', slash: 'checkpoints', status: 'planned', web: 'The list is not shown in the browser yet; /undo works' },
   { tui: '/compact', slash: 'compact', status: 'same', web: '/compact in the message box or the palette; auto-compact runs on its own' },

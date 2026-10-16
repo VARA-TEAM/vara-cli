@@ -22,7 +22,7 @@ try {
     await d.clickText('Settings')
     await sleep(1200)
     await save('settings', 1440, 900, 1)
-    for (const tab of ['Connectors', 'Memory', 'Skills', 'Models', 'Modes']) {
+    for (const tab of ['Connectors', 'Gateways', 'Memory', 'Skills', 'Models', 'Modes']) {
       if (await d.clickText(tab)) {
         await sleep(900)
         await save(`settings-${tab.toLowerCase()}`, 1440, 900, 1)

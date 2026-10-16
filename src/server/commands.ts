@@ -23,6 +23,8 @@ import { VaraHost } from './host.js'
 import { newOwnerToken, startServer } from './http.js'
 import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
 import { PROVIDERS } from './tunnel.js'
+import { makeGatewayControl } from '../gateway/controller.js'
+import { startTelegram, telegramToken } from '../gateway/telegram-run.js'
 import { askExposure, exposureArgs, exposureDecided, publicIp } from './expose.js'
 
 /** Stands in until the owner adds a provider in the browser; every request says what to do. */
@@ -161,7 +163,17 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       openInvites: access.listInvites().filter((i) => !i.revoked && Date.parse(i.expiresAt) > Date.now() && i.uses < i.maxUses).length,
     }
   }
+  const gateway = makeGatewayControl({
+    config: () => config,
+    token: telegramToken,
+    saveToken: async (t) => {
+      await setSecret('TELEGRAM_BOT_TOKEN', t)
+      registerSecret(t, 'TELEGRAM_BOT_TOKEN')
+    },
+    start: (token) => startTelegram({ token, host, log: (l) => say(l) }),
+  })
   const manager = new Manager({
+    gateway,
     config: () => config,
     apply: applyConfig,
     hub,
@@ -267,14 +279,8 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
   if (open && ownerUrl) openBrowser(ownerUrl)
   hooks.onReady?.({ port: server.port, baseUrl, ...(ownerUrl ? { ownerUrl } : {}), ...(auth?.oneTimeToken ? { oneTimeToken: auth.oneTimeToken } : {}) })
 
-  // Telegram: only when you turned it on and gave the bot a token; one paired chat, polling, no open port.
-  let stopTelegram: (() => void) | null = null
-  if (config.gateway.telegram.enabled) {
-    const { telegramToken, startTelegram } = await import('../gateway/telegram-run.js')
-    const token = await telegramToken()
-    if (token) stopTelegram = startTelegram({ token, host, log: (l) => say(l) })
-    else say('gateway.telegram is enabled but there is no bot token: vara secret set TELEGRAM_BOT_TOKEN')
-  }
+  // Telegram: starts now if it is switched on and has a token; the settings screens can change that while running.
+  await gateway.reconcile().catch((e: Error) => say(`gateway: ${e.message}`))
 
   const shutdown = makeShutdown({
     log: logger,
@@ -292,7 +298,7 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       { name: 'stop sessions', run: () => host.closeAll() },
       { name: 'close the public link', run: () => sharing?.stop() },
       { name: 'stop accepting connections', run: () => server.close() },
-      { name: 'stop the Telegram bridge', run: () => stopTelegram?.() },
+      { name: 'stop the Telegram bridge', run: () => gateway.stop() },
       { name: 'close MCP servers', run: () => hub.closeAll() },
     ],
   })

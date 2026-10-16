@@ -54,7 +54,7 @@ async function loginCommand(id: string, rest: string[]): Promise<void> {
 }
 
 /** Ask for a secret without echoing it. */
-function askHidden(question: string): Promise<string> {
+export function askHidden(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true })
     const w = rl as unknown as { _writeToOutput: (s: string) => void }

@@ -1,5 +1,9 @@
 import type { VaraHost } from '../server/host.js'
-import { getSecretsForScope } from '../security/vault.js'
+import { getSecretsForScope, setSecret } from '../security/vault.js'
+import { registerSecret } from '../security/redact.js'
+import { loadConfig, persistConfig } from '../config/config.js'
+import { askHidden } from '../mcp/connectors-cli.js'
+import { pairingStatus } from './telegram-bridge.js'
 import { TelegramApi } from './telegram-api.js'
 import { TelegramBridge, startPairing, unpair, type AgentPort } from './telegram-bridge.js'
 
@@ -89,8 +93,8 @@ export function startTelegram(opts: { token: string; host: VaraHost; log: (line:
 /** `vara gateway telegram pair | unpair | status` */
 export async function gatewayCommand(args: string[]): Promise<void> {
   const [what, action] = args
-  if (what !== 'telegram' || !['pair', 'unpair', 'status'].includes(action ?? '')) {
-    console.log('usage: vara gateway telegram pair | unpair | status')
+  if (what !== 'telegram' || !['setup', 'pair', 'unpair', 'status'].includes(action ?? '')) {
+    console.log('usage: vara gateway telegram setup | pair | unpair | status')
     return
   }
   if (action === 'unpair') {
@@ -98,10 +102,31 @@ export async function gatewayCommand(args: string[]): Promise<void> {
     console.log('Telegram chat disconnected.')
     return
   }
+  if (action === 'setup') {
+    console.log('1. In Telegram open @BotFather, send /newbot, and copy the token it gives you.')
+    const token = await askHidden('2. Paste the token (it is not shown): ')
+    if (!/^d{5,}:[w-]{20,}$/.test(token)) return void console.log('That does not look like a bot token.')
+    try {
+      const me = await new TelegramApi(token).getMe()
+      await setSecret(TOKEN_NAME, token)
+      registerSecret(token, TOKEN_NAME)
+      const cfg = await loadConfig()
+      await persistConfig({ ...cfg, gateway: { ...cfg.gateway, telegram: { ...cfg.gateway.telegram, enabled: true } } })
+      const { code, minutes } = await startPairing()
+      console.log(`Connected as @${me.username ?? me.first_name}. Telegram is switched on.
+3. Start VARA as a host (vara serve, or vara ui), open your bot and send:  /pair ${code}
+   The code works once and expires in ${minutes} minutes. A host that is already running: use Settings → Gateways in its web page, or restart it.`)
+    } catch (err) {
+      console.log(`Telegram did not accept that token: ${(err as Error).message}`)
+    }
+    return
+  }
   const token = await telegramToken()
   if (action === 'status') {
-    console.log(token ? 'A bot token is set.' : 'No bot token: create a bot with @BotFather, then `vara secret set TELEGRAM_BOT_TOKEN`.')
-    console.log('The bridge runs inside `vara serve` / `vara ui` when config gateway.telegram.enabled is true.')
+    const cfg = await loadConfig()
+    const p = await pairingStatus()
+    console.log(`token: ${token ? 'set' : 'not set (vara gateway telegram setup)'} · switched on: ${cfg.gateway.telegram.enabled ? 'yes' : 'no'} · chat: ${p.paired ? 'paired' : p.code ? 'waiting for /pair ' + p.code : 'not paired'}`)
+    console.log('The bridge runs inside `vara serve` / `vara ui`; Settings → Gateways in the web page does the same as this command.')
     return
   }
   if (!token) {

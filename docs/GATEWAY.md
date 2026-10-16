@@ -6,11 +6,13 @@ The agent runs on your computer or server; Telegram is just a remote control for
 
 ## What you do, once
 
-1. In Telegram, talk to **@BotFather**, send `/newbot`, and copy the token it gives you.
-2. Store the token (it never goes in a file you share): `vara secret set TELEGRAM_BOT_TOKEN`
-3. Turn the bridge on: in `config.json` set `"gateway": { "telegram": { "enabled": true } }`.
-4. Start VARA as a host: `vara serve` (or `vara ui`). It prints `Telegram bridge on`.
-5. Pair your chat: run `vara gateway telegram pair`, then send `/pair <code>` to your bot in a **private** chat. The code works once and expires in ten minutes.
+**In the browser** (`vara ui` or `vara serve`): Settings → **Gateways**. Three steps on one page, and nothing needs a restart:
+
+1. Paste the bot token (get it from **@BotFather** with `/newbot`). VARA checks it with Telegram, keeps it in the encrypted vault, shows only the bot's name, and switches Telegram on.
+2. Press **Make a pairing code**, then send `/pair <code>` to your bot in a **private** chat (works once, expires in ten minutes).
+3. The switch at the bottom turns the bridge on or off.
+
+**In the terminal:** `vara gateway telegram setup` asks for the token without showing it, checks it, switches Telegram on and prints the pairing code. Then run `vara serve` (or `vara ui`). `/gateway` inside the terminal interface shows the status and makes a new code; `vara gateway telegram status | pair | unpair` do the same from outside.
 
 ## Using it
 

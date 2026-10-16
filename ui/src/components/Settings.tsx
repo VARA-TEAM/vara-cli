@@ -6,6 +6,7 @@ import { THEMES, type Theme } from '../theme'
 import type { Grant, McpState, Me, MemoryState, ModeRow, ProposalRow, ProvidersState, SettingsState, SkillRow } from '../types'
 import { AgentPanel, Row } from './Agent'
 import { ConnectorsPanel, type ConnectorRow } from './Connectors'
+import { GatewaysPanel, type GatewayState } from './Gateways'
 import { McpPanel } from './Mcp'
 import { Providers } from './Providers'
 import { SkillsPanel } from './Skills'
@@ -14,12 +15,12 @@ import { ProposalsPanel } from './Proposals'
 import { ModesPanel } from './Modes'
 import { Icon, Switch } from './ui'
 
-export type SettingsTab = 'models' | 'agent' | 'skills' | 'memory' | 'connectors' | 'mcp' | 'look' | 'about'
-export const OWNER_TABS: SettingsTab[] = ['models', 'agent', 'skills', 'memory', 'connectors', 'mcp', 'look', 'about']
+export type SettingsTab = 'models' | 'agent' | 'skills' | 'memory' | 'connectors' | 'gateways' | 'mcp' | 'look' | 'about'
+export const OWNER_TABS: SettingsTab[] = ['models', 'agent', 'skills', 'memory', 'connectors', 'gateways', 'mcp', 'look', 'about']
 export const GUEST_TABS: SettingsTab[] = ['look', 'about']
 export const isTab = (v: string | undefined): v is SettingsTab => !!v && (OWNER_TABS as string[]).includes(v)
 
-const TAB_ICON: Record<SettingsTab, string> = { models: 'spark', agent: 'settings', skills: 'file', memory: 'file', connectors: 'share', mcp: 'link', look: 'eye', about: 'shield' }
+const TAB_ICON: Record<SettingsTab, string> = { models: 'spark', agent: 'settings', skills: 'file', memory: 'file', connectors: 'share', gateways: 'link', mcp: 'link', look: 'eye', about: 'shield' }
 
 function describeGrant(g: Grant, t: ReturnType<typeof useT>): string[] {
   const out: string[] = []
@@ -146,9 +147,10 @@ export function Settings({ me, tab, onTab, theme, onTheme, onToggleSidebar }: { 
   const memory = useResource<MemoryState>(owner && active === 'memory' ? '/api/manage/memory' : null)
   const proposals = useResource<ProposalRow[]>(owner && active === 'skills' ? '/api/manage/skill-proposals' : null)
   const connectors = useResource<ConnectorRow[]>(owner && active === 'connectors' ? '/api/manage/connectors' : null)
+  const gateways = useResource<GatewayState>(owner && active === 'gateways' ? '/api/manage/gateways' : null)
   const mcp = useResource<McpState>(owner && active === 'mcp' ? '/api/manage/mcp' : null)
   const modelIds = providers.data?.providers.find((p) => p.active)?.models.map((m) => m.id) ?? []
-  const label: Record<SettingsTab, string> = { models: t('t_models'), agent: t('t_agent'), skills: t('t_skills'), memory: t('t_memory'), connectors: t('t_connectors'), mcp: t('t_mcp'), look: t('t_look'), about: t('t_about') }
+  const label: Record<SettingsTab, string> = { models: t('t_models'), agent: t('t_agent'), skills: t('t_skills'), memory: t('t_memory'), connectors: t('t_connectors'), gateways: t('t_gateways'), mcp: t('t_mcp'), look: t('t_look'), about: t('t_about') }
 
   return (
     <main className="page settings">
@@ -184,6 +186,7 @@ export function Settings({ me, tab, onTab, theme, onTheme, onToggleSidebar }: { 
           ) : null}
           {active === 'memory' ? <MemoryPanel state={memory.data} set={memory.set} /> : null}
           {active === 'connectors' ? <ConnectorsPanel rows={connectors.data} set={connectors.set} /> : null}
+          {active === 'gateways' ? <GatewaysPanel state={gateways.data} set={gateways.set} /> : null}
           {active === 'mcp' ? <McpPanel state={mcp.data} set={mcp.set} reload={mcp.reload} /> : null}
           {active === 'look' ? <Look theme={theme} onTheme={onTheme} owner={owner} /> : null}
           {active === 'about' ? <About me={me} /> : null}

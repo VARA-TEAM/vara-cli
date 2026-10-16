@@ -6,6 +6,9 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## 2026-10-16 · v0.5.6 — set up gateways from Settings or the terminal
+- **Gateway setup in the interfaces themselves.** Settings → Gateways walks through token → pairing code → on/off with no restart (the token is checked with Telegram and kept in the vault, never shown); `vara gateway telegram setup` does the same in a terminal with a hidden prompt; `/gateway` shows the status and makes a code inside the terminal interface.
+
 ## 2026-10-16 · v0.5.5 — Telegram bridge, background processes, package safety, tolerant edits
 - **Telegram bridge** (off by default): talk to VARA from your phone, one paired private chat, approvals as buttons ([docs/GATEWAY.md](docs/GATEWAY.md)). Tested against a fake Telegram only.- **Background processes:** `shell` with `background:true` and a `process` tool (list / log / stop).- **Package safety:** an install command naming a package OSV lists as malware is refused (offline: it just runs; `VARA_NO_PACKAGE_CHECK=1` turns it off).- **Tolerant edits:** `edit_file` now also matches a block whose indentation or trailing spaces differ, when it matches exactly once.
 

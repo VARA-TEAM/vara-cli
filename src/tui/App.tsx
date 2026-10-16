@@ -1088,6 +1088,25 @@ export function App({ session, provider: initialProvider, config: initialConfig,
           .catch((err: Error) => push({ kind: 'note', text: `export failed: ${err.message}`, color: 'red' }))
         return
       }
+      case 'gateway': {
+        void (async () => {
+          const { pairingStatus, startPairing, unpair } = await import('../gateway/telegram-bridge.js')
+          const { telegramToken } = await import('../gateway/telegram-run.js')
+          const hasToken = !!(await telegramToken())
+          if (rest[0] === 'pair') {
+            if (!hasToken) return push({ kind: 'note', text: 'No bot token yet: run  vara gateway telegram setup  in a terminal (it asks for the token without showing it).', color: 'yellow' })
+            const { code, minutes } = await startPairing()
+            return push({ kind: 'note', text: `Open your bot in Telegram and send:  /pair ${code}  (works once, expires in ${minutes} minutes; the host must be running: vara serve or vara ui)`, color: 'green' })
+          }
+          if (rest[0] === 'unpair') {
+            await unpair()
+            return push({ kind: 'note', text: 'Telegram chat disconnected.', color: 'gray' })
+          }
+          const p = await pairingStatus()
+          push({ kind: 'note', text: `Telegram — token: ${hasToken ? 'set' : 'not set'} · switched on: ${configRef.current.gateway.telegram.enabled ? 'yes' : 'no'} · chat: ${p.paired ? 'paired' : p.code ? 'waiting for /pair ' + p.code : 'not paired'}. Setup: vara gateway telegram setup (or Settings → Gateways in the browser). /gateway pair makes a code.`, color: 'gray' })
+        })()
+        return
+      }
       case 'undo': {
         if (!cur || !runnerRef.current) {
           push({ kind: 'note', text: 'no session yet', color: 'gray' })
