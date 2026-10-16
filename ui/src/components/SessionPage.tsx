@@ -93,6 +93,17 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
     void run(async () => providers.set(await api<ProvidersState>('POST', `/api/manage/providers/${encodeURIComponent(activeProv.name)}/model`, { action: 'thinking', id: thinkRow.id, level })), t('saved'))
   }
 
+  /** What `@` can point at besides files. */
+  const mentionList = isOwner
+    ? [
+        ...(skills.data ?? []).filter((s) => s.enabled && !(view?.disabledSkills ?? []).includes(s.name)).map((s) => ({ name: s.name, detail: s.description || t('m_skill') })),
+        ...(mcp.data?.servers ?? []).filter((m) => m.enabled).map((m) => ({ name: m.name, detail: t('m_mcp') })),
+        { name: 'agents', detail: t('m_agents') },
+        { name: 'web', detail: t('m_web') },
+        { name: 'browser', detail: t('m_browser') },
+      ]
+    : undefined
+
   const cancelAgents = (taskId?: string): void => {
     void run(async () => {
       const r = (await post('/agents/cancel', taskId ? { id: taskId } : {})) as { cancelled?: boolean }
@@ -393,6 +404,7 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
               placeholder={view.can.send ? undefined : t('placeholderReadOnly')}
               commands={cmds}
               files={isOwner}
+              mentions={mentionList}
               onUnknownCommand={(n) => toast(t('cmd_unknown', { n }), 'err')}
               onSend={sendText}
               controls={

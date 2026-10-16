@@ -50,6 +50,7 @@ export function Composer({
   big,
   commands,
   files,
+  mentions,
   draftKey,
   onUnknownCommand,
   attachable = true,
@@ -68,6 +69,8 @@ export function Composer({
   commands?: Cmd[]
   /** Offer @file completion (the owner's project files). */
   files?: boolean
+  /** What `@` can point at besides files: skills, MCP servers, parallel agents, the web. */
+  mentions?: Array<{ name: string; detail: string }>
   draftKey?: string
   onUnknownCommand?: (name: string) => void
 }) {
@@ -114,7 +117,7 @@ export function Composer({
   }, [autoFocus])
 
   // The word being typed after an @ (only before the caret, only at a word start).
-  const mention = files ? /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret)) : null
+  const mention = files || mentions?.length ? /(^|\s)@([^\s@]*)$/.exec(text.slice(0, caret)) : null
   const mentionQuery = mention ? mention[2]! : null
   useEffect(() => {
     if (mentionQuery === null) return setFound([])
@@ -135,8 +138,12 @@ export function Composer({
 
   const menu: MenuItem[] = useMemo(() => {
     if (disabled) return []
-    if (mentionQuery !== null && found.length) {
-      return found.map((f) => ({ key: f, label: f, apply: (cur: string) => `${cur.slice(0, caret).replace(/@[^\s@]*$/, `@${f} `)}${cur.slice(caret)}` }))
+    if (mentionQuery !== null && (found.length || mentions?.length)) {
+      const q = mentionQuery.toLowerCase()
+      const caps = (mentions ?? []).filter((m) => m.name.toLowerCase().startsWith(q)).slice(0, 8)
+      const capItems: MenuItem[] = caps.map((m) => ({ key: `cap:${m.name}`, label: `@${m.name}`, detail: m.detail, apply: (cur: string) => `${cur.slice(0, caret).replace(/@[^\s@]*$/, `@${m.name} `)}${cur.slice(caret)}` }))
+      const fileItems: MenuItem[] = found.map((f) => ({ key: f, label: f, apply: (cur: string) => `${cur.slice(0, caret).replace(/@[^\s@]*$/, `@${f} `)}${cur.slice(caret)}` }))
+      return [...capItems, ...fileItems]
     }
     if (argMode && commands) {
       const c = commands.find((x) => x.slash === argMode[1]!.toLowerCase())
@@ -153,7 +160,7 @@ export function Composer({
       }))
     }
     return []
-  }, [disabled, mentionQuery, found, argMode, commands, slash, caret])
+  }, [disabled, mentionQuery, found, mentions, argMode, commands, slash, caret])
 
   const open = menu.length > 0 && !dismissed
   useEffect(() => setSel(0), [menu.length, mentionQuery, slash])

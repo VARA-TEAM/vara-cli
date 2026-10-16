@@ -41,6 +41,8 @@ export interface KeyContext {
   escArmed: boolean
   /** Home opened over existing sessions (Ctrl+N): Esc / Ctrl+W go back. */
   canLeaveHome?: boolean
+  /** The prompt shows completions: Tab takes the first one instead of flipping the mode. */
+  hasCompletion?: boolean
   /** The prompt is empty (arrow keys then navigate instead of editing). */
   inputEmpty?: boolean
 }
@@ -63,6 +65,7 @@ export type KeyAction =
   | { type: 'scroll-line'; dir: -1 | 1 }
   | { type: 'wheel'; delta: number }
   | { type: 'click'; x: number; y: number }
+  | { type: 'complete' }
   | { type: 'scroll-latest' }
   | { type: 'toggle-mode' }
   | { type: 'toggle-kind' }
@@ -159,7 +162,7 @@ export function resolveKey(raw: string, key: KeyEvent, ctx: KeyContext): KeyActi
   if (ctrlChar === 'g') return ctx.view === 'session' ? { type: 'scroll-latest' } : { type: 'toggle-kind' }
 
   // 6. Text entry — identical on the home screen and in a session.
-  if (key.tab) return { type: 'toggle-mode' }
+  if (key.tab) return ctx.hasCompletion ? { type: 'complete' } : { type: 'toggle-mode' }
   if (key.return) return { type: 'submit' }
   if (key.backspace || key.delete) return { type: 'delete-back' }
   // Ctrl+J inserts a newline; a paste arrives as one printable chunk and keeps

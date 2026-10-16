@@ -19,6 +19,8 @@ import { appendEntry, replayTranscript, resumeBanner } from './history.js'
 import { CommandPalette } from './palette.js'
 import { SessionBrowser } from './sessions.js'
 import { dispatchClick } from './clicks.js'
+import { suggestions } from './complete.js'
+import { COMMANDS } from './commands.js'
 import { TabBar, nextTabId, type TabInfo } from './tabs.js'
 import { Sidebar, SIDEBAR_WIDTH } from './sidebar.js'
 import { PromptBox } from './prompt.js'
@@ -750,6 +752,9 @@ export function App({ session, provider: initialProvider, config: initialConfig,
     [push, startRun, createSessionFlow, refresh, switchToSession],
   )
 
+  const completionsFor = (text: string) =>
+    suggestions(text, { commands: COMMANDS, skills: skillNames, mcpServers: Object.keys(configRef.current.mcp.servers) })
+
   useInput((raw, key) => {
     lastActivityRef.current = Date.now()
 
@@ -764,6 +769,7 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       escArmed: escArmedRef.current,
       canLeaveHome: homeOpenRef.current && tabsRef.current.length > 0,
       inputEmpty: inputRef.current.length === 0,
+      hasCompletion: completionsFor(inputRef.current).length > 0,
     })
 
     switch (action.type) {
@@ -800,6 +806,14 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         const cur = homeSelRef.current
         const next = action.dir === 1 ? Math.min(n - 1, cur + 1) : cur - 1
         setHomeSel(Math.max(-1, next))
+        return
+      }
+      case 'complete': {
+        const first = completionsFor(inputRef.current)[0]
+        if (first) {
+          setInput(first.apply)
+          inputRef.current = first.apply
+        }
         return
       }
       case 'click':
@@ -1688,6 +1702,17 @@ export function App({ session, provider: initialProvider, config: initialConfig,
       </Box>
 
       {/* Input */}
+      {completionsFor(input).length > 0 ? (
+        <Box flexDirection="column" paddingLeft={2}>
+          {completionsFor(input).map((c, i) => (
+            <Text key={c.label} dimColor={i > 0}>
+              <Text color={theme.brand}>{c.label}</Text>
+              <Text dimColor>  {c.detail.slice(0, Math.max(10, termColumns - c.label.length - 20))}</Text>
+              {i === 0 ? <Text dimColor>   (Tab)</Text> : null}
+            </Text>
+          ))}
+        </Box>
+      ) : null}
       <PromptBox
         value={input}
         label={promptLabel}

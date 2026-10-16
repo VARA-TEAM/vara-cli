@@ -421,6 +421,7 @@ The terminal is the reference. `ui/src/parity.ts` lists, for every command, key 
 | `switch-tab` | Alt ← / Alt →; Alt Shift ← / → moves a tab | same |
 | `scroll` | Page Up / Page Down in the conversation | same |
 | `scroll-line` | Arrow keys and the wheel | same |
+| `complete` | The / and @ menus in the message box (Tab or Enter picks) | same |
 | `click` | Click (the browser is mouse-first) | same |
 | `wheel` | Mouse wheel and touch scrolling | same |
 | `scroll-latest` | Ctrl G, or the "New messages" button | same |

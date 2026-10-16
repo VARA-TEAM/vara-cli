@@ -86,6 +86,7 @@ export const KEY_PARITY: KeyParity[] = [
   { action: 'switch-tab', status: 'same', web: 'Alt ← / Alt →; Alt Shift ← / → moves a tab' },
   { action: 'scroll', status: 'same', web: 'Page Up / Page Down in the conversation' },
   { action: 'scroll-line', status: 'same', web: 'Arrow keys and the wheel' },
+  { action: 'complete', status: 'same', web: 'The / and @ menus in the message box (Tab or Enter picks)' },
   { action: 'click', status: 'same', web: 'Click (the browser is mouse-first)' },
   { action: 'wheel', status: 'same', web: 'Mouse wheel and touch scrolling' },
   { action: 'scroll-latest', status: 'same', web: 'Ctrl G, or the "New messages" button' },
