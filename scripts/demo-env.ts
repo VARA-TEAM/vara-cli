@@ -33,7 +33,7 @@ const script: Step[] = [
   },
 ]
 
-export async function startDemo(opts: { stepDelayMs?: number; port?: number } = {}) {
+export async function startDemo(opts: { stepDelayMs?: number; port?: number; web?: boolean } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'vara-demo-home-'))
   const project = mkdtempSync(join(tmpdir(), 'vara-demo-'))
   mkdirSync(join(project, 'src'), { recursive: true })
@@ -82,6 +82,11 @@ export async function startDemo(opts: { stepDelayMs?: number; port?: number } = 
     }),
   )
 
+  if (opts.web === false) return { home, project, async stop() { model.close() } } as unknown as Awaited<ReturnType<typeof startWeb>>
+  return startWeb(home, project, model, opts)
+}
+
+async function startWeb(home: string, project: string, model: { close(): void }, opts: { port?: number }) {
   const port = opts.port ?? 7791
   const host = spawn(process.execPath, [join(root, 'dist', 'cli.js'), 'ui', '--local', '--port', String(port), '--cwd', project], { env: { ...process.env, VARA_HOME: home, BROWSER: 'none' }, stdio: ['ignore', 'pipe', 'pipe'] })
   let log = ''

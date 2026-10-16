@@ -18,6 +18,10 @@ vara setup      # أضف مزوّداً، الصق المفتاح، اسحب ا�
 
 <p align="center"><img src="docs/img/session.png?v=2" alt="VARA في المتصفح: الوكيل يقرأ ويعدّل ويشغّل الاختبارات ويعرض الأدلة" width="900"></p>
 
+<p align="center"><img src="docs/img/tui.gif?v=1" alt="واجهة الطرفية: شاشة البداية، رسالة تُكتب، والوكيل يعمل ولوحة الأدلة على الجانب" width="760"></p>
+
+<p align="center"><img src="docs/img/tui-start.png?v=1" alt="شاشة بداية الطرفية" width="760"></p>
+
 <p align="center"><img src="docs/img/mobile.png?v=2" alt="الواجهة نفسها على الهاتف" width="260"> <img src="docs/img/session-dark.png?v=2" alt="السمة الداكنة" width="620"></p>
 
 هذه هي الواجهة الحقيقية، أنتجها [scripts/capture-screens.ts](scripts/capture-screens.ts). والنموذج فيها **سيناريو مكتوب** (بلا مزوّد ولا مفتاح)، فهي تُري الواجهة ولوحة الأدلة لا ذكاء أي نموذج.
