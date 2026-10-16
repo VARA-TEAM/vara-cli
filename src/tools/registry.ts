@@ -11,6 +11,7 @@ import { connectorManageTool, modeManageTool, settingChangeTool, skillDeleteTool
 import { checkCommandAllowed } from './permissions.js'
 import { todoTool } from './todo-tool.js'
 import { sessionSearchTool } from './session-search.js'
+import { processTool } from './process-tool.js'
 import { readSymbolTool, repoMapTool, toolOutputTool } from './repo-tools.js'
 import { scrubAll } from '../security/redact.js'
 import { filterByPolicy, type ModePolicy } from '../core/modes.js'
@@ -39,6 +40,7 @@ const ALL_TOOLS: Tool<never>[] = [
   delegateTool,
   todoTool,
   sessionSearchTool,
+  processTool,
   skillWriteTool,
   skillToggleTool,
   mcpManageTool,

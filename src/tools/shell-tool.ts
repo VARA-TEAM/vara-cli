@@ -2,6 +2,8 @@ import { z } from 'zod'
 import { spawn } from 'node:child_process'
 import { resolve, relative, isAbsolute } from 'node:path'
 import type { Tool, ToolResult } from './types.js'
+import { maliciousPackages } from './package-check.js'
+import { startBackground } from './process-registry.js'
 import { checkCommandAllowed } from './permissions.js'
 import { scrubAll } from '../security/redact.js'
 
@@ -53,11 +55,12 @@ function runCommand(
   })
 }
 
-export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number; env?: Record<string, string> }> = {
+export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number; background?: boolean; env?: Record<string, string> }> = {
   name: 'shell',
   description:
     'Run a shell command in the working directory. Session secrets are injected into the child environment automatically; never echo them. ' +
     'Use the cwd argument to run inside a subdirectory — do NOT build "cd /d ..." chains, they break on quoting and paths with spaces. ' +
+    'Set background:true for a server or watcher that keeps running: it returns an id at once, and the process tool reads its output or stops it. ' +
     'Blocked in plan mode. Publishing commands (git push, gh write, npm publish) are blocked unless the user enabled publishing.',
   readonly: false,
   schema: z
@@ -68,6 +71,7 @@ export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number
         .optional()
         .describe('Subdirectory to run in, relative to the working directory. Preferred over cd/chdir in the command.'),
       timeoutMs: z.number().int().min(1000).max(600_000).optional().describe('Timeout, default 120000'),
+      background: z.boolean().optional().describe('Start it and return at once; read it later with the process tool'),
       env: z
         .record(z.string(), z.string())
         .optional()
@@ -78,6 +82,12 @@ export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number
   async execute(args, ctx): Promise<ToolResult> {
     const denial = checkCommandAllowed(args.command, ctx)
     if (denial.denied) return { ok: false, output: denial.reason }
+
+    // A package that OSV lists as malware is never installed from here (offline or slow: the command just runs).
+    const bad = await maliciousPackages(args.command)
+    if (bad.length) {
+      return { ok: false, output: `Refused: ${bad.map((b) => `${b.name} (${b.ecosystem}) is listed as malicious software in OSV (${b.advisory})`).join('; ')}. Check the package name for a typo; nothing was run.` }
+    }
 
     // Resolve the run directory inside the session working directory.
     let runDir = ctx.cwd
@@ -91,6 +101,11 @@ export const shellTool: Tool<{ command: string; cwd?: string; timeoutMs?: number
     }
 
     const env = { ...ctx.env, ...(args.env ?? {}) }
+    if (args.background) {
+      const p = startBackground(ctx.sessionId, args.command, runDir, env)
+      if ('error' in p) return { ok: false, output: p.error }
+      return { ok: true, output: `Started ${p.id} in the background: ${args.command.slice(0, 100)}. Read its output with process {action:"log", id:"${p.id}"}; stop it with process {action:"stop", id:"${p.id}"}.` }
+    }
     const { exitCode, output, timedOut } = await runCommand(
       args.command,
       runDir,

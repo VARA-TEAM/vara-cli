@@ -13,7 +13,7 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 | Refuses an edit when the file changed since it was read | ✅ **new** | `src/tools/file-guard.ts`; the agent is told to read the file again. |
 | File checkpoints and rewind | ✅ **new** | Every write, edit and delete is saved first; `/undo [n]` and `/checkpoints` (terminal), `/undo` (browser). Survives a restart. Files over 2 MB are not saved and say so. |
 | Search of past sessions | 🟡 **new** | `session_search` scans the 80 most recent sessions of the folder for the words you give. Hermes has a full-text index with summaries; ours is a plain scan. |
-| Tolerant edits (fuzzy match, escape-drift repair) | 🟡 | Only CRLF/LF differences are tolerated. |
+| Tolerant edits (fuzzy match) | ✅ **new** | CRLF/LF, and a block whose indentation or trailing spaces differ: replaced only if it matches exactly once, then re-indented. No escape-drift repair. |
 | Prompts that make the model act instead of announce | ✅ **new** | A short "use what you have" block and a stronger chat → task rule. Not yet measured with `vara eval` on a real model. |
 | Output spill and retrieval of long tool results | ✅ | `tool_output`. |
 | Smart / "yolo" approval modes | 🟡 | Approvals are per action; no learned allow-list. |
@@ -30,10 +30,10 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 
 | Hermes | VARA | Note |
 | --- | --- | --- |
-| Messaging gateway (Telegram, Discord, Slack, WhatsApp, Signal) | ❌ | Not started. Telegram and Discord first if wanted (see the platform notes in the project discussion). |
+| Messaging gateway (Telegram, Discord, Slack, WhatsApp, Signal) | 🟡 **new** | Telegram only, off by default, one paired private chat, approvals as buttons ([GATEWAY.md](GATEWAY.md)). Tested against a fake Telegram, **not yet the real service**. Discord and the rest: not built. |
 | Terminal backends (Docker, SSH, Modal, Daytona…) | ❌ | Tools run on the host. Needed before any hosted offering. |
 | Scheduled runs that deliver to a chat | 🟡 | `vara schedule` runs and logs; no delivery. |
-| Background process registry with logs | 🟡 | Dev servers via `preview`; no general background shell. |
+| Background process registry with logs | ✅ **new** | `shell` with `background:true`, and the `process` tool (list / log / stop), per session, killed when VARA exits. |
 | Web UI + TUI | ✅ | Both, with a parity table ([ARCHITECTURE.md](ARCHITECTURE.md)). |
 | Android (Termux) packaging | ❌ | Their route to phones; the browser UI already works on a phone. |
 
@@ -45,7 +45,7 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 | Skills hub, linter, security scan of skills | ❌ | We do not install third-party skills automatically. |
 | agentskills.io compatibility | ❓ | Not checked. |
 | MCP with OAuth | 🟡 | Done and tested against a local fake server only. |
-| Package vulnerability check (OSV) before installs | ❌ | |
+| Package safety check (OSV) before installs | 🟡 **new** | Only known **malicious** packages (OSV `MAL-` advisories) are refused, by the names typed in the install command; ordinary vulnerabilities are not checked. Offline = the command just runs. Off with `VARA_NO_PACKAGE_CHECK=1`. |
 | URL and path safety, secret redaction | ✅ | |
 | Browser and computer use | ✅ | Windows desktop verified; macOS and Linux not. |
 | Voice, TTS, image and video generation | ➖ | Not what a coding agent needs first. |
@@ -53,8 +53,8 @@ Legend: ✅ have · 🟡 partly · ❌ missing · ➖ deliberately not a goal.
 
 ## What to do next, in this order
 
-1. Measure the prompt changes and compaction with `vara eval` on one real model, and publish the table.
-2. Lazy tool schemas (`tool_search`).
-3. A Docker backend for tool execution.
-4. Telegram bridge, with the owner pairing and in-chat approvals.
-5. Background shell processes and delivery of scheduled results.
+1. Measure the prompt changes and compaction with `vara eval` on one real model, and publish the table (needs a model key; not done).
+2. Lazy tool schemas (`tool_search`) (not done).
+3. A Docker backend for tool execution (not done; Docker is not installed on the development machine, so it could not be verified).
+4. Try the Telegram bridge against the real service, then Discord.
+5. Delivery of scheduled results to a chat.

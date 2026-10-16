@@ -59,3 +59,20 @@ describe('file guard', () => {
     expect(await listCheckpoints(sid)).toEqual([])
   })
 })
+
+describe('tolerant edit matching', () => {
+  it('replaces a block whose indentation the model got wrong, once, and re-indents the replacement', async () => {
+    await writeFile(join(dir, 'd.js'), 'function f() {\n    if (x) {\n        run()\n    }\n}\n', 'utf8')
+    await run(readFileTool, { path: 'd.js' })
+    const r = await run(editFileTool, { path: 'd.js', oldString: 'if (x) {\n  run()\n}', newString: 'if (x) {\n  run()\n  log()\n}' })
+    expect(r.ok).toBe(true)
+    expect(r.output).toMatch(/indentation/)
+    expect(await readFile(join(dir, 'd.js'), 'utf8')).toBe('function f() {\n    if (x) {\n      run()\n      log()\n    }\n}\n')
+  })
+  it('does not guess when the block is ambiguous or absent', async () => {
+    await writeFile(join(dir, 'e.js'), 'a()\n  b()\na()\n  b()\n', 'utf8')
+    await run(readFileTool, { path: 'e.js' })
+    expect((await run(editFileTool, { path: 'e.js', oldString: 'a()\nb()', newString: 'c()' })).ok).toBe(false)
+    expect((await run(editFileTool, { path: 'e.js', oldString: 'nothing like it', newString: 'c()' })).ok).toBe(false)
+  })
+})

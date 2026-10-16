@@ -267,6 +267,15 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
   if (open && ownerUrl) openBrowser(ownerUrl)
   hooks.onReady?.({ port: server.port, baseUrl, ...(ownerUrl ? { ownerUrl } : {}), ...(auth?.oneTimeToken ? { oneTimeToken: auth.oneTimeToken } : {}) })
 
+  // Telegram: only when you turned it on and gave the bot a token; one paired chat, polling, no open port.
+  let stopTelegram: (() => void) | null = null
+  if (config.gateway.telegram.enabled) {
+    const { telegramToken, startTelegram } = await import('../gateway/telegram-run.js')
+    const token = await telegramToken()
+    if (token) stopTelegram = startTelegram({ token, host, log: (l) => say(l) })
+    else say('gateway.telegram is enabled but there is no bot token: vara secret set TELEGRAM_BOT_TOKEN')
+  }
+
   const shutdown = makeShutdown({
     log: logger,
     steps: [
@@ -283,6 +292,7 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       { name: 'stop sessions', run: () => host.closeAll() },
       { name: 'close the public link', run: () => sharing?.stop() },
       { name: 'stop accepting connections', run: () => server.close() },
+      { name: 'stop the Telegram bridge', run: () => stopTelegram?.() },
       { name: 'close MCP servers', run: () => hub.closeAll() },
     ],
   })

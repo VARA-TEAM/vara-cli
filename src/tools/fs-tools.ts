@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep, extname } from 'node:path'
 import type { Tool, ToolResult } from './types.js'
 import { outlineOf } from '../core/repomap.js'
 import { checkpoint, noteSeen, staleReason } from './file-guard.js'
+import { fuzzyReplace } from './fuzzy-edit.js'
 
 const MAX_READ_BYTES = 200_000
 /** A file longer than this, read without a range, comes back as an outline + its first lines (the model asks for slices). */
@@ -272,7 +273,16 @@ export const editFileTool: Tool<{ path: string; oldString: string; newString: st
         }
       }
 
-      if (count === 0) return { ok: false, output: 'oldString not found in file.' }
+      if (count === 0) {
+        const fuzzy = args.replaceAll ? null : fuzzyReplace(content, oldStr, newStr)
+        if (!fuzzy) return { ok: false, output: 'oldString not found in file.' }
+        await checkpoint(ctx.sessionId, target.path, args.path, content, 'edit')
+        await writeFile(target.path, fuzzy.next, 'utf8')
+        noteSeen(ctx.sessionId, target.path, fuzzy.next)
+        const check = await syntaxCheck(target.path)
+        if (check && !check.ok) return { ok: false, output: `Edit applied (${fuzzy.note}) but SYNTAX CHECK FAILED — ${check.message}` }
+        return { ok: true, output: `Replaced 1 occurrence in ${args.path}: ${fuzzy.note}${check ? ` · ${check.message}` : ''}` }
+      }
       if (count > 1 && !args.replaceAll) {
         return { ok: false, output: `oldString matched ${count} times. Make it unique or set replaceAll.` }
       }

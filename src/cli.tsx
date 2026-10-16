@@ -147,6 +147,11 @@ async function main(): Promise<void> {
     await skillsCommand(args.slice(1))
     return
   }
+  if (cmd === 'gateway') {
+    const { gatewayCommand } = await import('./gateway/telegram-run.js')
+    await gatewayCommand(args.slice(1))
+    return
+  }
   if (cmd === 'schedule') {
     await scheduleCommand(args.slice(1))
     return

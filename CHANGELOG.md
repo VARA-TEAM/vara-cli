@@ -6,6 +6,9 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## 2026-10-16 · v0.5.5 — Telegram bridge, background processes, package safety, tolerant edits
+- **Telegram bridge** (off by default): talk to VARA from your phone, one paired private chat, approvals as buttons ([docs/GATEWAY.md](docs/GATEWAY.md)). Tested against a fake Telegram only.- **Background processes:** `shell` with `background:true` and a `process` tool (list / log / stop).- **Package safety:** an install command naming a package OSV lists as malware is refused (offline: it just runs; `VARA_NO_PACKAGE_CHECK=1` turns it off).- **Tolerant edits:** `edit_file` now also matches a block whose indentation or trailing spaces differ, when it matches exactly once.
+
 ## 2026-10-16 · v0.5.4 — a new look, @ and / completion, undo and stale-edit guard, terminal pictures
 - **A more dependable agent (from a systematic read of Hermes Agent).** An edit is refused when the file changed on disk since the agent read it; every write, edit and delete is checkpointed and `/undo [n]` (terminal and browser) and `/checkpoints` (terminal) put it back, also after a restart; `session_search` finds what earlier sessions said. The full comparison, with what is still missing and the order to close it, is in [docs/HERMES-COMPARISON.md](docs/HERMES-COMPARISON.md).
 - **Terminal pictures in the README:** `scripts/record-tui.ts` runs the real `vara` in a pseudo-terminal, draws it with xterm.js in headless Chrome and records a GIF and screenshots (one-time setup of node-pty and xterm is in the script header; they are not VARA dependencies).
