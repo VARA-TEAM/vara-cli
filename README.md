@@ -14,9 +14,9 @@ vara setup      # add a provider, paste the key, fetch and test models
 
 ## What it looks like
 
-<p align="center"><img src="docs/img/session.png" alt="VARA in the browser: the agent reads, edits, runs the tests and shows the evidence" width="900"></p>
+<p align="center"><img src="docs/img/session.png?v=2" alt="VARA in the browser: the agent reads, edits, runs the tests and shows the evidence" width="900"></p>
 
-<p align="center"><img src="docs/img/mobile.png" alt="The same interface on a phone" width="260"> <img src="docs/img/session-dark.png" alt="Dark theme" width="620"></p>
+<p align="center"><img src="docs/img/mobile.png?v=2" alt="The same interface on a phone" width="260"> <img src="docs/img/session-dark.png?v=2" alt="Dark theme" width="620"></p>
 
 These are the real interface, produced by [scripts/capture-screens.ts](scripts/capture-screens.ts). The model in them is a **script** (no provider, no key), so they show the interface and the evidence panel, not how smart any model is.
 
