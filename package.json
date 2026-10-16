@@ -1,6 +1,6 @@
 {
   "name": "vara",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "VARA — a terminal coding agent that works with any provider, proves its results, and cuts your token bill.",
   "type": "module",
   "bin": {
