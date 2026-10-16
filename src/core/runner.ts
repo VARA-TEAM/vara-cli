@@ -14,6 +14,10 @@ export class SessionRunner {
   private engine: Engine | null = null
   private running = false
   private pendingFollowUps: string[] = []
+  /** pause() was pressed and the run has not finished unwinding yet. */
+  private stopping = false
+  /** A message arrived while stopping: the session must run again instead of silently dropping it. */
+  private restart = false
 
   constructor(
     readonly session: Session,
@@ -30,11 +34,12 @@ export class SessionRunner {
 
   /** Queue text to be delivered at the next safe point (or on next start). */
   send(text: string): void {
-    if (this.running && this.engine) {
+    if (this.running && this.engine && !this.stopping) {
       this.engine.queueFollowUp(text)
       return
     }
     this.pendingFollowUps.push(text)
+    if (this.running) this.restart = true
   }
 
   /** Answer an approval the agent is waiting on. */
@@ -51,6 +56,7 @@ export class SessionRunner {
     // The desktop kill switch: whatever the agent was about to do on the screen is cancelled at once.
     killDesktop(this.session.id)
     if (this.engine && this.running) {
+      this.stopping = true
       this.engine.stop()
       this.session.state = 'paused'
       this.session.stateReason = 'Paused by the user.'
@@ -60,24 +66,33 @@ export class SessionRunner {
   async start(): Promise<Session> {
     if (this.running) return this.session
     this.running = true
-
-    this.engine = new Engine({
-      session: this.session,
-      provider: this.provider,
-      model: this.model,
-      contextSettings: this.contextSettings,
-      ...this.extras,
-      onEvent: this.onEvent,
-    })
-    for (const text of this.pendingFollowUps) this.engine.queueFollowUp(text)
-    this.pendingFollowUps = []
-
     try {
-      await this.engine.run()
+      do {
+        this.restart = false
+        this.stopping = false
+        this.engine = new Engine({
+          session: this.session,
+          provider: this.provider,
+          model: this.model,
+          contextSettings: this.contextSettings,
+          ...this.extras,
+          onEvent: this.onEvent,
+        })
+        for (const text of this.pendingFollowUps) this.engine.queueFollowUp(text)
+        this.pendingFollowUps = []
+        try {
+          await this.engine.run()
+        } finally {
+          // What the stopped run never got to show the model waits for the next start.
+          this.pendingFollowUps.unshift(...this.engine.takeUninjected())
+          this.engine = null
+          await saveSession(this.session)
+        }
+        // A message sent while the run was stopping starts the session again (it used to be dropped).
+      } while (this.restart)
     } finally {
       this.running = false
-      this.engine = null
-      await saveSession(this.session)
+      this.stopping = false
     }
     return this.session
   }

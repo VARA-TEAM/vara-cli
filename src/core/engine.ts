@@ -226,6 +226,8 @@ export class Engine {
   private intent: SessionIntent = 'task'
   private readonly emit: (event: EngineEvent) => void
   private abort: AbortController | null = null
+  /** Set by stop(): a pause between two model calls (a tool running) must not be forgotten when the next call starts. */
+  private stopped = false
   private env: Record<string, string> = {}
   private followUpsToInject: FollowUp[] = []
   private failedClaims = 0
@@ -322,7 +324,17 @@ export class Engine {
     return true
   }
 
+  /** Follow-ups that arrived but were never shown to the model (the run ended first): handed back so they are not lost. */
+  takeUninjected(): string[] {
+    const left = this.followUpsToInject
+    this.followUpsToInject = []
+    const ids = new Set(left.map((f) => f.id))
+    this.session.followUps = this.session.followUps.filter((f) => !ids.has(f.id))
+    return left.map((f) => f.text)
+  }
+
   stop(): void {
+    this.stopped = true
     for (const id of [...this.approvals.keys()]) this.resolveApproval(id, false, 'the run was stopped')
     this.abort?.abort()
     for (const c of this.children) c.stop()
@@ -554,6 +566,11 @@ export class Engine {
 
     for (;;) {
       if (this.isTerminal()) break
+      if (this.stopped) {
+        this.setState('paused', 'Paused by you. State saved; send a message to resume.')
+        await this.save()
+        break
+      }
 
       // Budgets bound WORK. A long conversation must not "exhaust" a session.
       if (isWorkIntent(this.intent)) this.warnBudget()
@@ -769,6 +786,7 @@ export class Engine {
     this.verificationFailedNext = false
 
     this.abort = new AbortController()
+    if (this.stopped) this.abort.abort()
     let assistantText = ''
     let result: { content: string; toolCalls: Array<{ id: string; name: string; arguments: string }> } | null = null
     let usage: NormalizedUsage | undefined
