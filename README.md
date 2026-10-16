@@ -14,6 +14,8 @@ vara setup      # add a provider, paste the key, fetch and test models
 
 ## What it looks like
 
+<p align="center"><img src="docs/img/demo.gif" alt="VARA fixing a bug: the message is typed, the agent reads, edits and tests, and the evidence panel fills in" width="900"></p>
+
 <p align="center"><img src="docs/img/session.png?v=2" alt="VARA in the browser: the agent reads, edits, runs the tests and shows the evidence" width="900"></p>
 
 <p align="center"><img src="docs/img/mobile.png?v=2" alt="The same interface on a phone" width="260"> <img src="docs/img/session-dark.png?v=2" alt="Dark theme" width="620"></p>

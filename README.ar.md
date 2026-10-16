@@ -14,6 +14,8 @@ vara setup      # أضف مزوّداً، الصق المفتاح، اسحب ا�
 
 ## كيف يبدو
 
+<p align="center"><img src="docs/img/demo.gif" alt="VARA يصلح خطأً: تُكتب الرسالة، فيقرأ الوكيل ويعدّل ويختبر، وتمتلئ لوحة الأدلة" width="900"></p>
+
 <p align="center"><img src="docs/img/session.png?v=2" alt="VARA في المتصفح: الوكيل يقرأ ويعدّل ويشغّل الاختبارات ويعرض الأدلة" width="900"></p>
 
 <p align="center"><img src="docs/img/mobile.png?v=2" alt="الواجهة نفسها على الهاتف" width="260"> <img src="docs/img/session-dark.png?v=2" alt="السمة الداكنة" width="620"></p>

@@ -7,6 +7,7 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 ---
 
 ## Unreleased
+- **A demo GIF in the README**, recorded from the real interface by `scripts/record-demo.ts` (the model in it is a script; Chrome and ffmpeg needed to remake it). The screenshot and recording scripts now share `scripts/demo-env.ts`.
 - **A new look for the browser interface.** Built around evidence: work is a column of flat tool rows with a status rail (green done, red failed, orange running) instead of outlined boxes; surfaces are told apart by tone, not 1px lines or shadows; labels are sentence case; the start screen is one big left-aligned question; a cool ink-and-teal palette (dark and light) with the logo's orange as the only action colour replaces the cream-and-terracotta default. Styles live in `ui/src/identity.css`, loaded last. System fonts only for now (a bundled typeface is a later step). Checked in screenshots (README) but not yet in a manual pass over every screen.
 
 ## 2026-10-16 · v0.5.3 — web search, memory, OAuth, eval, compact, @ and / completion, sharper agent, screenshots
