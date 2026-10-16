@@ -25,6 +25,17 @@ import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
 import { PROVIDERS } from './tunnel.js'
 import { askExposure, exposureArgs, exposureDecided, publicIp } from './expose.js'
 
+/** Stands in until the owner adds a provider in the browser; every request says what to do. */
+function noProvider(): Provider {
+  return {
+    id: 'openai',
+    // eslint-disable-next-line require-yield
+    async *chat() {
+      yield { type: 'error', message: 'No model provider is set up yet. Open Settings → Providers, add one and pick a model.' }
+    },
+  } as Provider
+}
+
 const DEFAULT_PORT = 7777
 
 function flag(args: string[], name: string): string | undefined {
@@ -105,12 +116,16 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
     provider = (await buildProvider(config)).provider
   } catch (err) {
     const key = config.provider.apiKeyEnv
-    throw new Error(
-      `${(err as Error).message}\n` +
-        (daemon
-          ? `Give the host a model key before it starts: export ${key || 'the provider key variable'} (or run \`vara secret set ${config.provider.apiKeySecret || 'NAME'}\` / \`vara setup\` once with the same VARA_HOME).`
-          : 'Run: vara setup'),
-    )
+    // A person at `vara ui` with no provider yet can still open the page and add one there (Settings → Providers).
+    if (!daemon) {
+      say('No model provider is set up yet: open the page and add one in Settings (the agent cannot answer until you do).')
+      provider = noProvider()
+    } else {
+      throw new Error(
+        `${(err as Error).message}\n` +
+          `Give the host a model key before it starts: export ${key || 'the provider key variable'} (or run \`vara secret set ${config.provider.apiKeySecret || 'NAME'}\` / \`vara setup\` once with the same VARA_HOME).`,
+      )
+    }
   }
   let providerVersion = 0
   const hub = new McpHub()

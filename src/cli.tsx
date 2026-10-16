@@ -152,6 +152,12 @@ async function main(): Promise<void> {
     return
   }
   if (cmd === 'setup') {
+    // At a terminal: the browser page or the terminal screen? (`--ui` / `--tui` skip the question.)
+    const want = args.includes('--ui') ? 'ui' : args.includes('--tui') ? 'tui' : process.stdin.isTTY && process.stdout.isTTY ? await askInterface() : 'tui'
+    if (want === 'ui') {
+      await serveCommand(['--local', ...args.slice(1).filter((a) => a !== '--ui')], true)
+      return
+    }
     await runSetup(await loadConfig())
     return
   }
@@ -344,6 +350,17 @@ async function headlessRun(args: string[]): Promise<void> {
 }
 
 /* ---------------- setup & providers ---------------- */
+
+async function askInterface(): Promise<'ui' | 'tui'> {
+  const { createInterface } = await import('node:readline/promises')
+  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  try {
+    const answer = (await rl.question('Set up in: 1) the browser page (recommended)   2) this terminal  [1]: ')).trim()
+    return answer === '2' ? 'tui' : 'ui'
+  } finally {
+    rl.close()
+  }
+}
 
 /** Run the interactive setup screen; resolves with the saved config. */
 async function runSetup(config: VaraConfig): Promise<VaraConfig> {
