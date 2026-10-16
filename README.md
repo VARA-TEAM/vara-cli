@@ -12,6 +12,16 @@ vara setup      # add a provider, paste the key, fetch and test models
 
 ---
 
+## What it looks like
+
+<p align="center"><img src="docs/img/session.png" alt="VARA in the browser: the agent reads, edits, runs the tests and shows the evidence" width="900"></p>
+
+<p align="center"><img src="docs/img/mobile.png" alt="The same interface on a phone" width="260"> <img src="docs/img/session-dark.png" alt="Dark theme" width="620"></p>
+
+These are the real interface, produced by [scripts/capture-screens.ts](scripts/capture-screens.ts). The model in them is a **script** (no provider, no key), so they show the interface and the evidence panel, not how smart any model is.
+
+---
+
 ## Why VARA
 
 | | |
@@ -28,6 +38,12 @@ vara setup      # add a provider, paste the key, fetch and test models
 | **Proof, not claims** | Finishing goes through an independent check run by the **engine** (your verify command + git state). If it fails, the work is not complete. |
 | **Browser and desktop** | The agent can drive an isolated browser (`browser` tool) and, if you allow it, see and operate your screen (`desktop` tool). Both are off by default, ask before risky steps, never type passwords, and the desktop tool has a kill switch. |
 | **Connectors** | One-click GitHub, Notion, Sentry, Supabase and more as ready-made MCP servers, with tokens kept in the encrypted vault. |
+| **Web search, from your machine** | `web_search` and `web_fetch` look things up on the internet with no paid API: DuckDuckGo from your own connection first, your real browser if you allow it, optional Brave/Tavily/Serper keys if you have them. Results are treated as untrusted text. See [docs/WEB-SEARCH.md](docs/WEB-SEARCH.md). |
+| **Remembers, repeats, learns** | Notes that persist between sessions (`/memory`), skills the agent *proposes* and you approve, and scheduled runs (`vara schedule`). All off by default. |
+| **Long sessions that stay cheap** | `/compact [what to keep]` folds old turns into a summary on demand; auto-compact does it by itself near the window limit (`/autocompact`). |
+| **Point at things** | `/skill-name` runs a skill; `@skill`, `@mcp-server`, `@agents` (parallel sub-agents), `@web`, `@browser` tell the agent what to use. Tab completes them in the terminal; the browser has the same menus. |
+| **Sign in, don't paste tokens** | OAuth sign-in for remote connectors (GitHub, Notion, Sentry, Supabase); tokens go straight into the vault. Tried only against a local test server so far — [docs/OAUTH.md](docs/OAUTH.md) says exactly what you do yourself. |
+| **Reachable from your phone** | `vara ui --public` on a server prints a link that works from anywhere; `vara ui` asks how you want to reach it. A native phone app is not built yet; the browser interface works on a phone. |
 | **Safety** | Permissions are enforced inside the tools, not in the prompt · encrypted secret vault · every output is scrubbed of secrets · unknown cost is `null`, never `0`. |
 | **Share a session** | Invite people by link or QR into your host with exactly the powers you choose; see what they use. Your keys never leave your machine. |
 
