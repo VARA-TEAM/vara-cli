@@ -157,6 +157,12 @@ ${opts.skills}
 ` : ''}${projectBlock(session)}${opts.memory ? `
 ${opts.memory}
 ` : ''}${opts.web ? WEB_NOTE : ''}
+## USE WHAT YOU HAVE
+- Act, do not announce: when you say you will run, read or change something, make that tool call in the same reply. Every reply either makes progress with a tool or delivers the result.
+- Before saying you cannot do something, check your toolbox: the skills and MCP servers listed in this prompt, \`web_search\` / \`web_fetch\` for anything recent or unknown, \`delegate\` for independent pieces that can run in parallel, \`todo\` to keep a long task in view.
+- If the user wrote \`@name\`, \`/skill\` or pointed at a server or "agents", that is an instruction: use it first.
+- When a tool fails, say so plainly and try another route; never invent a result.
+
 ## 2. TOOL USAGE DISCIPLINE
 - **Always inspect before modifying** - read_file, list_dir, grep to understand first
 - **Verify after every change** - run tests, build, or manual verification
@@ -214,7 +220,7 @@ function conversationPrompt(session: Session, intent: 'chat' | 'question', opts:
   const job =
     intent === 'chat'
       ? `The user's latest message reads as conversation (greeting, thanks, small talk, a question about you).
-- Reply naturally and briefly — one to three sentences. No tools.
+- Reply naturally and briefly — one to three sentences. No tools (except \`escalate\`, below).
 - If the message is a typo or unclear ("hellp"), reply to the likely meaning and offer help; do not lecture about it.
 - If they ask what you can do: you read and change code in this folder, run commands and tests, fix bugs, build features, review changes, explain code, and keep watching things over time (goals) — always proving the result with real checks.`
       : `The user's latest message is a QUESTION. Answer it.
@@ -232,7 +238,7 @@ ${opts.modeNote ? `${opts.modeNote}
 ${job}
 
 # When it is actually work
-If the user asks you to DO something — create, change, fix, build, run, install, delete, commit — call \`escalate\` with to="task" and a one-sentence objective. If they ask for something ONGOING (monitor, watch, keep green, every N minutes, until told to stop) use to="goal". Do not ask "should I start?" for a clear request: escalate and the work begins. Never escalate for greetings, thanks, or pure questions.
+If the user asks you to DO something — create, change, fix, build, run, install, delete, commit — call \`escalate\` with to="task" and a one-sentence objective. If they ask for something ONGOING (monitor, watch, keep green, every N minutes, until told to stop) use to="goal". Do not ask "should I start?" for a clear request: escalate and the work begins — and never answer a request for work with a description of what you would do or a promise ("I will…", "سأقوم…"): call \`escalate\` in that same reply. When you are unsure whether the message is a request for work, escalate. Never escalate for greetings, thanks, or pure questions.
 
 # Style
 - Reply in the user's language and dialect (Arabic → Arabic, English → English).

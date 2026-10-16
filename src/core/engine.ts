@@ -1,3 +1,4 @@
+import { mentionHint } from './capability-mentions.js'
 import { randomUUID } from 'node:crypto'
 import type {
   Budget,
@@ -516,6 +517,12 @@ export class Engine {
   }
 
   private addMessage(message: Omit<TranscriptMessage, 'at'>): void {
+    // "@skill", "@server", "@agents", "@web" in the user's words become an explicit instruction to the model.
+    if (message.role === 'user' && message.content.includes('@')) {
+      const mcpServers = [...(this.mcpSummary?.() ?? '').matchAll(/^- ([^s:(]+)/gm)].map((m) => m[1]!)
+      const hint = mentionHint(message.content, { skills: this.skills.map((k) => k.name), mcpServers })
+      if (hint) message = { ...message, content: message.content + hint }
+    }
     this.session.transcript.push({ ...message, at: new Date().toISOString() })
   }
 
