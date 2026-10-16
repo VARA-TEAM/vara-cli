@@ -50,7 +50,7 @@ const MAX_TOOL_OUTPUT_CHARS = 12_000
 /** Identical consecutive calls tolerated before the run is paused (the 3rd already warns the model). */
 const LOOP_HARD_STOP = 5
 /** Control tools that cannot change files, so they do not invalidate a verification result. */
-const NON_MUTATING = new Set(['complete', 'ask_user', 'escalate', 'skill', 'todo'])
+const NON_MUTATING = new Set(['complete', 'ask_user', 'escalate', 'skill', 'todo', 'session_search'])
 /** Read-only tools whose calls in one turn may run side by side (R4). */
 const PARALLEL_SAFE = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_status', 'git_diff', 'git_log', 'repo_map', 'read_symbol', 'tool_output'])
 

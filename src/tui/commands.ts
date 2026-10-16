@@ -27,6 +27,8 @@ export const COMMANDS: CommandDef[] = [
   { name: '/agents', args: '[cancel <id|all> | report | list]', description: 'Sub-agents of this session: roles, status, cost, reports; cancel one or all' },
   { name: '/connectors', args: '[add <id>]', description: 'Ready-made connectors (GitHub, Notion, Sentry…); add one with its token' },
   { name: '/think', args: '[off|low|medium|high]', description: 'Reasoning level for the current model (if it supports it)' },
+  { name: '/undo', args: '[n]', description: 'Put back the last n file changes the agent made (default 1); /checkpoints lists them' },
+  { name: '/checkpoints', description: 'The file changes the agent made in this session that /undo can put back' },
   { name: '/compact', description: 'Fold the older conversation into a summary now (optional: what to keep: /compact keep the DB schema decisions)' },
   { name: '/autocompact', description: 'Turn automatic compaction on or off, or set the share of the window that triggers it: /autocompact on | off | 70' },
   { name: '/cost', description: 'What this session cost — and what VARA saved you' },

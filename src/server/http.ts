@@ -333,6 +333,10 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const task = (await readBody(req))['id']
         return reply(await host.cancelAgents(p, b, typeof task === 'string' && task ? str(task, 40) : undefined))
       }
+      if (b && c === 'undo' && method === 'POST') {
+        const n = Number((await readBody(req))['count'])
+        return reply(await host.undo(p, b, Number.isInteger(n) && n >= 1 && n <= 20 ? n : 1))
+      }
       if (b && c === 'compact' && method === 'POST') {
         const focus = (await readBody(req))['focus']
         return reply(await host.compact(p, b, typeof focus === 'string' && focus.trim() ? str(focus, 300) : undefined))

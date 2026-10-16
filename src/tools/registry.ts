@@ -10,6 +10,7 @@ import { mcpManageTool, skillToggleTool, skillWriteTool, switchModeTool, SELF_TO
 import { connectorManageTool, modeManageTool, settingChangeTool, skillDeleteTool, varaSystemTool, SYSTEM_READ_TOOL_NAME, SYSTEM_WRITE_TOOL_NAMES } from './system-tools.js'
 import { checkCommandAllowed } from './permissions.js'
 import { todoTool } from './todo-tool.js'
+import { sessionSearchTool } from './session-search.js'
 import { readSymbolTool, repoMapTool, toolOutputTool } from './repo-tools.js'
 import { scrubAll } from '../security/redact.js'
 import { filterByPolicy, type ModePolicy } from '../core/modes.js'
@@ -37,6 +38,7 @@ const ALL_TOOLS: Tool<never>[] = [
   escalateTool,
   delegateTool,
   todoTool,
+  sessionSearchTool,
   skillWriteTool,
   skillToggleTool,
   mcpManageTool,
@@ -70,12 +72,13 @@ const PLAN_ALLOWED = new Set([
   'skill',
   'delegate',
   'todo',
+  'session_search',
   'switch_mode',
   SYSTEM_READ_TOOL_NAME,
 ])
 
 /** Read-only investigation set used to answer questions. */
-const QUESTION_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'repo_map', 'read_symbol', 'tool_output', 'git_status', 'git_diff', 'git_log', 'skill', 'escalate', 'delegate', SYSTEM_READ_TOOL_NAME])
+const QUESTION_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'repo_map', 'read_symbol', 'tool_output', 'git_status', 'git_diff', 'git_log', 'session_search', 'skill', 'escalate', 'delegate', SYSTEM_READ_TOOL_NAME])
 
 /** Work tools for a mode. `escalate` only exists outside work. */
 export function toolsForMode(mode: 'plan' | 'build'): Tool<never>[] {

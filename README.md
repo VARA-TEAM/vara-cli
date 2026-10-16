@@ -194,6 +194,7 @@ English is the default; Arabic versions are in `docs/ar/` and the `*.ar.md` file
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Running VARA on a PC, a VPS, Docker or a CI box (systemd, compose, TLS proxy) |
 | [docs/EVAL.md](docs/EVAL.md) | `vara eval`: does the cost engine save money without lowering quality — method, results, what is not measured |
 | [docs/WEB-SEARCH.md](docs/WEB-SEARCH.md) | Live web search and page reading for the agent: no paid API, runs from your machine, safety limits, what was verified |
+| [docs/HERMES-COMPARISON.md](docs/HERMES-COMPARISON.md) | What we learned from Hermes Agent: what VARA has, what it lacks, and the order we will close the gaps |
 | [docs/OAUTH.md](docs/OAUTH.md) | Browser sign-in for remote MCP connectors (GitHub, Notion, Sentry, Supabase) — what VARA does and what you must set up yourself |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Changing the code safely; known traps |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is open, what is deliberately not done |

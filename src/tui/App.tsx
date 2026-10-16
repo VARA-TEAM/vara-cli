@@ -19,6 +19,7 @@ import { appendEntry, replayTranscript, resumeBanner } from './history.js'
 import { CommandPalette } from './palette.js'
 import { SessionBrowser } from './sessions.js'
 import { dispatchClick } from './clicks.js'
+import { listCheckpoints } from '../tools/file-guard.js'
 import { suggestions } from './complete.js'
 import { COMMANDS } from './commands.js'
 import { TabBar, nextTabId, type TabInfo } from './tabs.js'
@@ -1085,6 +1086,33 @@ export function App({ session, provider: initialProvider, config: initialConfig,
         void writeFile(file, md.join('\n'), 'utf8')
           .then(() => push({ kind: 'note', text: `exported → ${file}`, color: 'green' }))
           .catch((err: Error) => push({ kind: 'note', text: `export failed: ${err.message}`, color: 'red' }))
+        return
+      }
+      case 'undo': {
+        if (!cur || !runnerRef.current) {
+          push({ kind: 'note', text: 'no session yet', color: 'gray' })
+          return
+        }
+        const n = Math.max(1, Math.min(20, Number(rest[0]) || 1))
+        void runnerRef.current.undo(n).then((r) => {
+          if (r === 'busy') return push({ kind: 'note', text: 'the agent is working: stop it first (Esc), then /undo', color: 'yellow' })
+          const lines = [...r.restored.map((x) => `✓ ${x.path} — ${x.what}`), ...r.failed.map((x) => `✗ ${x.path} — ${x.why}`)]
+          push({ kind: 'note', text: lines.length ? ['undo:', ...lines].join(String.fromCharCode(10)) : 'nothing to undo', color: r.failed.length ? 'yellow' : 'gray' })
+        })
+        return
+      }
+      case 'checkpoints': {
+        if (!cur) {
+          push({ kind: 'note', text: 'no session yet', color: 'gray' })
+          return
+        }
+        void listCheckpoints(cur.id).then((list) =>
+          push({
+            kind: 'note',
+            text: list.length ? ['changes /undo can put back (newest last):', ...list.slice(-15).map((c) => `  #${c.id} ${c.action} ${c.path}`)].join(String.fromCharCode(10)) : 'no file changes recorded in this session',
+            color: 'gray',
+          }),
+        )
         return
       }
       case 'compact': {

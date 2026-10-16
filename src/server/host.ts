@@ -557,6 +557,19 @@ export class VaraHost {
     return { ok: true, value: { cancelled: live.runner.cancelAgents(taskId) } }
   }
 
+  /** `/undo [n]`: put back the last n file changes the agent made in this session. */
+  async undo(p: Principal, id: string, count: number): Promise<Result<{ restored: Array<{ path: string; what: string }>; failed: Array<{ path: string; why: string }> }>> {
+    const live = await this.load(id)
+    if (!live) return fail(404, 'no such session')
+    const ref = refOf(live.session)
+    if (!authorize(p, 'session.read', ref).ok) return fail(404, 'no such session')
+    const d = authorize(p, 'session.send', ref, await this.usageOf(p))
+    if (!d.ok) return fail(403, d.reason)
+    const r = await live.runner.undo(count)
+    if (r === 'busy') return fail(409, 'the agent is working: stop it first, then /undo')
+    return { ok: true, value: r }
+  }
+
   /** `/compact [focus]`: fold the older conversation into a summary now. */
   async compact(p: Principal, id: string, focus?: string): Promise<Result<{ folded: number; savedTokens: number } | null>> {
     const live = await this.load(id)

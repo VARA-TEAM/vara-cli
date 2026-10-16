@@ -114,7 +114,7 @@ export interface RouteDecision {
   reason: string
 }
 
-const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_status', 'git_diff', 'git_log', 'repo_map', 'read_symbol', 'tool_output', 'todo'])
+const READ_TOOLS = new Set(['read_file', 'list_dir', 'glob', 'grep', 'git_status', 'git_diff', 'git_log', 'repo_map', 'read_symbol', 'tool_output', 'todo', 'session_search'])
 
 const COMPLEX_EN = /\b(refactor|re-?architect|architecture|redesign|migrate|migration|rewrite|from scratch|race condition|deadlock|memory leak|security|vulnerabilit|concurrency|performance|optimi[sz]e|root cause|design (?:a|the) )/i
 const COMPLEX_AR = /(إعادة هيكلة|هيكلة|معمارية|تصميم|ترحيل|من الصفر|أمان|ثغرة|أداء|السبب الجذري|تزامن)/

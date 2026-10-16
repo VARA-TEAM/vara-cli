@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, readdir, stat, rm } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep, extname } from 'node:path'
 import type { Tool, ToolResult } from './types.js'
 import { outlineOf } from '../core/repomap.js'
+import { checkpoint, noteSeen, staleReason } from './file-guard.js'
 
 const MAX_READ_BYTES = 200_000
 /** A file longer than this, read without a range, comes back as an outline + its first lines (the model asks for slices). */
@@ -40,6 +41,7 @@ export const readFileTool: Tool<{ path: string; offset?: number; limit?: number 
         return { ok: false, output: `File too large (${info.size} bytes). Read a slice with offset/limit.` }
       }
       const content = await readFile(target.path, 'utf8')
+      noteSeen(ctx.sessionId, target.path, content)
       const lines = content.split(/\r?\n/)
       if (!args.offset && !args.limit && lines.length > OUTLINE_OVER_LINES && ctx.smartRead !== false) {
         const outline = outlineOf(args.path, content)
@@ -183,8 +185,15 @@ export const writeFileTool: Tool<{ path: string; content: string }> = {
     const target = resolveInside(ctx.cwd, args.path)
     if ('error' in target) return { ok: false, output: target.error }
     try {
+      const before = await readFile(target.path, 'utf8').catch(() => null)
+      if (before !== null) {
+        const stale = staleReason(ctx.sessionId, target.path, args.path, before)
+        if (stale) return { ok: false, output: stale }
+      }
+      await checkpoint(ctx.sessionId, target.path, args.path, before, 'write')
       await mkdir(dirname(target.path), { recursive: true })
       await writeFile(target.path, args.content, 'utf8')
+      noteSeen(ctx.sessionId, target.path, args.content)
 
       // P0: read the file back and compare — proves the write actually landed.
       const readBack = await readFile(target.path, 'utf8')
@@ -234,6 +243,8 @@ export const editFileTool: Tool<{ path: string; oldString: string; newString: st
     if ('error' in target) return { ok: false, output: target.error }
     try {
       const content = await readFile(target.path, 'utf8')
+      const stale = staleReason(ctx.sessionId, target.path, args.path, content)
+      if (stale) return { ok: false, output: stale }
       let oldStr = args.oldString
       let newStr = args.newString
       let count = content.split(oldStr).length - 1
@@ -266,7 +277,9 @@ export const editFileTool: Tool<{ path: string; oldString: string; newString: st
         return { ok: false, output: `oldString matched ${count} times. Make it unique or set replaceAll.` }
       }
       const next = args.replaceAll ? content.split(oldStr).join(newStr) : content.replace(oldStr, newStr)
+      await checkpoint(ctx.sessionId, target.path, args.path, content, 'edit')
       await writeFile(target.path, next, 'utf8')
+      noteSeen(ctx.sessionId, target.path, next)
 
       // Read back and confirm the bytes on disk equal the intended result.
       const readBack = await readFile(target.path, 'utf8')
@@ -301,8 +314,10 @@ export const deleteFileTool: Tool<{ path: string }> = {
     const target = resolveInside(ctx.cwd, args.path)
     if ('error' in target) return { ok: false, output: target.error }
     try {
+      const before = await readFile(target.path, 'utf8').catch(() => null)
+      if (before !== null) await checkpoint(ctx.sessionId, target.path, args.path, before, 'delete')
       await rm(target.path, { recursive: false })
-      return { ok: true, output: `Deleted ${args.path}` }
+      return { ok: true, output: `Deleted ${args.path}${before !== null ? ' (/undo brings it back)' : ''}` }
     } catch (err) {
       return { ok: false, output: `delete_file failed: ${(err as Error).message}` }
     }

@@ -4,6 +4,7 @@ import type { Provider } from '../llm/provider.js'
 import { loadSession, saveSession } from './store.js'
 import type { ContextSettings } from './context.js'
 import { killDesktop } from '../tools/desktop-tool.js'
+import { undo as undoChanges, type UndoResult } from '../tools/file-guard.js'
 
 /**
  * SessionRunner owns the engine lifecycle across pauses and resumes.
@@ -61,6 +62,12 @@ export class SessionRunner {
       this.session.state = 'paused'
       this.session.stateReason = 'Paused by the user.'
     }
+  }
+
+  /** `/undo [n]`: put back the last n file changes the agent made (newest first). Refused while a run is going. */
+  async undo(count = 1): Promise<UndoResult | 'busy'> {
+    if (this.running) return 'busy'
+    return undoChanges(this.session.id, count)
   }
 
   /** `/compact [focus]`: fold the older conversation into a summary now. Refused while a run is going. */

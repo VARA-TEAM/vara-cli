@@ -139,6 +139,21 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
       add({ id: 'think', slash: 'think', args: levels.join('|'), options: levels, group: 'session', title: t('cmd_think'), description: thinkRow.thinking.note, run: (a) => (levels.includes(a as ThinkLevel) ? setThink(a as ThinkLevel) : toast(t('cmd_usage', { u: `/think ${levels.join(' | ')}` }), 'err')) })
     }
     add({
+      id: 'undo',
+      slash: 'undo',
+      args: '[n]',
+      group: 'session',
+      title: t('cmd_undo'),
+      description: t('cmd_undoHelp'),
+      run: (a) =>
+        void run(async () => {
+          const r = (await post('/undo', { count: Number(a) || 1 })) as { restored?: Array<{ path: string; what: string }>; failed?: Array<{ path: string; why: string }> }
+          const done = (r.restored ?? []).map((x) => `${x.path}: ${x.what}`)
+          const bad = (r.failed ?? []).map((x) => `${x.path}: ${x.why}`)
+          toast(done.length || bad.length ? [...done, ...bad].join(' · ') : t('cmd_undoNothing'), bad.length || !done.length ? 'err' : 'ok')
+        }),
+    })
+    add({
       id: 'compact',
       slash: 'compact',
       args: t('cmd_compactArgs'),
