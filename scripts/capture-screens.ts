@@ -125,7 +125,14 @@ try {
   await evaluate(`(() => { const t = document.querySelector('textarea'); t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`)
   await sleep(9000)
   await shot('session', 1440, 900)
+  // The theme is remembered by the page itself, so switch it there and reload.
+  await evaluate("localStorage.setItem('vara.theme', 'vara')")
+  await call('Page.reload')
+  await sleep(3000)
   await shot('session-dark', 1440, 900, true)
+  await evaluate("localStorage.setItem('vara.theme', 'light')")
+  await call('Page.reload')
+  await sleep(3000)
   await shot('mobile', 390, 844)
 } finally {
   await chrome.close?.()

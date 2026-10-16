@@ -1,0 +1,91 @@
+/*
+ * VARA's look. Loaded after every other stylesheet, so it only has to say what is different.
+ *
+ * The idea: VARA's whole pitch is proof, so the interface is built around evidence. Work is a column of
+ * flat tool rows, each marked by a coloured rail (green done, red failed, orange running) instead of an outlined
+ * box; the proof panel is the one place with real density. Everything else gets quieter:
+ *   - surfaces are told apart by a step in tone, not by 1px lines or shadows;
+ *   - one accent for action (the logo's orange), teal only for links and focus;
+ *   - sentence-case labels at a readable size (no tiny tracked capitals);
+ *   - the start screen is a big left-aligned question, not a centred card.
+ * Borders stay where a control must read as a control (inputs, the composer's focus ring).
+ */
+
+:root {
+  --radius: 14px; --radius-sm: 9px;
+  --display: "Segoe UI Variable Display", "SF Pro Display", ui-sans-serif, system-ui, "Noto Sans Arabic", sans-serif;
+}
+
+/* ---------- surfaces: tone steps, no hairlines ---------- */
+.sidebar { border-inline-end: 0; background: var(--surface); }
+.sidebar-foot, .session-head, .panel-tabs, .statusbar { border: 0; }
+.panel { border-inline-start: 0; background: var(--surface); }
+.splitter { background: transparent; }
+.splitter-vertical, .splitter-horizontal { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.session-head { background: transparent; padding-block: 16px 10px; }
+.statusbar { background: var(--surface); }
+.menu, .popover, .pop, .dialog, .palette { box-shadow: 0 12px 36px color-mix(in srgb, #000 28%, transparent); border: 0; }
+
+/* ---------- labels: sentence case, readable ---------- */
+.sidebar h3, .panel h3, .panel-body h4, .card h3 { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 650; color: var(--muted); }
+.sidebar h3 { margin: 18px 10px 6px; }
+
+/* ---------- controls ---------- */
+.btn { border-color: transparent; background: color-mix(in srgb, var(--text) 8%, var(--surface)); }
+.btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 13%, var(--surface)); border-color: transparent; }
+.btn-primary { background: var(--brand); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--brand) 88%, #fff); filter: none; }
+.new-btn { border: 0; background: var(--brand); color: #fff; }
+.new-btn:hover { background: color-mix(in srgb, var(--brand) 88%, #fff); }
+.chip { border: 0; background: color-mix(in srgb, var(--text) 8%, var(--surface)); }
+.badge { border: 0; background: color-mix(in srgb, currentColor 14%, transparent); }
+.tone-ok, .tone-warn, .tone-err, .tone-accent, .tone-brand, .tone-user { border: 0; }
+.session-item.active { background: color-mix(in srgb, var(--brand) 12%, var(--surface)); box-shadow: inset 3px 0 0 var(--brand); }
+[dir="rtl"] .session-item.active { box-shadow: inset -3px 0 0 var(--brand); }
+.panel-tabs button { border-radius: 8px; border-bottom: 0; padding-block: 6px; }
+.panel-tabs button.on { background: color-mix(in srgb, var(--text) 9%, transparent); border-bottom: 0; }
+a, .link-btn { color: var(--accent); }
+
+/* ---------- the conversation ---------- */
+.chat { width: min(860px, 100%); gap: 22px; }
+.msg-assistant > .md { font-size: 16px; line-height: 1.68; }
+.bubble { border: 0; background: color-mix(in srgb, var(--text) 9%, var(--surface)); border-radius: 18px; padding: 11px 16px; font-size: 15.5px; }
+.msg-user .bubble { border-end-end-radius: 6px; }
+
+/* Work as evidence: a flat row with a status rail, not an outlined card. */
+.tool { border: 0; border-inline-start: 4px solid var(--muted); border-radius: 3px 10px 10px 3px; background: color-mix(in srgb, var(--text) 5%, var(--surface)); box-shadow: none; }
+.tool.tool-ok { border-inline-start-color: var(--ok); }
+.tool.tool-fail { border-inline-start-color: var(--err); background: color-mix(in srgb, var(--err) 8%, var(--surface)); }
+.tool.tool-running { border-inline-start-color: var(--brand); }
+.tool-body { border-top: 0; background: color-mix(in srgb, var(--text) 4%, var(--bg)); }
+.tool-body .tool-out { border-top: 0; padding-top: 4px; }
+
+/* ---------- search, filter, suggestions, share: filled, not outlined ---------- */
+.search-btn, .session-filter, .suggestion, .share-btn { border: 0; background: color-mix(in srgb, var(--text) 7%, var(--surface)); }
+.search-btn:hover, .suggestion:hover, .share-btn:hover { background: color-mix(in srgb, var(--text) 12%, var(--surface)); border: 0; }
+.share-btn.on { background: color-mix(in srgb, var(--user) 16%, var(--surface)); color: var(--user); border: 0; }
+.suggestion { padding: 8px 16px; font-size: 14.5px; }
+.suggestions { justify-content: flex-start; }
+select, .composer select { border: 0; background: color-mix(in srgb, var(--text) 8%, var(--surface)); border-radius: 8px; }
+
+/* ---------- the composer ---------- */
+.composer { border: 0; background: var(--surface); border-radius: 18px; box-shadow: none; padding: 14px 16px 10px; }
+.composer:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); border: 0; }
+.composer.drop { box-shadow: 0 0 0 2px var(--accent); }
+.composer-wrap { padding-block-end: 20px; }
+
+/* ---------- the start screen: one big question, left-aligned ---------- */
+.home-inner { width: min(900px, 100%); margin: auto; padding: 48px 28px 64px; justify-items: start; text-align: start; gap: 18px; }
+.home h1 { font-family: var(--display); font-size: clamp(38px, 6.2vw, 68px); line-height: 1.02; letter-spacing: -0.035em; font-weight: 700; max-width: 14ch; }
+.home h1 + p, .home .home-sub { font-size: 18px; color: var(--muted); max-width: 52ch; }
+.home .composer { box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
+.home .composer:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 60%, transparent); }
+
+/* ---------- phone ---------- */
+@media (max-width: 720px) {
+  .home-inner { padding: 28px 18px 40px; }
+  .home h1 { font-size: clamp(32px, 11vw, 44px); }
+  .chat { gap: 18px; }
+}
+
+@media (prefers-reduced-motion: reduce) { * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; } }

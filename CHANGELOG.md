@@ -6,6 +6,9 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## Unreleased
+- **A new look for the browser interface.** Built around evidence: work is a column of flat tool rows with a status rail (green done, red failed, orange running) instead of outlined boxes; surfaces are told apart by tone, not 1px lines or shadows; labels are sentence case; the start screen is one big left-aligned question; a cool ink-and-teal palette (dark and light) with the logo's orange as the only action colour replaces the cream-and-terracotta default. Styles live in `ui/src/identity.css`, loaded last. System fonts only for now (a bundled typeface is a later step). Checked in screenshots (README) but not yet in a manual pass over every screen.
+
 ## 2026-10-16 · v0.5.3 — web search, memory, OAuth, eval, compact, @ and / completion, sharper agent, screenshots
 - **Completion for `/` and `@`.** The terminal prompt now suggests commands, skills, `@skill`, `@mcp-server`, `@agents`, `@web` and `@browser` as you type, and Tab takes the first (Tab still flips plan/build when there is nothing to complete). The browser composer's `@` menu lists the same, above project files.
 - **Docs and pictures:** the README now shows the real interface (made by `scripts/capture-screens.ts` with a scripted model) and lists web search, memory, schedule, compact, @ mentions, OAuth and `--public`. The release gate retries a flaky test twice on CI (v0.5.2 was not published because one polling test timed out on a loaded runner; the same commit passed CI).
