@@ -320,7 +320,7 @@ function Shell({
   const toggle = (): void => setNavOpen(true)
 
   // Guests never see the team page, even by typing the URL.
-  const page = route.page === 'team' && me.role !== 'owner' ? ({ page: 'home' } as Route) : route
+  const page = route.page === 'team' && (me.role !== 'owner' || me.features?.team === false) ? ({ page: 'home' } as Route) : route
   return (
     <div className="app">
       {me.role === 'owner' && me.host.update && !updateHidden ? (

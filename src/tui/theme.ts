@@ -53,7 +53,7 @@ function palette(b: Base): Palette {
 }
 
 export const THEMES: Palette[] = [
-  palette({ name: 'vara', label: 'VARA (ember)', brand: '#F2A65A', accent: '#7FD1C2', user: '#C9A3F0', ok: '#8FD19E', warn: '#E9C46A', err: '#F07A7A', info: '#7FB0FF', muted: '#7A8190', border: '#3D434F', onAccent: '#16181D' }),
+  palette({ name: 'vara', label: 'VARA (violet)', brand: '#8B6CFF', accent: '#BCAEFF', user: '#D6A8F0', ok: '#8FD19E', warn: '#F0A64B', err: '#F2788A', info: '#7FB0FF', muted: '#8A8399', border: '#3A3550', onAccent: '#FFFFFF' }),
   palette({ name: 'tokyo-night', label: 'Tokyo Night', brand: '#7AA2F7', accent: '#7DCFFF', user: '#BB9AF7', ok: '#9ECE6A', warn: '#E0AF68', err: '#F7768E', info: '#7AA2F7', muted: '#565F89', border: '#3B4261', onAccent: '#1A1B26' }),
   palette({ name: 'catppuccin', label: 'Catppuccin Mocha', brand: '#CBA6F7', accent: '#89DCEB', user: '#F5C2E7', ok: '#A6E3A1', warn: '#F9E2AF', err: '#F38BA8', info: '#89B4FA', muted: '#7F849C', border: '#45475A', onAccent: '#1E1E2E' }),
   palette({ name: 'dracula', label: 'Dracula', brand: '#BD93F9', accent: '#8BE9FD', user: '#FF79C6', ok: '#50FA7B', warn: '#F1FA8C', err: '#FF5555', info: '#8BE9FD', muted: '#6272A4', border: '#44475A', onAccent: '#282A36' }),

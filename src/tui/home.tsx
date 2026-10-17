@@ -1,8 +1,9 @@
 import React from 'react'
-import { Box, Text } from 'ink'
+import { Box, Text, useStdout } from 'ink'
 import type { Mode, SessionState } from '../core/types.js'
 import { PromptBox, Chip } from './prompt.js'
 import { glyph, stateColor, STATE_LABEL, theme } from './theme.js'
+import { logoCells } from './logo.js'
 
 export type DraftKind = 'auto' | 'task' | 'goal'
 
@@ -15,6 +16,35 @@ export interface RecentSession {
 
 /** Two-row block wordmark — compact, distinctive, no banner art. */
 const WORDMARK = ['█ █ ▄▀█ █▀█ ▄▀█', '▀▄▀ █▀█ █▀▄ █▀█']
+
+/** The hand-drawn mark: the brand-coloured tile, the ivory V and its deep tip, drawn with half blocks. */
+const MARK_COLOR = { v: '#F4F1FF', tip: '#1B1240' } as const
+function Mark(): React.ReactElement {
+  const color = (r: 'tile' | 'v' | 'tip' | null): string | undefined => (r === 'tile' ? theme.brand : r === 'v' ? MARK_COLOR.v : r === 'tip' ? MARK_COLOR.tip : undefined)
+  return (
+    <Box flexDirection="column">
+      {logoCells().map((row, y) => {
+        const spans: { fg: string | undefined; bg: string | undefined; text: string }[] = []
+        for (const c of row) {
+          const fg = color(c.fg)
+          const bg = color(c.bg)
+          const last = spans[spans.length - 1]
+          if (last && last.fg === fg && last.bg === bg) last.text += c.ch
+          else spans.push({ fg, bg, text: c.ch })
+        }
+        return (
+          <Text key={y}>
+            {spans.map((sp, i) => (
+              <Text key={i} color={sp.fg} backgroundColor={sp.bg}>
+                {sp.text}
+              </Text>
+            ))}
+          </Text>
+        )
+      })}
+    </Box>
+  )
+}
 
 export function relativeTime(iso: string, now = Date.now()): string {
   const t = new Date(iso).getTime()
@@ -68,6 +98,9 @@ export function HomeScreen({
   notice?: string
 }): React.ReactElement {
   const width = Math.max(36, Math.min(86, columns - 4))
+  const { stdout } = useStdout()
+  // The mark is 8 rows tall: only show it where there is room for it and the rest of the screen.
+  const showMark = (stdout?.rows ?? 24) >= 32 && columns >= 60
   const kindColor = kind === 'auto' ? theme.chat : kind === 'task' ? theme.task : theme.goal
   const placeholder =
     kind === 'goal' ? 'What should I keep doing? e.g. "keep the tests green"' : 'Ask anything, or describe the work…'
@@ -75,13 +108,20 @@ export function HomeScreen({
     <Box flexDirection="column" alignItems="center" flexGrow={1} justifyContent="center">
       <Box flexDirection="column" width={width}>
         <Box justifyContent="space-between" alignItems="flex-end">
-          <Box flexDirection="column">
-            <Text color={theme.brand} bold>
-              {WORDMARK[0]}
-            </Text>
-            <Text color={theme.brand} bold>
-              {WORDMARK[1]}
-            </Text>
+          <Box alignItems="flex-end">
+            {showMark ? (
+              <Box marginRight={2}>
+                <Mark />
+              </Box>
+            ) : null}
+            <Box flexDirection="column">
+              <Text color={theme.brand} bold>
+                {WORDMARK[0]}
+              </Text>
+              <Text color={theme.brand} bold>
+                {WORDMARK[1]}
+              </Text>
+            </Box>
           </Box>
           <Text color={theme.muted}>v{version}</Text>
         </Box>

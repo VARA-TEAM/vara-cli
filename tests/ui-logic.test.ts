@@ -167,7 +167,7 @@ describe('translations and themes', () => {
 
   it('every theme defines every colour, and the default exists', () => {
     for (const t of THEMES) for (const [k, v] of Object.entries(t)) expect(v, `${t.id}.${k}`).not.toBe('')
-    expect(findTheme('nope').id).toBe('vara')
+    expect(findTheme('nope').id).toBe('system')
     expect(new Set(THEMES.map((t) => t.id)).size).toBe(THEMES.length)
   })
 })

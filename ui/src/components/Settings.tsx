@@ -1,8 +1,8 @@
-import { useContext } from 'react'
+import { useContext, useState } from 'react'
 import { LangContext, useT, type Lang } from '../i18n'
 import { useResource } from '../hooks'
 import { usePrefs } from '../prefs'
-import { THEMES, type Theme } from '../theme'
+import { ACCENT_IDS, DENSITY_IDS, FONTS, THEMES, applyAccent, applyDensity, applyFont, savedAccent, savedDensity, savedFont, type AccentId, type DensityId, type Theme } from '../theme'
 import type { Grant, McpState, Me, MemoryState, ModeRow, ProposalRow, ProvidersState, SettingsState, SkillRow } from '../types'
 import { AgentPanel, Row } from './Agent'
 import { ConnectorsPanel, type ConnectorRow } from './Connectors'
@@ -37,6 +37,10 @@ function Look({ theme, onTheme, owner }: { theme: Theme; onTheme: (t: Theme) => 
   const t = useT()
   const { lang, setLang } = useContext(LangContext)
   const { prefs, setPrefs } = usePrefs()
+  const [font, setFont] = useState(savedFont)
+  const [accent, setAccent] = useState<AccentId>(savedAccent)
+  const [density, setDensity] = useState<DensityId>(savedDensity)
+  const fromTokens = theme.id === 'system' || theme.id === 'vara' || theme.id === 'light'
   return (
     <div>
       <h3 className="sec first">{t('theme')}</h3>
@@ -49,6 +53,39 @@ function Look({ theme, onTheme, owner }: { theme: Theme; onTheme: (t: Theme) => 
               <i style={{ background: th.user }} />
             </span>
             {th.label}
+          </button>
+        ))}
+      </div>
+
+      {fromTokens ? (
+        <>
+          <h3 className="sec">{t('accent')}</h3>
+          <div className="accent-row" role="radiogroup" aria-label={t('accent')}>
+            {ACCENT_IDS.map((a) => (
+              <button key={a} role="radio" aria-checked={a === accent} aria-label={t(`accent_${a}` as never)} title={t(`accent_${a}` as never)} className={`accent-dot${a === accent ? ' on' : ''}`} data-accent={a} onClick={() => (applyAccent(a), setAccent(a))}>
+                <i />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      <h3 className="sec">{t('density')}</h3>
+      <div className="seg" role="radiogroup" aria-label={t('density')}>
+        {DENSITY_IDS.map((d) => (
+          <button key={d} role="radio" aria-checked={d === density} className={d === density ? 'on' : ''} onClick={() => (applyDensity(d), setDensity(d))}>
+            {t(`density_${d}` as never)}
+          </button>
+        ))}
+      </div>
+
+      <h3 className="sec">{t('font')}</h3>
+      <div className="font-grid" role="radiogroup" aria-label={t('font')}>
+        {FONTS.map((f) => (
+          <button key={f.id} role="radio" aria-checked={f.id === font} className={`font-card${f.id === font ? ' on' : ''}`} data-font-preview={f.id} onClick={() => (applyFont(f.id), setFont(f.id))}>
+            <span className="font-aa" aria-hidden="true">Aa أب</span>
+            <span className="font-name">{f.label}{f.id === 'vara' ? ` · ${t('font_default')}` : ''}</span>
+            <span className="muted font-sample">{f.sample}</span>
           </button>
         ))}
       </div>
@@ -138,7 +175,7 @@ function About({ me }: { me: Me }) {
 export function Settings({ me, tab, onTab, theme, onTheme, onToggleSidebar }: { me: Me; tab: SettingsTab; onTab: (t: SettingsTab) => void; theme: Theme; onTheme: (t: Theme) => void; onToggleSidebar: () => void }) {
   const t = useT()
   const owner = me.role === 'owner'
-  const tabs = owner ? OWNER_TABS : GUEST_TABS
+  const tabs = owner ? OWNER_TABS.filter((x) => x !== 'gateways' || me.features?.gateways !== false) : GUEST_TABS
   const active = tabs.includes(tab) ? tab : tabs[0]!
   const providers = useResource<ProvidersState>(owner && (active === 'models' || active === 'agent') ? '/api/manage/providers' : null)
   const settings = useResource<SettingsState>(owner && active === 'agent' ? '/api/manage/settings' : null)

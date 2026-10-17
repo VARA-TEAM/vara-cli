@@ -44,6 +44,8 @@ Owner login — shown ONCE. Open it (or keep the token in a password manager): o
 | `--token T` | `VARA_OWNER_TOKEN` | — | رمز مالك كقيمة (يظهر في `ps` إن كان علماً: فضّل الملف) |
 | `--rotate-token` | — | — | استبدال الرمز المولَّد (الرمز القديم يتوقف) |
 | `--trust-proxy` | `VARA_TRUST_PROXY=1` | مطفأ | عدّ محاولات الدخول الفاشلة لكل عميل حقيقي خلف الوكيل العكسي (§٥) |
+| — | `VARA_DISABLE=team,gateways,tunnel,desktop,browser` | — | تعطيل ميزات لكامل المضيف: `team` (الضيوف وروابط الدعوة والجلسات المشتركة)، `gateways` (تيليجرام وديسكورد وسلاك)، `tunnel` (روابط المشاركة العامة)، `desktop` (التحكم بالحاسوب)، `browser` (أداة المتصفح). يرفضها المضيف (403) وتخفيها الواجهة. للاستضافة التي تحدد فيها الباقة ما يناله الشخص |
+| — | `VARA_ALLOW_NO_PROVIDER=1` | مطفأ | يبدأ المضيف دون مفتاح نموذج (كما في `vara ui`): يضيف المالك مزوّداً من الإعدادات. للاستضافة التي يأتي فيها الشخص بمفتاحه بعد أول دخول |
 | `--log MODE` | `VARA_LOG` | `text` (و`journal` تحت systemd) | `text` أو `json` (كائن في كل سطر) أو `journal` (بادئات أولوية syslog) |
 | — | `VARA_NO_UPDATE_CHECK=1` | — | بلا طلب «يتوفر تحديث» اليومي |
 | — | `OPENAI_API_KEY` و`ANTHROPIC_API_KEY`… | — | مفتاح النموذج (المتغير الذي يستعمله مزوّدك). أو خزّنه في الخزنة: `vara secret set NAME` |

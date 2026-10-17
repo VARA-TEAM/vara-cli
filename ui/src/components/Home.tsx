@@ -6,6 +6,7 @@ import { useT } from '../i18n'
 import { relativeTime } from '../transcript'
 import type { Me, ModeRow, ModelsInfo, ProvidersState, SessionSummary, SessionView } from '../types'
 import { Composer } from './Composer'
+import { LogoMark } from './Logo'
 import type { Route } from './Sidebar'
 import { useToast } from './toast'
 import { Button, Icon, StateBadge } from './ui'
@@ -52,11 +53,7 @@ export function Home({ me, models, sessions, commands, go, onOpen, onToggleSideb
       </header>
       <div className="home-inner">
         <div className="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 64 64" width="56" height="56">
-            <rect width="64" height="64" rx="16" fill="var(--surface-2)" />
-            <path d="M12 18l13 30 13-30" fill="none" stroke="var(--brand)" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M40 48l6-14 6 14M42.4 43h7.2" fill="none" stroke="var(--accent)" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <LogoMark size={64} />
         </div>
         <h1>{t('home_title')}</h1>
         <p className="muted">{t('home_sub')}</p>

@@ -91,7 +91,7 @@ export function TabBar({
   const others = tabs.open.filter((id) => id !== tabs.active)
 
   return (
-    <div className="tabbar">
+    <div className={`tabbar${tabs.open.length <= 1 ? ' solo' : ''}`}>
       {navHidden ? (
         <button className="icon-btn" onClick={onToggleNav} aria-label={t('wb_navToggle')} title={`${t('wb_navToggle')} (Ctrl B)`}>
           <Icon name="menu" />

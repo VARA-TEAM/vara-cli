@@ -1,0 +1,46 @@
+/* The app's own names (--bg, --surface, --brand ...) answered from the shared tokens (tokens.css, generated from design/tokens.mjs).
+   Applies to the three themes VARA ships (vara, light, system). The community palettes (Tokyo Night, Nord ...) keep setting
+   their own colours inline from theme.ts, and inline wins over this file. Loaded after luxe.css. */
+
+:root[data-theme="vara"], :root[data-theme="light"], :root[data-theme="system"] {
+  --bg: var(--c-bg);
+  --surface: var(--c-bg-card);
+  --surface-2: var(--c-bg-raised);
+  --border: var(--c-line);
+  --text: var(--c-text);
+  --muted: var(--c-text-3);
+  --brand: var(--c-accent);
+  --on-brand: var(--c-accent-ink);
+  --accent: color-mix(in srgb, var(--c-accent) 55%, var(--c-text));
+  --ok: var(--c-ok);
+  --warn: var(--c-warn);
+  --err: var(--c-bad);
+  --user: #D6A8F0;
+  --info: #7DAEE8;
+}
+:root[data-theme="light"] {
+  --user: #9A3FB8;
+  --info: #1D5FC4;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --user: #9A3FB8;
+    --info: #1D5FC4;
+    --lift: inset 0 1px 0 #fff;
+    --shadow-soft: 0 1px 2px rgb(30 20 70 / .08), 0 12px 32px -14px rgb(30 20 70 / .22);
+    --shadow-float: 0 2px 4px rgb(30 20 70 / .06), 0 28px 70px -28px rgb(30 20 70 / .35);
+  }
+}
+
+/* Density: compact tightens type and the rows people scan. */
+:root[data-density="compact"] body { font-size: 14px; }
+:root[data-density="compact"] .session-item { padding-block: 5px; }
+:root[data-density="compact"] .nav-btn { padding-block: 6px; }
+:root[data-density="compact"] .btn { padding-block: 6px; }
+:root[data-density="compact"] .bubble { padding-block: 9px; font-size: 15px; }
+
+/* accent picker in Settings -> Look */
+.accent-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.accent-dot { inline-size: 44px; block-size: 44px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; box-shadow: 0 0 0 1px var(--hair); }
+.accent-dot i { inline-size: 24px; block-size: 24px; border-radius: 50%; background: var(--c-accent); display: block; }
+.accent-dot.on { box-shadow: 0 0 0 2px var(--text); }

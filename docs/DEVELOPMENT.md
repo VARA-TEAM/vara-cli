@@ -117,6 +117,10 @@ Add it to `COMMANDS` in `src/tui/commands.ts` (the one source for the list, `/he
 
 Commands: add a `Cmd` where the person can use it (`SessionPage.tsx` for session commands, `App.tsx` for global ones) — it appears in `/`, the palette and help at once. Strings: add the key to **both** dictionaries in `ui/src/i18n.ts` (a test fails if Arabic lacks a key). A new management action: add it to `src/server/manage.ts` (owner-only, through `update()`), route it in `Manager.route`, and add a case to `tests/manage.test.ts`.
 
+### Colours, accents and density (design tokens)
+
+The web interface's colours come from one source, `design/tokens.mjs`: names say what a colour is **for** (`--c-text`, `--c-line`, `--c-bg-card`), and light and dark must answer every one of them. After editing it run `node scripts/build-tokens.mjs`, which writes `ui/src/tokens.css`; `tests/design-tokens.test.ts` fails if that file drifts, if light and dark disagree on a key, or if an accent's text falls under 4.5:1 contrast. `ui/src/bridge.css` maps the app's own variable names (`--bg`, `--surface`, `--brand`…) onto the tokens for the three themes VARA ships (`system`, `vara`, `light`); the community palettes in `ui/src/theme.ts` keep setting their own colours. Accent (`data-accent`) and density (`data-density`) are attributes on `<html>`, chosen in Settings → Look and kept in `localStorage`. Do not hard-code a colour in a stylesheet: add or reuse a token.
+
 ### A new model in the registry
 
 In `src/llm/registry.ts` add a `ModelSpec` with pricing **only** if you know the price explicitly. An estimated price breaks the cost-truthfulness rule.

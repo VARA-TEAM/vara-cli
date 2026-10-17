@@ -25,6 +25,7 @@ import { DEFAULT_SHARE_MINUTES, Sharing } from './share.js'
 import { PROVIDERS } from './tunnel.js'
 import { hostGateway } from '../gateway/run.js'
 import { askExposure, exposureArgs, exposureDecided, publicIp } from './expose.js'
+import { disabledFeatures } from './features.js'
 
 /** Stands in until the owner adds a provider in the browser; every request says what to do. */
 function noProvider(): Provider {
@@ -118,7 +119,8 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
   } catch (err) {
     const key = config.provider.apiKeyEnv
     // A person at `vara ui` with no provider yet can still open the page and add one there (Settings → Providers).
-    if (!daemon) {
+    // A hosted service starts the host before its owner has a key: VARA_ALLOW_NO_PROVIDER=1 gives the daemon the same behaviour.
+    if (!daemon || process.env['VARA_ALLOW_NO_PROVIDER'] === '1') {
       say('No model provider is set up yet: open the page and add one in Settings (the agent cannot answer until you do).')
       provider = noProvider()
     } else {
@@ -191,6 +193,8 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
   const wantShare = args.includes('--share')
   const allowedHosts: string[] = publicHost ? [publicHost] : []
   const publicHosts: string[] = []
+  const disabled = disabledFeatures()
+  if (disabled.size) say(`Turned off on this host: ${[...disabled].join(', ')}`)
   let sharing: Sharing | null = null
   let baseBeforeShare: string | undefined
   let server: Awaited<ReturnType<typeof startServer>>
@@ -205,6 +209,7 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
       port,
       allowedHosts,
       publicHosts,
+      disabled,
       share: () => {
         const s = sharing?.current()
         return s ? { url: s.url, ...(s.expiresAt ? { expiresAt: s.expiresAt } : {}) } : undefined
@@ -266,12 +271,13 @@ export async function serveCommand(args: string[], open: boolean, hooks: ServeHo
     console.log('\nKeep this window open. Ctrl+C stops the host and every guest session.')
     if (lan) console.log('Only invite people you trust: a guest with "build" power can change files and run commands on THIS machine.')
   }
-  if (wantShare) await startShare(sharing, args, access, config)
+  if (wantShare && !disabled.has('tunnel')) await startShare(sharing, args, access, config)
+  else if (wantShare) say('Public links are turned off on this host: --share was ignored.')
   if (open && ownerUrl) openBrowser(ownerUrl)
   hooks.onReady?.({ port: server.port, baseUrl, ...(ownerUrl ? { ownerUrl } : {}), ...(auth?.oneTimeToken ? { oneTimeToken: auth.oneTimeToken } : {}) })
 
   // Telegram: starts now if it is switched on and has a token; the settings screens can change that while running.
-  await gateway.reconcile().catch((e: Error) => say(`gateway: ${e.message}`))
+  if (!disabled.has('gateways')) await gateway.reconcile().catch((e: Error) => say(`gateway: ${e.message}`))
 
   const shutdown = makeShutdown({
     log: logger,

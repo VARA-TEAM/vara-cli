@@ -192,7 +192,7 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
       if (busy) add({ id: 'pause', slash: 'pause', group: 'session', title: t('pause'), description: t('cmd_pauseHelp'), run: () => run(() => post('/pause')) })
       add({ id: 'stop', slash: 'stop', group: 'session', title: t('cmd_stop'), description: t('cmd_stopHelp'), run: () => run(() => post('/stop'), t('stopped')) })
     }
-    if (view.can.manage) add({ id: 'share', slash: 'share', group: 'session', title: view.shared ? t('unshare') : t('share'), run: () => run(() => post('/share', { shared: !view.shared })) })
+    if (view.can.manage && me.features?.team !== false) add({ id: 'share', slash: 'share', group: 'session', title: view.shared ? t('unshare') : t('share'), run: () => run(() => post('/share', { shared: !view.shared })) })
     if (view.can.send) add({ id: 'attach', slash: 'attach', group: 'session', title: t('cmd_attach'), description: t('cmd_attachHelp'), run: () => void window.dispatchEvent(new CustomEvent('vara:attach', { detail: { id } })) })
     if (isOwner && view.pendingApprovals.length) {
       const pick = (a: string): string | undefined => (a ? view.pendingApprovals.find((p) => p.id.startsWith(a))?.id : view.pendingApprovals[0]?.id)
@@ -352,7 +352,7 @@ export function SessionPage({ id, role, me, models, onChanged, onToggleSidebar, 
             <span className="num">{sum.live ? t('ag_status', { n: sum.running, total: sum.total }) : t('ag_chipDone', { n: sum.done, total: sum.total })}</span>
           </button>
         ) : null}
-        {view.can.manage ? (
+        {view.can.manage && me.features?.team !== false ? (
           <button className={`share-btn${view.shared ? ' on' : ''}`} onClick={() => void run(() => post('/share', { shared: !view.shared }))} aria-pressed={view.shared}>
             <Icon name="users" size={15} /> {view.shared ? t('sharedBadge') : t('share')}
           </button>

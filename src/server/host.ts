@@ -138,7 +138,7 @@ export class VaraHost {
     const recent: string[] = []
     for (const r of await this.summaries()) {
       const k = process.platform === 'win32' ? r.cwd.toLowerCase() : r.cwd
-      if (!seen.has(k) && !this.sameFolder(r.cwd, this.folder) && existsSync(r.cwd)) (seen.add(k), recent.push(r.cwd))
+      if (!seen.has(k) && !this.sameFolder(r.cwd, this.folder) && this.withinRoot(r.cwd) && existsSync(r.cwd)) (seen.add(k), recent.push(r.cwd))
       if (recent.length >= 8) break
     }
     return { ok: true, value: { current: this.folder, recent } }
@@ -149,6 +149,7 @@ export class VaraHost {
     const d = authorize(p, 'admin')
     if (!d.ok) return fail(403, d.reason)
     const target = resolve(path.trim())
+    if (!this.withinRoot(target)) return fail(403, 'that folder is outside the area this host allows')
     let ok = false
     try {
       ok = statSync(target).isDirectory()
@@ -166,6 +167,7 @@ export class VaraHost {
     const d = authorize(p, 'admin')
     if (!d.ok) return fail(403, d.reason)
     const at = resolve(path.trim() || this.folder || homedir())
+    if (!this.withinRoot(at)) return fail(403, 'that folder is outside the area this host allows')
     let entries
     try {
       entries = await readdir(at, { withFileTypes: true })
@@ -174,7 +176,26 @@ export class VaraHost {
     }
     const dirs = entries.filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules').map((e) => e.name).sort((a, b) => a.localeCompare(b)).slice(0, 300)
     const up = dirname(at)
-    return { ok: true, value: { path: at, parent: up === at ? null : up, dirs } }
+    const root = this.folderRoot()
+    return { ok: true, value: { path: at, parent: up === at || (root !== null && !this.withinRoot(up)) ? null : up, dirs } }
+  }
+
+  /**
+   * A hosting operator can fence every working folder inside one directory with `VARA_FOLDER_ROOT` (a hosted workspace
+   * sets it to its data volume), so the folder picker cannot wander the rest of the machine and file tools cannot be
+   * pointed at it. Unset = no fence (the owner's own computer).
+   */
+  private folderRoot(): string | null {
+    const r = (process.env['VARA_FOLDER_ROOT'] ?? '').trim()
+    return r ? resolve(r) : null
+  }
+
+  private withinRoot(path: string): boolean {
+    const root = this.folderRoot()
+    if (!root) return true
+    const a = process.platform === 'win32' ? resolve(path).toLowerCase() : resolve(path)
+    const b = process.platform === 'win32' ? root.toLowerCase() : root
+    return a === b || a.startsWith(b.endsWith('/') || b.endsWith('\\') ? b : b + (process.platform === 'win32' ? '\\' : '/'))
   }
 
   get access(): AccessStore {

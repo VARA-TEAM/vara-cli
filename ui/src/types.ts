@@ -24,8 +24,17 @@ export interface HostInfo {
 }
 
 export type Me =
-  | { role: 'owner'; name: string; host: HostInfo; share?: { url: string; expiresAt?: string } }
-  | { role: 'guest'; id: string; name: string; grant: Grant; host: HostInfo }
+  | { role: 'owner'; name: string; host: HostInfo; features?: HostFeatures; share?: { url: string; expiresAt?: string } }
+  | { role: 'guest'; id: string; name: string; grant: Grant; host: HostInfo; features?: HostFeatures }
+
+/** What this host offers; false = the host's operator turned it off (VARA_DISABLE). Absent = everything. */
+export interface HostFeatures {
+  team: boolean
+  gateways: boolean
+  tunnel: boolean
+  desktop: boolean
+  browser: boolean
+}
 
 export interface ModelsInfo {
   provider: string

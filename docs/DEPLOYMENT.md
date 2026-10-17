@@ -44,6 +44,8 @@ Flags win over environment variables; both win over the defaults. An **empty** v
 | `--token T` | `VARA_OWNER_TOKEN` | — | Your own owner token as a value (visible in `ps` when a flag: prefer the file) |
 | `--rotate-token` | — | — | Replace the generated token (the old one stops working) |
 | `--trust-proxy` | `VARA_TRUST_PROXY=1` | off | Count failed logins per real client behind a reverse proxy (§5) |
+| — | `VARA_DISABLE=team,gateways,tunnel,desktop,browser` | — | Turn features off for the whole host: `team` (guests, invite links, shared sessions), `gateways` (Telegram, Discord, Slack), `tunnel` (public share links), `desktop` (computer control), `browser` (the browser tool). The host refuses them (403) and the web interface hides them. Meant for hosted setups where a plan decides what a person gets |
+| — | `VARA_ALLOW_NO_PROVIDER=1` | off | Start the host without a model key (like `vara ui`): the owner adds a provider in Settings. For hosted setups where the person brings a key after the first login |
 | `--log MODE` | `VARA_LOG` | `text` (`journal` under systemd) | `text`, `json` (one object per line) or `journal` (syslog priority prefixes) |
 | — | `VARA_NO_UPDATE_CHECK=1` | — | No daily "update available" request |
 | — | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, … | — | The model key (the variable your provider uses). Or store it in the vault: `vara secret set NAME` |

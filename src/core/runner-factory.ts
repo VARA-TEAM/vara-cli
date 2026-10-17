@@ -6,6 +6,7 @@ import { contextSettingsFor, thinkingFor, visionFor } from '../config/providers.
 import { previewTool } from '../tools/preview-tool.js'
 import { browserTool } from '../tools/browser-tool.js'
 import { desktopTool } from '../tools/desktop-tool.js'
+import { disabledFeatures } from '../server/features.js'
 import type { Tool } from '../tools/types.js'
 import { SessionRunner } from './runner.js'
 import { discoverSkills } from './skills.js'
@@ -78,7 +79,7 @@ export function makeSessionRunner(opts: {
                 ...(opts.host ? { host: opts.host } : {}),
               },
             }) as AdminPort, interactive: true } : {}),
-      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.webSearch.enabled ? [web.search as unknown as Tool<never>] : []), ...(config().agent.webSearch.fetch ? [web.fetch as unknown as Tool<never>] : []), ...(config().agent.browser ? [browserTool as unknown as Tool<never>] : []), ...(config().agent.desktop && opts.applyConfig ? [desktopTool as unknown as Tool<never>] : []), ...(config().memory.enabled ? [memoryTool as unknown as Tool<never>] : []), ...(config().skills.propose && opts.applyConfig ? [skillProposeTool as unknown as Tool<never>] : [])],
+      extraTools: () => [...hub.tools(new Set(s.config.disabledMcp ?? [])), previewTool as unknown as Tool<never>, ...(config().agent.webSearch.enabled ? [web.search as unknown as Tool<never>] : []), ...(config().agent.webSearch.fetch ? [web.fetch as unknown as Tool<never>] : []), ...(config().agent.browser && !disabledFeatures().has('browser') ? [browserTool as unknown as Tool<never>] : []), ...(config().agent.desktop && opts.applyConfig && !disabledFeatures().has('desktop') ? [desktopTool as unknown as Tool<never>] : []), ...(config().memory.enabled ? [memoryTool as unknown as Tool<never>] : []), ...(config().skills.propose && opts.applyConfig ? [skillProposeTool as unknown as Tool<never>] : [])],
       memoryBlock: () => (config().memory.enabled ? memoryBlock(s.config.cwd, config().memory.maxTokens) : ''),
       mcpSummary: () => hub.summary(new Set(s.config.disabledMcp ?? [])),
     },

@@ -6,6 +6,11 @@ Everything that reached `main`, newest first. Every batch is verified: `npm run 
 
 ---
 
+## Unreleased — one design system for the web interface
+- **System theme, accents and density.** A new default theme, "System", follows the device's light/dark setting (the VARA and Light themes stay). Settings → Look adds seven accent colours (violet, blue, green, orange, pink, yellow, graphite) and two densities (comfortable, compact); both apply to the VARA, Light and System themes.
+- **One source for colour.** `design/tokens.mjs` is the single place colours, radii and density are defined; `node scripts/build-tokens.mjs` writes `ui/src/tokens.css`, and a test fails if it drifts or an accent's text drops below 4.5:1 contrast. See `docs/DEVELOPMENT.md`.
+- README screenshots remade from the current interface.
+
 ## 2026-10-16 · v0.5.7 — Telegram, Discord and Slack gateways, set up by you
 - **Several messaging platforms, set up by you.** Telegram, Discord and Slack are built in; each is optional and independent, with its own card in Settings → Gateways (the exact steps, its token fields, a pairing code, an on/off switch) and `vara gateway <name> setup`. Shared rules: direct messages only, one paired chat, strangers get no reply, buttons for approvals, outbound connections only. In Slack write `!` instead of `/`. Tested against fakes, not the real services. Adding a platform is one description in `src/gateway/providers.ts`.
 

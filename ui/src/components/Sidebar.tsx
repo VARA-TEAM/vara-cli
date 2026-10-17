@@ -3,6 +3,7 @@ import { useT } from '../i18n'
 import { relativeTime } from '../transcript'
 import type { Me, SessionSummary } from '../types'
 import { Icon, StateBadge } from './ui'
+import { LogoMark, Wordmark } from './Logo'
 
 import type { SettingsTab } from './Settings'
 
@@ -106,12 +107,9 @@ export function Sidebar({
       {open ? <div className="scrim show" onClick={onClose} /> : null}
       <nav className={`sidebar${open ? ' open' : ''}`} aria-label={t('sessions')}>
         <div className="brand">
-          <svg viewBox="0 0 64 64" width="26" height="26" aria-hidden="true">
-            <path d="M12 18l13 30 13-30" fill="none" stroke="var(--brand)" strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M40 48l6-14 6 14M42.4 43h7.2" fill="none" stroke="var(--accent)" strokeWidth="4.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <LogoMark size={28} />
           <div className="brand-text">
-            <strong>VARA</strong>
+            <strong><Wordmark height={13} /></strong>
             {onFolder ? (
               <button className="folder-btn muted brand-sub" dir="ltr" onClick={onFolder} title={`${folder ?? ''} — ${t('f_change')}`}>
                 {(folder ?? host?.folder ?? '').split(/[\\/]/).filter(Boolean).pop() ?? ''} <Icon name="chevron" size={11} className="chev open" />
@@ -184,7 +182,7 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-foot">
-          {owner ? (
+          {owner && me.features?.team !== false ? (
             <button className={`nav-btn${route.page === 'team' ? ' active' : ''}`} onClick={() => go({ page: 'team' })}>
               <Icon name="users" size={17} /> {t('admin')}
             </button>

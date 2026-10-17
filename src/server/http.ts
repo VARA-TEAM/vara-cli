@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { PRESETS, presetGrant, type Grant, type GrantPreset, type Principal } from './access.js'
+import { featureMap } from './features.js'
 import type { StampedEvent, VaraHost } from './host.js'
 import type { Manager } from './manage.js'
 import { VERSION } from '../version.js'
@@ -53,6 +54,8 @@ export interface ServerOptions {
    * limits count the real client (the tunnel's forwarded address), not the tunnel process on 127.0.0.1.
    */
   publicHosts?: string[]
+  /** Features this host has turned off (see features.ts). The routes answer 403 and /api/me tells the web interface. */
+  disabled?: ReadonlySet<string>
   /** The active public share link, shown to the owner so the page can warn clearly. */
   share?: () => { url: string; expiresAt?: string } | undefined
   /** Attempt limits per address and 5 minutes (defaults: 10 failed logins, 20 invite tries). */
@@ -129,6 +132,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const host = opts.host
   const failures = new RateLimit(opts.limits?.failures ?? 10, 5 * 60_000)
   const joins = new RateLimit(opts.limits?.joins ?? 20, 5 * 60_000)
+
+  const off = (feature: string): boolean => opts.disabled?.has(feature) ?? false
+  const OFF_MESSAGE = 'That feature is turned off on this host.'
 
   const json = (res: ServerResponse, status: number, body: unknown): void => {
     const text = JSON.stringify(body)
@@ -250,6 +256,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     /* ---- public API ---- */
     if (url.pathname === '/api/health') return json(res, 200, { ok: true, name: 'vara', version: VERSION })
     if (url.pathname === '/api/join' && method === 'POST') {
+      if (off('team')) return json(res, 403, { error: OFF_MESSAGE })
       if (!joins.hit(ip)) return json(res, 429, { error: 'too many attempts, try again later' })
       const body = await readBody(req)
       const result = host.access.redeem(str(body['invite'], 200), str(body['name'], 80))
@@ -282,7 +289,8 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     if (a === 'me' && method === 'GET') {
       const info = host.info(p)
       const share = opts.share?.()
-      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner', host: info, ...(share ? { share } : {}) } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant, host: info })
+      const features = featureMap(opts.disabled ?? new Set())
+      return json(res, 200, p.kind === 'owner' ? { role: 'owner', name: 'owner', host: info, features, ...(share ? { share } : {}) } : { role: 'guest', id: p.id, name: p.name, grant: host.access.getGuest(p.id)?.grant ?? p.grant, host: info, features })
     }
     if (a === 'models' && method === 'GET') return json(res, 200, host.models(p))
 
@@ -313,6 +321,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         return reply(await host.setMode(p, b, mode))
       }
       if (b && c === 'model' && method === 'POST') return reply(await host.setModel(p, b, str((await readBody(req))['model'], 200)))
+      if (b && c === 'share' && method === 'POST' && off('team')) return json(res, 403, { error: OFF_MESSAGE })
       if (b && c === 'share' && method === 'POST') return reply(await host.share(p, b, (await readBody(req))['shared'] === true))
       if (b && c === 'events' && method === 'GET') return sse(req, res, url, who.token, p, b)
       if (b && c === 'preview') {
@@ -372,6 +381,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     /* ---- owner management: providers, models, settings, skills, MCP ---- */
     if (a === 'manage') {
+      if (parts[2] === 'gateways' && off('gateways')) return json(res, 403, { error: OFF_MESSAGE })
       if (p.kind !== 'owner') return json(res, 403, { error: 'only the owner can do that' })
       if (!opts.manager) return json(res, 404, { error: 'not found' })
       const body = method === 'GET' || method === 'DELETE' ? {} : await readBody(req)
@@ -381,6 +391,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     /* ---- owner administration ---- */
     if (a === 'admin') {
+      if (off('team')) return json(res, 403, { error: OFF_MESSAGE })
       if (p.kind !== 'owner') return json(res, 403, { error: 'only the owner can do that' })
       if (b === 'overview' && method === 'GET') return reply(await host.overview(p))
       if (b === 'invites' && method === 'GET') return json(res, 200, host.access.listInvites())
@@ -509,4 +520,4 @@ export function sanitizeGrant(raw: unknown): Partial<Grant> {
 }
 
 const PLACEHOLDER_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>VARA</title><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="font-family:system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0"><div><h1 style="color:#F2A65A">VARA</h1><p>The host is running. The web interface is not installed in this build.</p></div></body></html>`
+<body style="font-family:system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0"><div><h1 style="color:#7A5AF8">VARA</h1><p>The host is running. The web interface is not installed in this build.</p></div></body></html>`

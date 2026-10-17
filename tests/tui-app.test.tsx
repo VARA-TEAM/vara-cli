@@ -309,7 +309,7 @@ describe('TUI — settings, themes, skills, help', () => {
     stdin.write(CTRL_O)
     await vi.waitFor(() => expect(lastFrame()).toContain('Settings'))
     expect(lastFrame()).toContain('Theme')
-    expect(lastFrame()).toContain('VARA (ember)')
+    expect(lastFrame()).toContain('VARA (violet)')
     await settle()
     stdin.write(RIGHT)
     await vi.waitFor(() => expect(lastFrame()).toContain('Tokyo Night'))

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ApiError, api, auth } from '../api'
 import { useT } from '../i18n'
 import { Button, Field } from './ui'
+import { LogoMark } from './Logo'
 
 /** Shown when the page is opened without a link that carries access. */
 export function SignIn() {
@@ -10,11 +11,7 @@ export function SignIn() {
     <div className="center-screen">
       <div className="card narrow">
         <div className="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 64 64" width="48" height="48">
-            <rect width="64" height="64" rx="16" fill="var(--surface-2)" />
-            <path d="M12 18l13 30 13-30" fill="none" stroke="var(--brand)" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M40 48l6-14 6 14M42.4 43h7.2" fill="none" stroke="var(--accent)" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <LogoMark size={56} />
         </div>
         <h1>{t('signin_title')}</h1>
         <p className="muted">{t('signin_body')}</p>
@@ -54,11 +51,7 @@ export function Join({ invite, onJoined }: { invite: string; onJoined: () => voi
         }}
       >
         <div className="logo-mark" aria-hidden="true">
-          <svg viewBox="0 0 64 64" width="48" height="48">
-            <rect width="64" height="64" rx="16" fill="var(--surface-2)" />
-            <path d="M12 18l13 30 13-30" fill="none" stroke="var(--brand)" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M40 48l6-14 6 14M42.4 43h7.2" fill="none" stroke="var(--accent)" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          <LogoMark size={56} />
         </div>
         <h1>{t('join_title')}</h1>
         <p className="muted">{t('join_body')}</p>
